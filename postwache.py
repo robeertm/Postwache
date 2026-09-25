@@ -238,6 +238,19 @@ LAERM = ("werbung", "newsletter", "automatisch")
 # Die Schubladen beantworten seit dem Umbau vom 11.09.2026 nur noch EINE Frage:
 # muss der Besitzer das sofort wissen? Wohin eine Mail wandert, steht in seiner
 # eigenen Ablage — siehe `ablage_lernen()`.
+# 🔑 Der Name steht hier als deutscher Text und ist zugleich der Rueckfall:
+# `schublade.<schluessel>` in den Sprachdateien schlaegt ihn. So bleibt der
+# Quelltext lesbar, auch wenn keine Sprachdatei zur Hand ist.
+def schubladen_namen(sprachcode: str = "") -> dict:
+    """Die Schubladen mit uebersetztem Namen — EINE Stelle, an der uebersetzt
+    wird, statt an jeder Anzeige."""
+    raus = {}
+    for k, v in SCHUBLADEN.items():
+        name = _texte(sprachcode or sprache()).get("schublade." + k)
+        raus[k] = {"name": name or v["name"], "icon": v["icon"]}
+    return raus
+
+
 SCHUBLADEN = {
     "sicherheit":  {"name": "Sicherheit",   "icon": "\U0001F510"},
     "frist":       {"name": "Fristen",      "icon": "\u23F3"},
@@ -597,10 +610,8 @@ def _postfach_migrieren() -> list:
     save(POSTFAECHER, {"liste": [eintrag]}, 0o600)
     log("Migration auf 3.0.0: Postfach als \u201estandard\u201c uebernommen, "
         "%d Zustandsdatei(en) umgezogen" % len(umgezogen))
-    chronik("migration", titel="Mehrere Postfaecher moeglich",
-            detail="Das bisherige Postfach heisst jetzt \u201estandard\u201c; "
-                   "%d Zustandsdatei(en) wurden einsortiert. Es aendert sich "
-                   "nichts an dem, was der Waechter tut." % len(umgezogen))
+    chronik("migration", titel=txt("w.migration.titel"),
+            detail=txt("w.migration.detail", n=len(umgezogen)))
     return [eintrag]
 
 
@@ -646,6 +657,73 @@ def _server_raten(adresse: str) -> str:
     Anbietern und ist an einer Fehlermeldung sofort erkennbar, wenn nicht."""
     dom = adresse.rsplit("@", 1)[-1].strip().lower()
     return ("imap." + dom) if dom and "." in dom else ""
+
+
+# ═══ Sprachen ════════════════════════════════════════════════════════════════
+# Die Texte liegen als flache Schluessel/Wert-Dateien in `locales/<code>.json`
+# NEBEN dem Programm — nicht im Zustandsordner: sie gehoeren zum Code und
+# werden mit ihm ausgeliefert.
+#
+# 🔴 Die Sprache ist eine Einstellung der INSTALLATION, kein Merkmal des
+# Browsers. Der Waechter schreibt Chronik und Telegram-Nachrichten, wenn
+# niemand hinsieht — ein Cookie kann ihm nicht sagen, in welcher Sprache. Wer
+# zwei Sprachen im Haus braucht, braucht zwei Postwachen.
+SPRACHEN = ("de", "en", "es", "fr", "it")
+# 🔴 Die Namen in ihrer EIGENEN Schreibweise. „Francais" statt „Français" ist
+# der erste Eindruck, den ein franzoesischer Leser von der Sorgfalt des
+# Programms bekommt — und er ist zutreffend.
+SPRACHNAMEN = {"de": "Deutsch", "en": "English", "es": "Espa\u00f1ol",
+               "fr": "Fran\u00e7ais", "it": "Italiano"}
+RUECKFALL = "de"          # in dieser Sprache ist die Postwache gewachsen
+_TEXTE: dict = {}
+
+
+def _texte(code: str) -> dict:
+    if code in _TEXTE:
+        return _TEXTE[code]
+    pfad = os.path.join(PROG, "locales", "%s.json" % code)
+    try:
+        with open(pfad, encoding="utf-8") as fh:
+            _TEXTE[code] = json.load(fh)
+    except (OSError, ValueError):
+        _TEXTE[code] = {}
+    return _TEXTE[code]
+
+
+def sprache() -> str:
+    code = str((load(KONFIG, None) or {}).get("sprache") or "").strip().lower()
+    return code if code in SPRACHEN else RUECKFALL
+
+
+def txt(schluessel: str, **werte) -> str:
+    """Einen Text holen. Fehlt er in der gewaehlten Sprache, gilt die
+    Rueckfallsprache; fehlt er auch dort, kommt der SCHLUESSEL zurueck.
+
+    🔴 Der Schluessel als letzter Rueckfall ist Absicht: ein fehlender Text
+    faellt dann sofort auf („kopf.titel" mitten auf der Seite), statt still eine
+    leere Stelle zu hinterlassen, die niemand bemerkt.
+    """
+    wert = _texte(sprache()).get(schluessel)
+    if wert is None and sprache() != RUECKFALL:
+        wert = _texte(RUECKFALL).get(schluessel)
+    if wert is None:
+        return schluessel
+    if werte:
+        try:
+            return wert.format(**werte)
+        except (KeyError, IndexError, ValueError):
+            return wert
+    return wert
+
+
+def alle_texte(code: str = "") -> dict:
+    """Rueckfallsprache und gewaehlte Sprache uebereinandergelegt — damit ein
+    Nachschlagen im Browser IMMER etwas findet und die Seite nie einen
+    Schluessel anzeigt, nur weil eine Uebersetzung fehlt."""
+    code = code or sprache()
+    zusammen = dict(_texte(RUECKFALL))
+    zusammen.update(_texte(code))
+    return zusammen
 
 
 def _erkenne_umgebung() -> dict:
@@ -701,6 +779,7 @@ def konfig() -> dict:
         # dieses Hauses ist das der Normalfall; dort uebernimmt `ki.json`.
         "werkstatt": str(k.get("werkstatt", erkannt["werkstatt"]) or ""),
         "imap_server": str(k.get("imap_server") or "").strip(),
+        "sprache": sprache(),
     }
     return _KONFIG_ZWISCHEN
 
@@ -852,8 +931,7 @@ def stopped(tok: str) -> str:
                 return "Pause bis %s — %s" % (bis.strftime("%H:%M"),
                                               p.get("grund") or "ohne Grund")
             os.remove(PAUSE)
-            chronik("pause_ende", titel="Pause vorbei",
-                    detail="Die Pause ist abgelaufen, der Waechter laeuft wieder.")
+            chronik("pause_ende", titel=txt("w.pause.titel"), detail=txt("w.pause.detail"))
         except (OSError, ValueError, TypeError):
             try:
                 os.remove(PAUSE)
@@ -2784,7 +2862,7 @@ def ablage_frisch(pf) -> dict:
             pass
     k = ablage_lernen(pf)
     save(ABLAGE, k)
-    chronik("gelernt", titel="Ablage gelernt",
+    chronik("gelernt", titel=txt("w.gelernt.titel"),
             detail="%d Mails aus %d Ordnern angesehen, %d Absender eindeutig "
                    "zuzuordnen (%.0f%% Deckung)."
                    % (k["mails"], len(k["ordner"]), len(k["absender"]),
@@ -3212,29 +3290,32 @@ def melde_sofort(treffer: list, einst: dict) -> None:
     Zehn einzelne Meldungen in einer Minute liest niemand."""
     if not treffer or not einst.get("telegram"):
         return
-    kopfz = "📬 *Postwache* — %d neue Mail(s), die du sehen solltest" % len(treffer)
-    L = [kopfz, ""]
+    namen = schubladen_namen()
+    L = ["📬 *Postwache* — " + txt("w.sofort.kopf", n=len(treffer)), ""]
     if len(treffer) > MELDE_EINZELN_MAX:
         nach_klasse = {}
-        for t in treffer:
-            zaehlen(nach_klasse, t["klasse"])
+        for e in treffer:
+            zaehlen(nach_klasse, e["klasse"])
         for k, n in sorted(nach_klasse.items(), key=lambda kv: -kv[1]):
-            L.append("%s *%s* — %d" % (SCHUBLADEN[k]["icon"], SCHUBLADEN[k]["name"], n))
+            L.append("%s *%s* — %d" % (namen[k]["icon"], namen[k]["name"], n))
         L.append("")
-        L.append("Alle einzeln: " + konfig()["seite"])
+        L.append(txt("w.sofort.alle") + " " + konfig()["seite"])
     else:
-        for t in treffer:
-            s = SCHUBLADEN[t["klasse"]]
+        for e in treffer:
+            s = namen[e["klasse"]]
             zeile = "%s *%s* — %s" % (s["icon"], _tg_md(s["name"]),
-                                      _tg_md(t["kopf"]["betreff"] or "(ohne Betreff)"))
-            von = t["kopf"]["name"] or t["kopf"]["adresse"]
-            zeile += "\n   von %s" % _tg_md(von)
-            if t.get("verschoben_nach"):
-                zeile += "\n   \U0001F5C2 abgelegt in %s" % _tg_md(t["verschoben_nach"])
-            elif t.get("ziel"):
-                zeile += "\n   \U0001F5C2 gehoert nach %s" % _tg_md(t["ziel"])
-            if t.get("phishing"):
-                zeile += "\n   \u26A0\uFE0F *Vorsicht:* %s" % _tg_md(t["phishing"])
+                                      _tg_md(e["kopf"]["betreff"] or txt("w.ohne_betreff")))
+            von = e["kopf"]["name"] or e["kopf"]["adresse"]
+            zeile += "\n   " + txt("w.sofort.von", wer=_tg_md(von))
+            if e.get("verschoben_nach"):
+                zeile += "\n   \U0001F5C2 " + txt("w.sofort.abgelegt",
+                                                  ordner=_tg_md(e["verschoben_nach"]))
+            elif e.get("ziel"):
+                zeile += "\n   \U0001F5C2 " + txt("w.sofort.gehoert",
+                                                  ordner=_tg_md(e["ziel"]))
+            if e.get("phishing"):
+                zeile += "\n   \u26A0\uFE0F *%s* %s" % (txt("w.sofort.vorsicht"),
+                                                        _tg_md(e["phishing"]))
             L.append(zeile)
         L.append("")
         L.append(konfig()["seite"])
@@ -3246,35 +3327,35 @@ def zusammenfassung(zaehler: dict, prof: dict, einst: dict) -> str:
     heute = datetime.now()
     tag = zaehler.get("heute") if isinstance(zaehler.get("heute"), dict) else {}
     gesamt = sum(int(v) for v in tag.values())
-    L = ["📬 *Postwache* — Tagesbericht %s" % heute.strftime("%d.%m.%Y"), ""]
+    L = ["📬 *Postwache* — %s" % txt("w.bericht.titel", datum=heute.strftime("%d.%m.%Y")), ""]
     if not gesamt:
-        L.append("Keine neue Post in den letzten 24 Stunden.")
+        L.append(txt("w.bericht.leer"))
         return "\n".join(L)
-    L.append("*%d neue Mail(s)*" % gesamt)
+    L.append("*%s*" % txt("w.bericht.neu", n=gesamt))
     L.append("")
+    namen = schubladen_namen()
     for k in list(ALARM) + list(LAERM) + ["unklar"]:
         n = int(tag.get(k) or 0)
         if n:
-            s = SCHUBLADEN[k]
+            s = namen[k]
             L.append("%s %s — %d" % (s["icon"], _tg_md(s["name"]), n))
     wichtig = sum(int(tag.get(k) or 0) for k in ALARM)
     laerm = sum(int(tag.get(k) or 0) for k in LAERM)
     L.append("")
     if einst.get("scharf"):
-        L.append("Aussortiert: *%d*, im Posteingang geblieben: *%d*." % (laerm, wichtig))
+        L.append(txt("w.bericht.bilanz", laerm="*%d*" % laerm, wichtig="*%d*" % wichtig))
     else:
-        L.append("_Lernlauf_ — es wurde nichts verschoben. "
-                 "Aussortiert WUERDE: *%d*." % laerm)
+        L.append(txt("w.bericht.lernlauf", laerm="*%d*" % laerm))
     dok = int(zaehler.get("dokumente") or 0)
     if dok:
-        L.append("📎 *%d Dokument(e)* an DocuSort gegeben." % dok)
+        L.append("📎 " + txt("w.bericht.dokumente", n="*%d*" % dok))
     # Die drei lautesten Absender des Tages: das ist die Information, aus der
     # eine Regel wird.
     laut = sorted(((a, e) for a, e in prof.items() if isinstance(e, dict)),
                   key=lambda kv: -int(kv[1].get("n") or 0))[:3]
     if laut:
         L.append("")
-        L.append("Lauteste Absender insgesamt:")
+        L.append(txt("w.bericht.laut"))
         for a, e in laut:
             L.append("• %s — %d" % (_tg_md(e.get("name") or a), int(e.get("n") or 0)))
     L.append("")
@@ -3294,7 +3375,7 @@ def main() -> int:
         vorher = load(LAUF, {})
         if vorher.get("grund") != grund:
             log("stillgelegt: %s" % grund)
-            chronik("stillgelegt", titel="Stillgelegt", detail=grund)
+            chronik("stillgelegt", titel=txt("w.still.titel"), detail=grund)
         # 🔴 lauf_buchen statt save: der Stillgelegt-Zweig hat frueher die
         # `uid` mit weggeschrieben — der naechste Start waere ein Kaltstart
         # gewesen und haette alles stumm uebersprungen, was waehrend des
@@ -3561,7 +3642,7 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
         vorher = load(LAUF, {})
         if vorher.get("fehler") != fehler:
             log("Postfach-Fehler: %s" % fehler)
-            chronik("postfach_fehler", titel="Postfach nicht erreichbar", detail=fehler)
+            chronik("postfach_fehler", titel=txt("w.fehler.titel"), detail=fehler)
         lauf_buchen({"uid": letzte_uid, "fehler": fehler, "grund": ""})
         status_schreiben({"aktiv": True, "eingerichtet": True, "fehler": fehler})
         return {"rc": 1, "fehler": fehler}
@@ -3572,8 +3653,8 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
 
     if dokumente:
         zaehler["dokumente"] = int(zaehler.get("dokumente") or 0) + dokumente
-        chronik("dokumente", titel="Dokumente an DocuSort",
-                detail="%d Dokument(e) aus neuer Post uebergeben." % dokumente)
+        chronik("dokumente", titel=txt("w.dok.titel"),
+                detail=txt("w.dok.detail", n=dokumente))
 
     koepfe = koepfe[-2000:]
     save(KOEPFE, koepfe)
@@ -3590,12 +3671,12 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
         # erste Tagesbericht 300 Mails, die alle alt sind.
         zaehler["heute"] = {}
         save("zaehler.json", zaehler)
-        txt = ", ".join("%d %s" % (n, SCHUBLADEN[k]["name"])
-                        for k, n in sorted(verteilung.items(), key=lambda kv: -kv[1]))
-        chronik("kaltstart", titel="Kaltstart",
-                detail="%d Mails als Ausgangslage eingeordnet (%s) — nichts gemeldet, "
-                       "nichts verschoben." % (len(uids), txt))
-        log("Kaltstart: %d Mails gelernt (%s)" % (len(uids), txt))
+        _namen = schubladen_namen()
+        verteilungstext = ", ".join("%d %s" % (n, _namen[k]["name"])
+                                    for k, n in sorted(verteilung.items(), key=lambda kv: -kv[1]))
+        chronik("kaltstart", titel=txt("w.kalt.titel"),
+                detail=txt("w.kalt.detail", n=len(uids), verteilung=verteilungstext))
+        log("Kaltstart: %d Mails gelernt (%s)" % (len(uids), verteilungstext))
         status_schreiben({"aktiv": True, "eingerichtet": True, "kaltstart": True,
                           "gelernt": len(uids), "verteilung": verteilung,
                           "scharf": schreiben, "uid": letzte_uid})
@@ -3604,9 +3685,8 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
     if treffer:
         melde_sofort(treffer, einst)
     if verschoben:
-        chronik("sortiert", titel="Aussortiert",
-                detail="%d Mail(s) aus dem Posteingang in Unterordner verschoben."
-                       % verschoben)
+        chronik("sortiert", titel=txt("w.sortiert.titel"),
+                detail=txt("w.sortiert.detail", n=verschoben))
 
     # Weckruf nur bei echtem Urteilsbedarf: zu viele Mails, die der Waechter
     # nicht einordnen kann. Alles andere kann er selbst.
@@ -3629,10 +3709,8 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
             vorschlaege_schreiben(vorschlaege, ki_a)
             if vorschlaege:
                 chronik("vorschlaege",
-                        titel="%d Regelvorschlag/-vorschlaege" % len(vorschlaege),
-                        detail="Aus %d unklaren Mails. Auf der Seite ansehen und "
-                               "einzeln uebernehmen — von selbst gilt keiner."
-                               % len(offen_unklar))
+                        titel=txt("w.vorschlag.titel", n=len(vorschlaege)),
+                        detail=txt("w.vorschlag.detail", n=len(offen_unklar)))
         elif ki_a == "werkstatt":
             uebergeben(offen_unklar)
             nr = escalate(
@@ -3656,15 +3734,11 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
         lauf_buchen({"uid": letzte_uid, "fehler": "", "grund": "",
                      "unklar_gemeldet_am": heute})
         if nr:
-            chronik("weckruf", titel="Agent geweckt",
-                    detail="Auftrag #%d — %d unklare Mails. Er schlaegt Regeln vor, "
-                           "entscheiden tust du." % (nr, len(offen_unklar)))
+            chronik("weckruf", titel=txt("w.weckruf.titel"),
+                    detail=txt("w.weckruf.detail", nr=nr, n=len(offen_unklar)))
         else:
-            chronik("unklar", titel="%d Mails passen in keine Schublade"
-                                    % len(offen_unklar),
-                    detail="Der Agent war nicht erreichbar. Auf der Seite stehen "
-                           "sie mit Begruendung — dort kannst du sie einem "
-                           "Absender fest zuordnen: " + konfig()["seite"])
+            chronik("unklar", titel=txt("w.unklar.titel", n=len(offen_unklar)),
+                    detail=txt("w.unklar.detail", seite=konfig()["seite"]))
 
     tagesbericht(zaehler, prof, einst)
     status_schreiben({"aktiv": True, "eingerichtet": True, "scharf": schreiben,

@@ -18,6 +18,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 COPY postwache.py post_web.py post_web.html VERSION /app/
+# The language files belong to the program, not to the state. Without them the
+# page shows its keys instead of text — and nothing reports that.
+COPY locales /app/locales
 
 # No third-party packages. The Postwache speaks IMAP and HTTP with what the
 # standard library already brings — that is why this image is small and why

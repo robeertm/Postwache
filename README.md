@@ -12,7 +12,7 @@
   <img alt="Image" src="https://img.shields.io/badge/ghcr.io-postwache-0b5">
 </p>
 
-![The overview](docs/screenshots/01-overview.png)
+![The overview](docs/screenshots/07-english.png)
 
 ---
 
@@ -51,6 +51,7 @@ and a quiet run takes 0.2 seconds.
 | 📎 **Finds documents** | Every attachment is indexed **without downloading it** (IMAP `BODYSTRUCTURE`). Search years back: *"every mail with a PDF from my insurer"*. |
 | 🗂 **Hands papers on** | PDFs can go straight to [DocuSort](https://github.com/robeertm/DocuSort) — see below. |
 | 🧠 **Optional judgment helper** | When mail fits no drawer, a language model can **propose a rule**. Local (Ollama) or a service. Off by default. |
+| 🌍 **Five languages** | German, English, Spanish, French, Italian — one click, and that includes the messages it sends when nobody is looking. |
 | ↩️ **Everything is reversible** | Every move is journalled. One click puts a mail back; one click puts them all back. |
 | 🛑 **Two emergency stops** | A file on disk, and a switch in Home Assistant. Either one alone stops it. |
 
@@ -149,6 +150,24 @@ rule itself. You see the proposal and take it or leave it.
 
 ![The judgment helper](docs/screenshots/04-ai.png)
 
+## Languages
+
+**German, English, Spanish, French, Italian.** One click in the settings, and
+the whole thing changes — the page, the drawer names, the history, the daily
+summary and every Telegram message.
+
+![Switching the language](docs/screenshots/08-languages.png)
+
+🔴 **The language is a setting of the installation, not a cookie.** The
+watchman writes its history and sends its messages when nobody is looking; a
+cookie in somebody's browser cannot tell it which language to use. If you need
+two languages in one house, you need two Postwachen.
+
+Strings live in `locales/<code>.json` as flat key/value files — 288 keys, and
+the probe refuses to pass if one of them is missing, orphaned, or has lost a
+`{placeholder}` in translation. Adding a language is one file and a line in
+`SPRACHEN`; anything missing falls back to German rather than showing a blank.
+
 ## Works with DocuSort
 
 <table>
@@ -214,8 +233,9 @@ root on the host — that is the price, stated plainly.
 
 ## Honest limitations
 
-- **The interface is German only.** The code and its comments are German too.
-  That is where this program grew up; translating it is not done.
+- **The code and its comments are German.** The interface is not — see
+  *Languages* above — but anyone reading the source will find German in it.
+  That is where this program grew up.
 - **No user accounts.** One page, one household. See *Privacy* above.
 - **IMAP only.** No Exchange, no Gmail API — an IMAP account of any provider.
 - It was built for one household and now runs in more than one. Bugs you find

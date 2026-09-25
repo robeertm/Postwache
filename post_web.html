@@ -195,7 +195,7 @@ details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem
       <div class="wappen">📬</div>
       <div style="flex:1 1 12rem;min-width:0">
         <h1>Postwache</h1>
-        <div class="leise klein" id="unterzeile">wird geladen …</div>
+        <div class="leise klein" id="unterzeile" data-t="allg.laedt"></div>
       </div>
       <div id="modus"></div>
     </div>
@@ -203,56 +203,54 @@ details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem
     <div id="pfwahl" class="pfwahl"></div>
     <nav class="reiter" id="reiter">
       <button class="reitertaste an" data-ansicht="uebersicht"
-              onclick="zeigeAnsicht('uebersicht')">Übersicht</button>
+              onclick="zeigeAnsicht('uebersicht')" data-t="reiter.uebersicht"></button>
       <button class="reitertaste" data-ansicht="einstellungen"
-              onclick="zeigeAnsicht('einstellungen')">Einstellungen</button>
+              onclick="zeigeAnsicht('einstellungen')" data-t="reiter.einstellungen"></button>
     </nav>
   </div>
 
   <div id="ansicht_uebersicht">
 
   <div class="karte" id="nichteingerichtet" hidden>
-    <h2>Noch kein Postfach</h2>
-    <div class="leise klein">Die Postwache sieht sich nichts an, solange kein
-      Postfach eingerichtet ist. Das dauert eine Minute.</div>
+    <h2 data-t="leer.titel"></h2>
+    <div class="leise klein" data-t="leer.text"></div>
     <div class="knopfreihe"><button class="haupt"
-      onclick="zeigeAnsicht('einstellungen')">Postfach einrichten →</button></div>
+      onclick="zeigeAnsicht('einstellungen')" data-t="leer.knopf"></button></div>
   </div>
 
   <div class="karte" id="statistikkarte">
-    <h2>Dein Postfach in Zahlen</h2>
-    <div class="leise klein" id="stat_quelle">wird geladen …</div>
+    <h2 data-t="stat.titel"></h2>
+    <div class="leise klein" id="stat_quelle" data-t="allg.laedt"></div>
     <div id="statistik" style="margin-top:.8rem"></div>
   </div>
 
   <div class="karte">
-    <h2>Heute eingegangen</h2>
+    <h2 data-t="heute.titel"></h2>
     <div id="verteilung"></div>
   </div>
 
   <div class="karte">
-    <h2>Was er zuletzt eingeordnet hat — und warum</h2>
-    <div class="leise klein">Stimmt eine Einordnung nicht, stell sie rechts um.
-      Das merkt er sich für <b>diesen Absender</b> und wendet es künftig an.</div>
+    <h2 data-t="mails.titel"></h2>
+    <div class="leise klein" data-t-html="mails.hilfe"></div>
     <div class="liste" id="mails" style="margin-top:.6rem"></div>
   </div>
 
   <div class="karte" id="dokumentenkarte">
-    <h2>📎 Dokumente in der Post</h2>
-    <div class="leise klein" id="dok_kopf">wird geladen …</div>
+    <h2>📎 <span data-t="dok.titel"></span></h2>
+    <div class="leise klein" id="dok_kopf" data-t="allg.laedt"></div>
     <div class="feldpaar" style="margin-top:.7rem">
       <div style="flex:2 1 18rem">
-        <label for="dok_q">Suchen — Absender, Betreff, Dateiname, Ordner</label>
-        <input id="dok_q" placeholder="z. B. telekom pdf"
+        <label for="dok_q" data-t="dok.suchfeld"></label>
+        <input id="dok_q" data-t-platzhalter="dok.beispiel"
                onkeydown="if(event.key==='Enter')dokSuche()"></div>
-      <div><label for="dok_art">Art</label>
+      <div><label for="dok_art" data-t="dok.art"></label>
         <select id="dok_art">
-          <option value="dokument">nur Dokumente</option>
-          <option value="alle">alles mit Anhang</option>
-          <option value="bild">nur Bilder</option>
+          <option value="dokument" data-t="dok.art_dokument"></option>
+          <option value="alle" data-t="dok.art_alle"></option>
+          <option value="bild" data-t="dok.art_bild"></option>
         </select></div>
-      <div><label for="dok_von">von</label><input id="dok_von" type="date"></div>
-      <div><label for="dok_bis">bis</label><input id="dok_bis" type="date"></div>
+      <div><label for="dok_von" data-t="allg.von"></label><input id="dok_von" type="date"></div>
+      <div><label for="dok_bis" data-t="allg.bis"></label><input id="dok_bis" type="date"></div>
     </div>
     <div class="knopfreihe">
       <button class="haupt" onclick="dokSuche()">Suchen</button>
@@ -264,26 +262,23 @@ details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem
   </div>
 
   <div class="karte" id="ablagekarte">
-    <h2>Deine Ablage — daraus lernt er</h2>
+    <h2 data-t="ablage.titel"></h2>
     <div id="ablage"></div>
   </div>
 
   <div class="karte" id="heimatkarte">
-    <h2>Absender ohne Zuhause</h2>
-    <div class="leise klein">Diese schreiben dir immer wieder — und für sie gibt
-      es <b>keinen Ordner</b>. Genau daran scheitert das Sortieren, nicht an zu
-      vorsichtigen Schwellen: er kann nur nachahmen, und wo du nie etwas abgelegt
-      hast, ist nichts nachzuahmen. Ein Klick genügt, dann sitzt es dauerhaft.</div>
+    <h2 data-t="heimat.titel"></h2>
+    <div class="leise klein" data-t-html="heimat.hilfe"></div>
     <div id="heimatlos" style="margin-top:.6rem"></div>
   </div>
 
   <div class="karte">
-    <h2>Verschoben — und der Weg zurück</h2>
+    <h2 data-t="journal.titel"></h2>
     <div id="journal"></div>
   </div>
 
   <div class="karte">
-    <h2>Verlauf</h2>
+    <h2 data-t="chronik.titel"></h2>
     <div class="liste klein" id="chronik"></div>
   </div>
 
@@ -292,19 +287,16 @@ details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem
   <div id="ansicht_einstellungen" hidden>
 
     <div class="karte" id="postfachkarte">
-      <h2>📮 Postfächer</h2>
-      <div class="leise klein">Jedes Postfach hat seinen eigenen gelernten Stand —
-        eigene Ablage, eigene Absenderprofile, eigener Anhangindex. Sie kommen
-        sich nicht ins Gehege.</div>
+      <h2>📮 <span data-t="pf.titel"></span></h2>
+      <div class="leise klein" data-t="pf.hilfe"></div>
       <div id="postfaecher" style="margin-top:.7rem"></div>
     </div>
 
       <div class="karte" id="steuerung"></div>
 
     <div class="karte">
-      <h2>Wobei er dich sofort stört</h2>
-      <div class="leise klein">Das entscheidet der <b>Inhalt</b> — unabhängig davon,
-        in welchen Ordner die Mail wandert.</div>
+      <h2 data-t="regeln.titel"></h2>
+      <div class="leise klein" data-t-html="regeln.hilfe"></div>
       <div id="regeln" style="margin-top:.6rem"></div>
     </div>
 
@@ -313,34 +305,81 @@ details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem
     <div class="karte" id="dskarte"></div>
 
     <div class="karte" id="kikarte">
-      <h2>🧠 Urteilshilfe</h2>
+      <h2>🧠 <span data-t="ki.titel"></span></h2>
       <div id="ki"></div>
     </div>
 
     <div class="karte" id="vorschlagkarte" hidden>
-      <h2>Regelvorschläge</h2>
-      <div class="leise klein">Von der Urteilshilfe vorgeschlagen. <b>Keiner gilt,
-        bis du ihn übernimmst.</b></div>
+      <h2 data-t="vorschlag.titel"></h2>
+      <div class="leise klein" data-t-html="vorschlag.hilfe"></div>
       <div id="vorschlaege" style="margin-top:.6rem"></div>
     </div>
 
     <div class="karte" id="umgebungkarte">
-      <h2>⚙️ Umgebung</h2>
-      <div class="leise klein">Wo diese Postwache steht. Leer lassen heißt
-        „selbst herausfinden“ — eingetragene Werte gelten.</div>
+      <h2>⚙️ <span data-t="umgebung.titel"></span></h2>
+      <div class="leise klein" data-t="umgebung.hilfe"></div>
       <div id="umgebung" style="margin-top:.7rem"></div>
     </div>
 
   </div><!-- /Einstellungen -->
 
+    <div class="karte" id="sprachkarte">
+      <h2>🌍 <span data-t="sprache.titel"></span></h2>
+      <div class="leise klein" data-t="sprache.hilfe"></div>
+      <div class="knopfreihe" id="sprachen"></div>
+    </div>
+
   <div class="leise klein" style="text-align:center;margin-top:1.2rem">
-    Postwache <span id="version"></span> · sortiert den Lärm hinaus, nicht das Wichtige
+    Postwache <span id="version"></span> · <span data-t="fuss.spruch"></span>
   </div>
 </div>
 
 <div class="meld weg" id="meldung"></div>
 
 <script>
+/*SPRACHE*/
+/* Faellt die Einsetzung aus (Seite direkt aus dem Dateisystem geoeffnet),
+   bleibt die Seite bedienbar und zeigt die Schluessel. Ein leerer Bildschirm
+   waere die schlechtere Antwort auf ein fehlendes Woerterbuch.
+
+   🔴 `globalThis.T = …` und NICHT `var T = …`: `var` wird hochgezogen und
+   kollidiert mit dem eingesetzten `const T` — „Identifier 'T' has already been
+   declared". Das ist ein PARSE-Fehler, also laeuft keine einzige Zeile des
+   Skripts mehr. Die Seite sieht dabei fast normal aus, weil das statische HTML
+   ja steht; man merkt es erst daran, dass die Knoepfe leer bleiben. Ein
+   Rueckfall, der den Normalfall zerstoert, ist schlimmer als gar keiner. */
+if (typeof T === "undefined") {
+  globalThis.T = {};
+  globalThis.LANG = "de";
+  globalThis.SPRACHEN = [["de", "Deutsch"]];
+}
+
+/* Ein Text. `txt("pf.titel")` — fehlt er, kommt der SCHLUESSEL zurueck und faellt
+   damit sofort auf, statt still eine Luecke zu hinterlassen. Platzhalter in
+   geschweiften Klammern: txt("dok.treffer", {n: 12}). */
+function txt(schluessel, werte){
+  let s = T[schluessel];
+  if(s === undefined) return schluessel;
+  if(werte) for(const k in werte) s = s.split("{" + k + "}").join(werte[k]);
+  return s;
+}
+/* Statisches Markup: ein Element mit data-t wird einmal gefuellt.
+   Bei data-t-titel/-platzhalter wandert der Text ins Attribut. */
+function textenSetzen(wurzel){
+  (wurzel || document).querySelectorAll("[data-t]").forEach(el => {
+    el.textContent = txt(el.dataset.t);
+  });
+  (wurzel || document).querySelectorAll("[data-t-titel]").forEach(el => {
+    el.title = txt(el.dataset.tTitel);
+  });
+  (wurzel || document).querySelectorAll("[data-t-platzhalter]").forEach(el => {
+    el.placeholder = txt(el.dataset.tPlatzhalter);
+  });
+  (wurzel || document).querySelectorAll("[data-t-html]").forEach(el => {
+    el.innerHTML = txt(el.dataset.tHtml);
+  });
+}
+
 const $ = s => document.querySelector(s);
 let L = null, laden_laeuft = false;
 
@@ -382,9 +421,9 @@ const FARBE = {sicherheit:"#f87171", frist:"#fbbf24", amt:"#60a5fa", mensch:"#34
                werbung:"#a78bfa", newsletter:"#38bdf8", automatisch:"#94a3b8",
                unklar:"#e0a458"};
 
-function melde(t, gut){
+function melde(text, gut){
   const m = $("#meldung");
-  m.textContent = t;
+  m.textContent = text;
   m.className = "meld" + (gut === false ? " kritisch" : "");
   m.style.borderColor = gut === false ? "#f8717188" : "";
   clearTimeout(m._t);
@@ -400,10 +439,10 @@ async function sende(aktion, daten){
 async function tu(aktion, daten){
   try{
     const a = await sende(aktion, daten);
-    melde(a.text || (a.ok ? "Erledigt." : "Ging nicht."), a.ok);
+    melde(a.text || (a.ok ? txt("allg.erledigt") : txt("allg.ging_nicht")), a.ok);
     await hole();
     return a;
-  }catch(e){ melde("Keine Verbindung zur Seite.", false); return {ok:false}; }
+  }catch(e){ melde(txt("allg.keine_verbindung"), false); return {ok:false}; }
 }
 
 function esc(s){ return String(s == null ? "" : s)
@@ -412,24 +451,26 @@ function esc(s){ return String(s == null ? "" : s)
 /* „vor 2 Min" statt „15:15" — die Frage ist nicht wann, sondern wie lange her. */
 function herKurz(sek){
   sek = Math.round(sek);
-  if(sek < 90) return "vor " + sek + " Sek";
-  if(sek < 5400) return "vor " + Math.round(sek/60) + " Min";
-  if(sek < 172800) return "vor " + Math.round(sek/3600) + " Std";
-  return "vor " + Math.round(sek/86400) + " Tagen";
+  if(sek < 90)     return txt("zeit.vor_sek",  {n: sek});
+  if(sek < 5400)   return txt("zeit.vor_min",  {n: Math.round(sek/60)});
+  if(sek < 172800) return txt("zeit.vor_std",  {n: Math.round(sek/3600)});
+  return txt("zeit.vor_tage", {n: Math.round(sek/86400)});
 }
 function dauerKurz(sek){
   sek = Math.round(sek);
-  if(sek < 90) return sek + " Sek";
-  if(sek < 5400) return Math.round(sek/60) + " Min";
-  return Math.round(sek/3600) + " Std";
+  if(sek < 90)   return txt("zeit.sek", {n: sek});
+  if(sek < 5400) return txt("zeit.min", {n: Math.round(sek/60)});
+  return txt("zeit.std", {n: Math.round(sek/3600)});
 }
 
 function zeit(s){
   if(!s) return "";
   const d = new Date(s);
   if(isNaN(d)) return String(s).slice(0,16).replace("T"," ");
-  return d.toLocaleString("de-DE",{day:"2-digit",month:"2-digit",
-    hour:"2-digit",minute:"2-digit"});
+  /* 🔴 Nicht fest "de-DE": ein englischer Text mit deutschem Datumsformat
+     sieht aus wie ein halb fertiges Programm. Die Ortsangabe folgt der Sprache. */
+  return d.toLocaleString(LANG, {day:"2-digit", month:"2-digit",
+    hour:"2-digit", minute:"2-digit"});
 }
 
 /* ── Kopf ──────────────────────────────────────────────────────────────────── */
@@ -447,29 +488,30 @@ function zeichneKopf(){
   const takt = Number(lauf.takt_s || 0);
   const ueberfaellig = takt > 0 && alterS !== null && alterS > takt * 3 + 60;
   const teile = [];
-  if(alterS !== null) teile.push("Zuletzt nachgesehen " + esc(herKurz(alterS)));
-  if(takt > 0) teile.push("alle " + esc(dauerKurz(takt)));
-  if(lauf.heute) teile.push(lauf.heute + "× heute");
+  if(alterS !== null) teile.push(txt("kopf.zuletzt", {zeit: esc(herKurz(alterS))}));
+  if(takt > 0) teile.push(txt("kopf.takt", {dauer: esc(dauerKurz(takt))}));
+  if(lauf.heute) teile.push(txt("kopf.heute", {n: lauf.heute}));
   $("#unterzeile").innerHTML = !L.eingerichtet
-    ? "Noch kein Postfach eingerichtet."
-    : (steht ? "Stillgelegt." :
-       (teile.join(" · ") || "läuft") +
-       (ueberfaellig ? " · <span style='color:var(--warnung)'>überfällig</span>" : "") +
+    ? txt("kopf.kein_postfach")
+    : (steht ? txt("kopf.stillgelegt") :
+       (teile.join(" · ") || txt("kopf.laeuft")) +
+       (ueberfaellig ? " · <span style='color:var(--warnung)'>" + txt("kopf.ueberfaellig") + "</span>" : "") +
        (lauf.fehler ? " · <span style='color:var(--kritisch)'>" + esc(lauf.fehler) + "</span>" : ""));
   $("#modus").innerHTML = steht
-    ? '<span class="chip kritisch">🛑 stillgelegt</span>'
-    : (L.scharf ? '<span class="chip ok">✓ sortiert scharf</span>'
-                : '<span class="chip warnung">👀 Lernlauf — verschiebt nichts</span>');
-  const t = L.heute || {};
+    ? '<span class="chip kritisch">🛑 ' + txt("modus.stillgelegt") + '</span>'
+    : (L.scharf ? '<span class="chip ok">✓ ' + txt("modus.scharf") + '</span>'
+                : '<span class="chip warnung">👀 ' + txt("modus.lernlauf") + '</span>');
+  const heute = L.heute || {};
   const wichtig = ["sicherheit","frist","amt","mensch"]
-    .reduce((s,k) => s + (t[k]||0), 0);
+    .reduce((s,k) => s + (heute[k]||0), 0);
   const laerm = ["werbung","newsletter","automatisch"]
-    .reduce((s,k) => s + (t[k]||0), 0);
+    .reduce((s,k) => s + (heute[k]||0), 0);
   $("#kennzahlen").innerHTML = [
-    ["Heute", L.heute_gesamt || 0],
-    ["Für dich", wichtig],
-    ["Lärm", laerm],
-    [L.scharf ? "Aussortiert" : "Würde raus", L.scharf ? (L.journal||[]).length : L.wuerde_aussortieren],
+    [txt("kz.heute"), L.heute_gesamt || 0],
+    [txt("kz.fuer_dich"), wichtig],
+    [txt("kz.laerm"), laerm],
+    [L.scharf ? txt("kz.aussortiert") : txt("kz.wuerde_raus"),
+     L.scharf ? (L.journal||[]).length : L.wuerde_aussortieren],
   ].map(([n,v]) => `<div><b class="zahl">${v}</b><span>${esc(n)}</span></div>`).join("");
   $("#version").textContent = L.version || "";
 }
@@ -483,40 +525,36 @@ function zeichneKopf(){
 function bauSteuerung(){
   const steht = L.notaus_datei || L.schalter === "off";
   return `
-    <h2>Steuerung</h2>
+    <h2>${txt("steuer.titel")}</h2>
     <div class="reihe">
-      <div class="txt"><b>Wirklich sortieren</b>
-        <span>${L.scharf
-          ? "Er verschiebt Lärm aus dem Posteingang. Jede Verschiebung ist unten umkehrbar."
-          : "Lernlauf: er ordnet nur ein und zeigt, was er tun würde. Es wird nichts angefasst."}</span></div>
+      <div class="txt"><b>${txt("steuer.scharf")}</b>
+        <span>${L.scharf ? txt("steuer.scharf_an") : txt("steuer.scharf_aus")}</span></div>
       <div class="knebel" role="switch" aria-checked="${!!L.scharf}"
            onclick="tu('einstellung',{scharf:${!L.scharf}})"></div>
     </div>
     <div class="reihe">
-      <div class="txt"><b>Wichtiges trotzdem liegen lassen</b>
-        <span>${L.wichtiges_bleibt
-          ? "Fristen, Amtliches, Sicherheit und Menschen bleiben im Posteingang, auch wenn er weiß, wohin sie gehören."
-          : "Auch Wichtiges wird abgelegt — du wirst trotzdem sofort benachrichtigt."}</span></div>
+      <div class="txt"><b>${txt("steuer.wichtig")}</b>
+        <span>${L.wichtiges_bleibt ? txt("steuer.wichtig_an") : txt("steuer.wichtig_aus")}</span></div>
       <div class="knebel" role="switch" aria-checked="${!!L.wichtiges_bleibt}"
            onclick="tu('einstellung',{wichtiges_bleibt:${!L.wichtiges_bleibt}})"></div>
     </div>
     <div class="reihe">
-      <div class="txt"><b>Telegram</b><span>Sofortmeldung bei Wichtigem und der Tagesbericht um ${L.bericht_stunde||7} Uhr.</span></div>
+      <div class="txt"><b>Telegram</b><span>${txt("steuer.telegram", {stunde: L.bericht_stunde||7})}</span></div>
       <div class="knebel" role="switch" aria-checked="${!!L.telegram}"
            onclick="tu('einstellung',{telegram:${!L.telegram}})"></div>
     </div>
     <div class="reihe">
-      <div class="txt"><b>Notaus (Datei)</b><span>Wirkt auch, wenn Home Assistant nicht antwortet.</span></div>
+      <div class="txt"><b>${txt("steuer.notaus")}</b><span>${txt("steuer.notaus_hilfe")}</span></div>
       <div class="knebel" role="switch" aria-checked="${!!L.notaus_datei}"
            onclick="tu('notaus',{an:${!L.notaus_datei}})"></div>
     </div>
     ${L.schalter === null ? "" : `
     <div class="reihe">
-      <div class="txt"><b>Schalter im Haus</b><span>input_boolean.postwache_aktiv — vom Handy.</span></div>
+      <div class="txt"><b>${txt("steuer.schalter")}</b><span>${esc((L.konfig||{}).ha_schalter || "")} — ${txt("steuer.schalter_hilfe")}</span></div>
       <div class="knebel" role="switch" aria-checked="${L.schalter === "on"}"
            onclick="tu('schalter',{an:${L.schalter !== "on"}})"></div>
     </div>`}
-    ${steht ? '<div class="hinweis">Der Wächter ist stillgelegt und sieht gar nicht ins Postfach.</div>' : ""}`;
+    ${steht ? '<div class="hinweis">' + txt("steuer.steht") + '</div>' : ""}`;
 }
 
 /* ── Telegram ──────────────────────────────────────────────────────────────── */
@@ -526,33 +564,28 @@ function tgTippt(){
   const k = $("#tgkarte");
   if(!k) return false;
   if(k.contains(document.activeElement)) return true;
-  const t = $("#tg_token");
-  return !!(t && t.value !== "");
+  const feld = $("#tg_token");
+  return !!(feld && feld.value !== "");
 }
 
 function bauTelegram(){
   const g = L.tg || {};
   return `<h2>Telegram</h2>
     <div class="reihe"><div class="txt">
-      <b>${g.bot ? esc(g.bot) : "noch kein Bot"}</b>
-      <span>${g.eigen
-        ? "eigener Bot der Postwache"
-        : "kein Bot eingetragen — dann meldet sie nur auf dieser Seite"}</span>
-    </div>${g.bot ? '<span class="chip ok">funkt</span>' : ""}</div>
+      <b>${g.bot ? esc(g.bot) : txt("tg.kein_bot")}</b>
+      <span>${g.eigen ? txt("tg.eigen") : txt("tg.keiner")}</span>
+    </div>${g.bot ? '<span class="chip ok">' + txt("tg.funkt") + '</span>' : ""}</div>
     <details style="margin-top:.5rem" ${g.eigen ? "" : "open"}>
-      <summary>${g.eigen ? "Bot wechseln" : "Eigenen Bot eintragen"}</summary>
-      <div class="hinweis">🔴 Öffne <b>deinen Bot</b> in Telegram und drücke
-        einmal <b>Start</b>, <i>bevor</i> du hier speicherst. Vorher darf ein Bot
-        dir nicht schreiben — Telegram antwortet dann mit „chat not found", was
-        nach einer falschen Chat-ID aussieht, aber keine ist.</div>
-      <label for="tg_token">Bot-Token (von @BotFather)</label>
+      <summary>${g.eigen ? txt("tg.wechseln") : txt("tg.eintragen")}</summary>
+      <div class="hinweis">🔴 ${txt("tg.start_hinweis")}</div>
+      <label for="tg_token">${txt("tg.token")}</label>
       <input id="tg_token" type="password" autocomplete="off"
-             placeholder="${g.eigen ? "hinterlegt — leer lassen, um ihn zu behalten" : "123456:AA…"}">
-      <label for="tg_chat">Chat-ID</label>
+             placeholder="${g.eigen ? txt("allg.hinterlegt") : "123456:AA…"}">
+      <label for="tg_chat">${txt("tg.chat")}</label>
       <input id="tg_chat" inputmode="numeric" value="${esc(g.chat || "")}"
-             placeholder="deine Telegram-ID">
+             placeholder="${txt("tg.chat_platzhalter")}">
       <div class="knopfreihe">
-        <button class="haupt" onclick="tgSpeichern()">Eintragen &amp; Probe senden</button>
+        <button class="haupt" onclick="tgSpeichern()">${txt("tg.senden")}</button>
       </div>
     </details>`;
 }
@@ -562,10 +595,10 @@ async function tgSpeichern(){
   if(knopf && knopf.tagName === "BUTTON") knopf.disabled = true;
   const daten = {token: $("#tg_token").value.trim(), chat: $("#tg_chat").value.trim()};
   $("#tg_token").value = "";        /* ein Token hat im DOM nichts verloren */
-  melde("Frage Telegram …", true);
-  let a = {ok:false, text:"Keine Antwort vom Pi."};
+  melde(txt("tg.frage"), true);
+  let a = {ok:false, text: txt("allg.keine_antwort")};
   try{ a = await sende("telegram_zugang", daten); }catch(e){}
-  melde(a.text || "Ging nicht.", a.ok);
+  melde(a.text || txt("allg.ging_nicht"), a.ok);
   if(a.ok){
     sig["#tgkarte"] = null;
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -576,9 +609,9 @@ async function tgSpeichern(){
 
 /* ── Verteilung ────────────────────────────────────────────────────────────── */
 function bauVerteilung(){
-  const t = L.heute || {}, gesamt = L.heute_gesamt || 0;
-  if(!gesamt) return '<div class="leise">Heute noch nichts Neues.</div>';
-  const paare = Object.entries(t).filter(([,v]) => v > 0)
+  const heute = L.heute || {}, gesamt = L.heute_gesamt || 0;
+  if(!gesamt) return '<div class="leise">' + txt("heute.leer") + '</div>';
+  const paare = Object.entries(heute).filter(([,v]) => v > 0)
     .sort((a,b) => b[1] - a[1]);
   return '<div class="balken">' + paare.map(([k,v]) =>
       `<i style="width:${(v/gesamt*100).toFixed(2)}%;background:${FARBE[k]||"#888"}"
@@ -593,7 +626,7 @@ function bauVerteilung(){
 /* ── Mails ─────────────────────────────────────────────────────────────────── */
 function bauMails(){
   const m = L.mails || [];
-  if(!m.length) return '<div class="leise">Noch nichts eingeordnet.</div>';
+  if(!m.length) return '<div class="leise">' + txt("mails.leer") + '</div>';
   const opt = ((L.ablage||{}).ordner || []).map(([n]) =>
     `<option value="${esc(n)}">${esc(n)}</option>`).join("");
   return m.map(e => {
@@ -602,32 +635,32 @@ function bauMails(){
     const eigene = (L.absender_regeln||{})[(k.adresse||"").toLowerCase()];
     let wohin;
     if(e.verschoben_nach)
-      wohin = `<div class="wuerde">🗂 abgelegt in <b>${esc(e.verschoben_nach)}</b></div>`;
+      wohin = `<div class="wuerde">🗂 ${txt("mail.abgelegt", {ordner: "<b>" + esc(e.verschoben_nach) + "</b>"})}</div>`;
     else if(e.wuerde_nach)
-      wohin = `<div class="wuerde">🗂 käme nach <b>${esc(e.wuerde_nach)}</b> — ${esc(e.ziel_grund||"")}</div>`;
+      wohin = `<div class="wuerde">🗂 ${txt("mail.kaeme", {ordner: "<b>" + esc(e.wuerde_nach) + "</b>"})} — ${esc(e.ziel_grund||"")}</div>`;
     else if(e.ziel && !e.ziel_darf && !eigene)
       /* Er hat eine Vermutung, ist sich aber nicht sicher genug, um selbst zu
          handeln. Ein Tipp macht daraus eine Dauerregel — genau hier lohnt sich
          dessen Blick am meisten. */
-      wohin = `<div class="wuerde">🗂 vermutlich <b>${esc(e.ziel)}</b> — ${esc(e.ziel_grund||"")}
+      wohin = `<div class="wuerde">🗂 ${txt("mail.vermutlich", {ordner: "<b>" + esc(e.ziel) + "</b>"})} — ${esc(e.ziel_grund||"")}
         <button class="leisetaste" style="padding:.15rem .5rem;font-size:.76rem;margin-left:.3rem"
           onclick="absenderRegel('${esc((k.adresse||"").toLowerCase())}','${esc(e.ziel)}')">
-          ja, immer dorthin</button></div>`;
+          ${txt("mail.immer_dorthin")}</button></div>`;
     else
-      wohin = `<div class="grund">🗂 bleibt liegen — ${esc(e.ziel_grund || "kein Ziel gelernt")}</div>`;
+      wohin = `<div class="grund">🗂 ${txt("mail.bleibt")} — ${esc(e.ziel_grund || txt("mail.kein_ziel"))}</div>`;
     return `<div class="mail">
       <div class="ico" title="${esc(s.name)}">${s.icon}</div>
       <div class="inh">
-        <div class="betreff">${esc(k.betreff || "(ohne Betreff)")}</div>
+        <div class="betreff">${esc(k.betreff || txt("mail.ohne_betreff"))}</div>
         <div class="von">${esc(k.name || "")} &lt;${esc(k.adresse||"")}&gt; · ${esc(zeit(k.datum||e.gesehen))}</div>
         <div class="grund">${esc(s.name)}: ${esc(e.grund||"")}</div>
-        ${e.phishing ? `<div class="warn">⚠️ ${esc(e.phishing)} — bleibt im Posteingang, nichts anklicken.</div>` : ""}
+        ${e.phishing ? `<div class="warn">⚠️ ${esc(e.phishing)} — ${txt("mail.phishing")}</div>` : ""}
         ${wohin}
-        ${eigene ? `<div class="wuerde">deine Regel: ${esc(eigene)}</div>` : ""}
+        ${eigene ? `<div class="wuerde">${txt("mail.deine_regel")}: ${esc(eigene)}</div>` : ""}
       </div>
       <select onchange="absenderRegel('${esc((k.adresse||"").toLowerCase())}', this.value)"
-              title="Post von diesem Absender künftig immer hierhin">
-        <option value="">immer nach …</option>${opt}
+              title="${txt("mail.wahl_titel")}">
+        <option value="">${txt("mail.wahl")}</option>${opt}
       </select>
     </div>`;
   }).join("");
@@ -639,42 +672,37 @@ async function absenderRegel(adresse, ordner){
 }
 
 /* ── Dokumente in der Post ──────────────────────────────────────────────────── */
-const DS_TEXT = {
-  uebergeben: ["in DocuSort — wird gerade eingeordnet", "info"],
-  abgelegt:   ["in DocuSort abgelegt", "ok"],
-  pruefen:    ["in DocuSort — wartet auf deine Prüfung", "warnung"],
-  doppelt:    ["hatte DocuSort schon", "info"],
-  finanzen:   ["in die Finanzen übernommen", "ok"],
-  fehler:     ["Übergabe fehlgeschlagen", "kritisch"],
-  zu_gross:   ["zu groß für die Übergabe", "warnung"],
-  kann_docusort_nicht: ["DocuSort nimmt diesen Dateityp nicht", "warnung"],
-  phishing:   ["Phishing-Verdacht — nichts weitergereicht", "kritisch"],
-  verschollen:["DocuSort kennt sie nicht mehr — noch einmal geben", "kritisch"],
+/* Die Zustaende einer Uebergabe. Der Text kommt aus der Sprachtabelle, die
+   Farbe steht hier — eine Farbe braucht keine Uebersetzung. */
+const DS_FARBE = {
+  uebergeben:"info", abgelegt:"ok", pruefen:"warnung", doppelt:"info",
+  finanzen:"ok", fehler:"kritisch", zu_gross:"warnung",
+  kann_docusort_nicht:"warnung", phishing:"kritisch", verschollen:"kritisch",
 };
+function dsText(stand){ return [txt("ds.stand." + stand), DS_FARBE[stand] || "info"]; }
 const ART_ICON = {dokument:"📄", bild:"🖼️", kram:"📎"};
 
 function gr(b){
   b = Number(b) || 0;
   if(b >= 1048576) return (b/1048576).toFixed(1) + " MB";
   if(b >= 1024) return Math.round(b/1024) + " kB";
-  return b + " B";
+  return b + " B";   /* Einheiten sind international, die bleiben */
 }
 
 function bauDokKopf(){
   const d = L.dokumente || {}, ds = L.docusort || {};
-  if(!d.zeit) return "Noch nichts angesehen — der Wächter trägt beim nächsten Lauf "
-                   + "nach, oder du drückst auf „Rückstand jetzt nachtragen“.";
+  if(!d.zeit) return txt("dok.noch_nichts");
   const n = d.nachtrag || {};
   const teile = [
-    `<b class="zahl">${d.mails||0}</b> Mails mit Anhang`,
-    `<b class="zahl">${d.dokumente||0}</b> Dokumente`,
-    ds.eingerichtet ? `<b class="zahl">${d.uebergeben||0}</b> in DocuSort` : null,
-    d.unterwegs ? `<span style="color:var(--info)">🕓 ${d.unterwegs} unterwegs — `
-                + `DocuSort ordnet gerade ein</span>` : null,
-    d.ordner_offen ? `<span style="color:var(--warnung)">${d.ordner_offen} von `
-                   + `${d.ordner} Ordnern noch nicht durchgesehen</span>` : null,
+    txt("dok.mails", {n: `<b class="zahl">${d.mails||0}</b>`}),
+    txt("dok.dokumente", {n: `<b class="zahl">${d.dokumente||0}</b>`}),
+    ds.eingerichtet ? txt("dok.in_docusort", {n: `<b class="zahl">${d.uebergeben||0}</b>`}) : null,
+    d.unterwegs ? `<span style="color:var(--info)">🕓 ${txt("dok.unterwegs", {n: d.unterwegs})}</span>` : null,
+    d.ordner_offen ? `<span style="color:var(--warnung)">`
+                   + txt("dok.ordner_offen", {offen: d.ordner_offen, gesamt: d.ordner})
+                   + `</span>` : null,
   ].filter(Boolean);
-  return teile.join(" · ") + `<br>zuletzt nachgetragen ${zeit(n.zeit || d.zeit)}`;
+  return teile.join(" · ") + "<br>" + txt("dok.nachgetragen", {zeit: zeit(n.zeit || d.zeit)});
 }
 
 /* 🔑 „Lässt sich hier noch etwas übergeben?" beantwortet der SERVER — an
@@ -692,7 +720,7 @@ function dokZaehlen(){
   const alle = document.querySelectorAll(".dokwahl");
   const n = document.querySelectorAll(".dokwahl:checked").length;
   knopf.disabled = !n;
-  knopf.textContent = n ? `${n} an DocuSort geben` : "an DocuSort geben";
+  knopf.textContent = n ? txt("dok.geben_n", {n: n}) : txt("dok.geben");
   const haken = $("#dok_alle");
   if(haken){
     haken.checked = n > 0 && n === alle.length;
@@ -738,16 +766,12 @@ async function dokWache(){
 async function dokSammel(){
   const wahl = [...document.querySelectorAll(".dokwahl:checked")].map(c => c.value);
   if(!wahl.length) return;
-  if(wahl.length >= DOK_FRAGEN_AB && !confirm(
-      wahl.length + " Mails an DocuSort geben?\n\n"
-      + "DocuSort liest jedes Dokument einzeln (Texterkennung und Einordnung) — "
-      + "das kostet dort Zeit und Geld.\n"
-      + "Je Zug gehen höchstens 60 Dokumente; der Rest bleibt ausgewählt stehen."))
+  if(wahl.length >= DOK_FRAGEN_AB && !confirm(txt("dok.rueckfrage", {n: wahl.length})))
     return;
   const knopf = $("#dok_sammel");
   knopf.disabled = true;
-  knopf.textContent = `überträgt ${wahl.length} …`;
-  melde(`${wahl.length} Mail(s) gehen an DocuSort — das dauert einen Moment.`);
+  knopf.textContent = txt("dok.uebertraegt", {n: wahl.length});
+  melde(txt("dok.gehen_los", {n: wahl.length}));
   const r = await sende("dokumente_geben", {schluessel: wahl});
   melde(r.text || "", r.ok);
   await dokSuche();
@@ -757,21 +781,20 @@ async function dokSammel(){
 
 async function dokSuche(){
   const z = $("#dok_treffer");
-  z.innerHTML = '<div class="leise">sucht …</div>';
+  z.innerHTML = '<div class="leise">' + txt("dok.sucht") + '</div>';
   const r = await sende("dokumente", {q: $("#dok_q").value,
                                       art: $("#dok_art").value,
                                       von: $("#dok_von").value,
                                       bis: $("#dok_bis").value});
-  const t = r.treffer || [];
-  if(!t.length){
-    z.innerHTML = '<div class="leise">Nichts gefunden. Steht der Rückstand noch '
-                + 'aus, fehlt vielleicht nur der Nachtrag.</div>';
+  const tr = r.treffer || [];
+  if(!tr.length){
+    z.innerHTML = '<div class="leise">' + txt("dok.nichts") + '</div>';
     return;
   }
   const url = (L.docusort || {}).url || "";
   /* Erst zaehlen, dann zeichnen: Kaestchen gibt es nur, wenn es wirklich etwas
      auszuwaehlen gibt. Bei EINER Mail genuegt der Knopf an der Zeile. */
-  const waehlbar = t.filter(dokGebbar).length;
+  const waehlbar = tr.filter(dokGebbar).length;
   const sammeln = waehlbar >= 2;
   /* 🔴 Die Leiste bleibt oben KLEBEN. Die Trefferliste scrollt in sich (26 rem);
      ohne sticky ist „alle auswählen" und der Knopf beim dritten Treffer aus dem
@@ -784,27 +807,27 @@ async function dokSuche(){
              color:var(--text);cursor:pointer">
         <input type="checkbox" id="dok_alle" onchange="dokAlle(this.checked)"
                style="width:auto;accent-color:var(--akzent)">
-        alle ${waehlbar} auswählen</label>
+        ${txt("dok.alle_waehlen", {n: waehlbar})}</label>
       <button class="haupt" id="dok_sammel" disabled onclick="dokSammel()"
-              style="padding:.35rem .8rem;font-size:.84rem">an DocuSort geben</button>
+              style="padding:.35rem .8rem;font-size:.84rem">${txt("dok.geben")}</button>
     </div>` : "";
-  z.innerHTML = (r.gesamt > t.length
-      ? `<div class="leise klein">${r.gesamt} Treffer — die ${t.length} neuesten:</div>` : "")
+  z.innerHTML = (r.gesamt > tr.length
+      ? `<div class="leise klein">${txt("dok.treffer", {gesamt: r.gesamt, n: tr.length})}</div>` : "")
     + leiste
-    + t.map(e => {
+    + tr.map(e => {
     const liste = e.dateien_gezeigt || e.dateien || [];
     const dateien = liste.map(f => {
-      const txt = DS_TEXT[f.stand] || null;
+      const txt = f.stand ? dsText(f.stand) : null;
       const z = f.zwilling;
       const doc = f.doc || (z ? z.doc : "");
       const link = (doc && url)
         ? ` · <a href="${esc(url)}/document/${esc(doc)}" target="_blank"
-             rel="noopener">in DocuSort ansehen</a>` : "";
+             rel="noopener">${txt("dok.ansehen")}</a>` : "";
       /* Dieselbe Datei hing schon an einer anderen Mail und ist längst drüben —
          sie wird benannt, damit man sie nicht ein zweites Mal exportiert. */
       const zwilling = z ? `<span class="chip ok" style="margin-left:.3rem"
-          title="gleicher Dateiname und gleiche Größe, übergeben am ${esc(zeit(z.datum))}"
-          >dieselbe Datei ist schon in DocuSort</span>` : "";
+          title="${txt("dok.zwilling_titel", {datum: esc(zeit(z.datum))})}"
+          >${txt("dok.zwilling")}</span>` : "";
       return `<div class="grund" style="font-style:normal">
           ${ART_ICON[f.art] || "📎"} ${esc(f.n)} <span class="leise">(${gr(f.b)})</span>
           ${txt ? `<span class="chip ${txt[1]}" style="margin-left:.3rem">${txt[0]}</span>` : ""}
@@ -816,19 +839,19 @@ async function dokSuche(){
     return `<div class="mail">
       ${sammeln ? (gebbar
         ? `<input type="checkbox" class="dokwahl" value="${esc(e.schluessel || "")}"
-             onchange="dokZaehlen()" title="mit auswählen"
+             onchange="dokZaehlen()" title="${txt("dok.mitwaehlen")}"
              style="width:auto;flex:0 0 auto;margin-top:.45rem;
                     accent-color:var(--akzent)">`
         : `<span style="flex:0 0 13px"></span>`) : ""}
       <div class="ico">${ART_ICON[(liste[0] || {}).art] || "📎"}</div>
       <div class="inh">
-        <div class="betreff">${esc(e.betreff || "(ohne Betreff)")}</div>
+        <div class="betreff">${esc(e.betreff || txt("mail.ohne_betreff"))}</div>
         <div class="von">${esc(e.name || "")} &lt;${esc(e.adresse || "")}&gt; ·
           ${esc(zeit(e.datum))} · 🗂 ${esc(e.ordner || "?")}</div>
         ${dateien}
         ${gebbar ? `<button class="leisetaste"
             style="padding:.2rem .6rem;font-size:.78rem;margin-top:.25rem"
-            onclick="dokGeben('${esc(e.schluessel || "")}', this)">an DocuSort geben</button>` : ""}
+            onclick="dokGeben('${esc(e.schluessel || "")}', this)">${txt("dok.geben")}</button>` : ""}
       </div>
     </div>`;
   }).join("");
@@ -836,7 +859,7 @@ async function dokSuche(){
 }
 
 async function dokGeben(schluessel, knopf){
-  if(knopf){ knopf.disabled = true; knopf.textContent = "gibt …"; }
+  if(knopf){ knopf.disabled = true; knopf.textContent = txt("dok.gibt"); }
   const r = await sende("dokument_geben", {schluessel});
   melde(r.text || "", r.ok);
   await dokSuche();
@@ -845,7 +868,7 @@ async function dokGeben(schluessel, knopf){
 }
 
 async function dokNachtragen(){
-  melde("Sieht die Ordner durch — das liest nur, es verändert nichts.");
+  melde(txt("dok.nachtrag_laeuft"));
   const r = await sende("dokumente_nachtragen", {frist: 60});
   melde(r.text || "", r.ok);
   hole();
@@ -862,38 +885,33 @@ function dsTippt(){
 
 function bauDocuSort(){
   const d = L.docusort || {};
-  return `<h2>DocuSort — wohin die Dokumente gehen</h2>
-    <div class="hinweis">Kommt Post mit einem <b>PDF</b> (oder einer Bank-CSV),
-      reicht die Postwache den Anhang an DocuSort weiter — durch dieselbe
-      Vordertür, die auch der Browser benutzt. Fotos, Kalendereinträge und
-      Signaturbilder bleiben draußen. Bei Phishing-Verdacht wird
-      <b>nichts</b> weitergereicht.</div>
+  return `<h2>${txt("ds.titel")}</h2>
+    <div class="hinweis">${txt("ds.hilfe")}</div>
     <div class="reihe">
-      <div class="txt"><b>Übergabe eingeschaltet</b>
-        <span>${d.eingerichtet ? "Neue Post wird weitergereicht."
-                               : "Es fehlt noch ein Zugang."}</span></div>
+      <div class="txt"><b>${txt("ds.an")}</b>
+        <span>${d.eingerichtet ? txt("ds.an_ja") : txt("ds.an_nein")}</span></div>
       <div class="knebel" role="switch" aria-checked="${!!d.aktiv}"
            onclick="tu('docusort', {aktiv: ${!d.aktiv}})"></div>
     </div>
     <div class="feldpaar">
-      <div style="flex:2 1 20rem"><label for="ds_url">Adresse</label>
+      <div style="flex:2 1 20rem"><label for="ds_url">${txt("allg.adresse")}</label>
         <input id="ds_url" value="${esc(d.url || "")}"
                placeholder="https://rechner.example.ts.net:9876"></div>
-      <div><label for="ds_benutzer">Benutzer</label>
+      <div><label for="ds_benutzer">${txt("allg.benutzer")}</label>
         <input id="ds_benutzer" autocomplete="username"
                value="${esc(d.benutzer || "")}"></div>
-      <div><label for="ds_pass">Passwort ${d.passwort_gesetzt
+      <div><label for="ds_pass">${txt("allg.passwort")} ${d.passwort_gesetzt
               ? '<span class="chip ok" style="padding:0 .4rem;font-size:.7rem">'
-                + 'hinterlegt</span>' : ""}</label>
+                + txt("allg.hinterlegt_kurz") + '</span>' : ""}</label>
         <input id="ds_pass" type="password" autocomplete="new-password"
-               placeholder="${d.passwort_gesetzt ? "unverändert lassen" : ""}"></div>
-      <div><label for="ds_max">größte Datei (MB)</label>
+               placeholder="${d.passwort_gesetzt ? txt("allg.unveraendert") : ""}"></div>
+      <div><label for="ds_max">${txt("ds.max_mb")}</label>
         <input id="ds_max" type="number" min="1" max="200"
                value="${Number(d.max_mb || 25)}"></div>
     </div>
     <div class="knopfreihe">
-      <button class="haupt" onclick="dsSpeichern()">Speichern</button>
-      <button onclick="dsPruefen()">Verbindung prüfen</button>
+      <button class="haupt" onclick="dsSpeichern()">${txt("allg.speichern")}</button>
+      <button onclick="dsPruefen()">${txt("allg.pruefen")}</button>
     </div>`;
 }
 
@@ -908,7 +926,7 @@ async function dsSpeichern(){
 }
 
 async function dsPruefen(){
-  melde("Meldet sich bei DocuSort an …");
+  melde(txt("ds.meldet_an"));
   const r = await sende("docusort_pruefen", {});
   melde(r.text || "", r.ok);
 }
@@ -921,8 +939,7 @@ function bauRegeln(){
     const alarm = s.alarm;
     return `<div class="reihe">
       <div class="txt"><b>${s.icon} ${esc(s.name)}</b>
-        <span>${e.melden ? "meldet sofort per Telegram"
-                         : "nur im Tagesbericht"}</span></div>
+        <span>${e.melden ? txt("regel.sofort") : txt("regel.tagesbericht")}</span></div>
       <div class="knebel" role="switch" aria-checked="${!!e.melden}"
            onclick="tu('einstellung',{regel:{klasse:'${k}',melden:${!e.melden}}})"></div>
     </div>`;
@@ -946,11 +963,11 @@ function saeulen(werte, titelFn, beschreibung, schnitt){
   const hoch = v => (H - unten - oben) * (v / max);
   const stuecke = werte.map((v, i) => {
     const h = hoch(v), x = i * bw, y = H - unten - h;
-    const t = titelFn ? titelFn(i, v) : "";
+    const titel = titelFn ? titelFn(i, v) : "";
     return '<rect class="bar' + (v ? '' : ' leise') + '" x="' + (x + bw*0.12).toFixed(2)
       + '" y="' + y.toFixed(2) + '" width="' + Math.max(bw*0.76, 0.8).toFixed(2)
       + '" height="' + Math.max(h, v ? 1 : 0.6).toFixed(2)
-      + '" rx="' + Math.min(bw*0.3, 2).toFixed(2) + '"><title>' + esc(t) + '</title></rect>';
+      + '" rx="' + Math.min(bw*0.3, 2).toFixed(2) + '"><title>' + esc(titel) + '</title></rect>';
   }).join("");
   let linie = "";
   if(schnitt && schnitt > 0){
@@ -976,34 +993,31 @@ function achse(marken){
 function zeitTag(iso){
   const d = new Date(iso + "T12:00:00");
   return isNaN(d) ? String(iso)
-    : d.toLocaleDateString("de-DE", {day:"2-digit", month:"2-digit"});
+    : d.toLocaleDateString(LANG, {day:"2-digit", month:"2-digit"});
 }
 
 function zeichneStatKopf(){
   const k = L.statistik || {};
   const el = $("#stat_quelle");
   if(!el) return;
-  el.textContent = !k.gebaut
-    ? "Noch nicht gerechnet."
-    : "Aus " + k.mails + " Mails in " + k.ordner + " Ordnern (" + k.von + " bis "
-      + k.bis + "). Der Tagesverlauf beginnt am " + k.vollstaendig_ab
-      + ", weil davor nicht jeder Ordner vollständig gelesen wurde. "
-      + "Eigene Post ist nicht mitgezählt (" + k.eigene_ausgelassen + "). "
-      + "Stand " + zeit(k.gebaut) + ".";
+  el.textContent = !k.gebaut ? txt("stat.leer")
+    : txt("stat.quelle", {mails: k.mails, ordner: k.ordner, von: k.von, bis: k.bis,
+                        ab: k.vollstaendig_ab, eigene: k.eigene_ausgelassen,
+                        stand: zeit(k.gebaut)});
 }
 
 function bauStatistik(){
   const k = L.statistik || {};
   if(!k.gebaut){
-    return '<div class="leise">Noch nicht gerechnet.</div>'
+    return '<div class="leise">' + txt("stat.leer") + '</div>'
       + '<div class="knopfreihe"><button onclick="tu(\'statistik_neu\')">'
-      + 'Jetzt auswerten</button></div>';
+      + txt("stat.jetzt") + '</button></div>';
   }
   const tage = k.je_tag || [];
   const werte = tage.map(e => e.n);
   const stunden = k.je_stunde || [];
   const wt = k.je_wochentag || [];
-  const WT = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+  const WT = txt("stat.wochentage").split(",");
   const hMax = stunden.length ? stunden.indexOf(Math.max(...stunden)) : -1;
   const wMax = wt.length ? wt.indexOf(Math.max(...wt)) : -1;
   const spitze = tage.reduce((a, e) => (a === null || e.n > a.n) ? e : a, null);
@@ -1028,34 +1042,34 @@ function bauStatistik(){
 
   return ''
   + '<div class="kz">'
-  +   '<div><b class="zahl">' + (k.schnitt_pro_tag ?? "–") + '</b><span>Mails pro Tag</span></div>'
-  +   '<div><b class="zahl">' + (k.mails ?? 0) + '</b><span>ausgewertet</span></div>'
-  +   '<div><b class="zahl">' + (k.absender_gesamt ?? 0) + '</b><span>Absender</span></div>'
-  +   '<div><b class="zahl">' + (hMax >= 0 ? hMax + "–" + (hMax+1) : "–") + '</b><span>stärkste Stunde</span></div>'
+  +   '<div><b class="zahl">' + (k.schnitt_pro_tag ?? "–") + '</b><span>' + txt("stat.pro_tag") + '</span></div>'
+  +   '<div><b class="zahl">' + (k.mails ?? 0) + '</b><span>' + txt("stat.ausgewertet") + '</span></div>'
+  +   '<div><b class="zahl">' + (k.absender_gesamt ?? 0) + '</b><span>' + txt("stat.absender") + '</span></div>'
+  +   '<div><b class="zahl">' + (hMax >= 0 ? hMax + "–" + (hMax+1) : "–") + '</b><span>' + txt("stat.stunde") + '</span></div>'
   + '</div>'
-  + '<div class="plotkopf"><b>Mails pro Tag</b><span class="leise klein">'
-  +   esc(k.vollstaendig_ab || "") + ' bis heute · gestrichelt: Schnitt ' + k.schnitt_pro_tag
-  +   (spitze ? ' · Spitze ' + spitze.n + ' am ' + esc(zeitTag(spitze.tag)) : "") + '</span></div>'
-  + saeulen(werte, (i, v) => zeitTag(tage[i].tag) + ": " + v, "Mails pro Tag", k.schnitt_pro_tag)
+  + '<div class="plotkopf"><b>' + txt("stat.pro_tag") + '</b><span class="leise klein">'
+  +   txt("stat.bis_heute", {ab: esc(k.vollstaendig_ab || ""), schnitt: k.schnitt_pro_tag})
+  +   (spitze ? " · " + txt("stat.spitze", {n: spitze.n, tag: esc(zeitTag(spitze.tag))}) : "") + '</span></div>'
+  + saeulen(werte, (i, v) => zeitTag(tage[i].tag) + ": " + v, txt("stat.pro_tag"), k.schnitt_pro_tag)
   + achse(tage.length ? [zeitTag(tage[0].tag),
                          zeitTag(tage[Math.floor(tage.length/2)].tag),
                          zeitTag(tage[tage.length-1].tag)] : [])
   + '<div class="plotpaar"><div>'
-  +   '<div class="plotkopf"><b>Zu welcher Tageszeit</b><span class="leise klein">'
-  +   (hMax >= 0 ? "am meisten " + hMax + "–" + (hMax+1) + " Uhr" : "") + '</span></div>'
-  +   saeulen(stunden, (i, v) => i + "–" + (i+1) + " Uhr: " + v, "Mails je Tagesstunde")
+  +   '<div class="plotkopf"><b>' + txt("stat.tageszeit") + '</b><span class="leise klein">'
+  +   (hMax >= 0 ? txt("stat.am_meisten_uhr", {von: hMax, bis: hMax+1}) : "") + '</span></div>'
+  +   saeulen(stunden, (i, v) => txt("stat.uhr_titel", {von: i, bis: i+1, n: v}), txt("stat.je_stunde"))
   +   achse(["0","6","12","18","23"])
   + '</div><div>'
-  +   '<div class="plotkopf"><b>An welchem Wochentag</b><span class="leise klein">'
-  +   (wMax >= 0 ? "am meisten " + WT[wMax] : "") + '</span></div>'
-  +   saeulen(wt, (i, v) => WT[i] + ": " + v, "Mails je Wochentag")
+  +   '<div class="plotkopf"><b>' + txt("stat.wochentag") + '</b><span class="leise klein">'
+  +   (wMax >= 0 ? txt("stat.am_meisten", {was: WT[wMax]}) : "") + '</span></div>'
+  +   saeulen(wt, (i, v) => WT[i] + ": " + v, txt("stat.je_wochentag"))
   +   achse(WT)
   + '</div></div>'
-  + '<div class="plotkopf"><b>Wer schreibt am häufigsten</b><span class="leise klein">von '
-  +   (k.absender_gesamt || 0) + ' Absendern</span></div>'
+  + '<div class="plotkopf"><b>' + txt("stat.wer") + '</b><span class="leise klein">'
+  +   txt("stat.von_absendern", {n: k.absender_gesamt || 0}) + '</span></div>'
   + rang
   + '<div class="knopfreihe" style="margin-top:.8rem">'
-  +   '<button onclick="tu(\'statistik_neu\')">Neu auswerten</button></div>';
+  +   '<button onclick="tu(\'statistik_neu\')">' + txt("stat.neu") + '</button></div>';
 }
 
 /* ── Ablage ────────────────────────────────────────────────────────────────── */
@@ -1068,7 +1082,7 @@ function bauStatistik(){
 function bauHeimatlos(){
   const liste = L.heimatlos || [];
   if(!liste.length){
-    return `<div class="leise">Jeder wiederkehrende Absender hat ein Zuhause.</div>`;
+    return `<div class="leise">${txt("heimat.leer")}</div>`;
   }
   const ordner = (L.ablage?.ordner || []).map(o => o[0]);
   return liste.map((e, i) => {
@@ -1080,15 +1094,15 @@ function bauHeimatlos(){
     return `<div class="reihe" style="align-items:flex-start;flex-wrap:wrap;gap:.4rem">
       <div class="txt" style="min-width:14rem;flex:1 1 14rem">
         <b>${wer}</b>
-        <div class="leise klein">${e.anzahl}&nbsp;Mails · zuletzt ${esc(zeit(e.zuletzt))}
+        <div class="leise klein">${txt("heimat.zeile", {n: e.anzahl, zeit: esc(zeit(e.zuletzt))})}
           ${e.vorschlag_grund ? ` · ${esc(e.vorschlag_grund)}` : ""}</div>
       </div>
       <div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center">
         <select id="hl_o${i}">${wahl}</select>
-        <button onclick="heimGeben(${i}, false)">Hierhin</button>
-        <input id="hl_n${i}" placeholder="neuer Ordner"
+        <button onclick="heimGeben(${i}, false)">${txt("heimat.hierhin")}</button>
+        <input id="hl_n${i}" placeholder="${txt("heimat.neuer_ordner")}"
                value="${esc(e.neuer_ordner || "")}" style="width:9rem">
-        <button onclick="heimGeben(${i}, true)">Anlegen</button>
+        <button onclick="heimGeben(${i}, true)">${txt("heimat.anlegen")}</button>
       </div>
     </div>`;
   }).join("");
@@ -1101,10 +1115,7 @@ function bauHeimatlos(){
    der Seite, die viele Mails auf einmal anfasst — deshalb eine Rueckfrage, und
    in der Frage steht, was danach hilft (das Journal). */
 async function aufraeumenFragen(){
-  if(!confirm("Alles im Posteingang einmal durchgehen und einsortieren?\n\n"
-    + "Er verschiebt nur dorthin, wo du selbst schon abgelegt hast. "
-    + "Gemeldet wird nichts. Jede Verschiebung steht danach im Journal "
-    + "und lässt sich einzeln zurückholen.")) return;
+  if(!confirm(txt("ablage.aufraeumen_frage"))) return;
   await tu("aufraeumen");
 }
 
@@ -1113,11 +1124,11 @@ async function heimGeben(i, neu){
   if(!e) return;
   if(neu){
     const name = ($("#hl_n" + i)?.value || "").trim();
-    if(!name) return melde("Bitte einen Ordnernamen eintragen.", false);
+    if(!name) return melde(txt("heimat.name_fehlt"), false);
     await tu("ordner_anlegen", {ordner: name, adresse: e.adresse});
   }else{
     const ziel = $("#hl_o" + i)?.value || "";
-    if(!ziel) return melde("Bitte einen Ordner auswählen.", false);
+    if(!ziel) return melde(txt("heimat.ziel_fehlt"), false);
     await tu("einstellung", {absender: {adresse: e.adresse, ordner: ziel}});
   }
 }
@@ -1135,49 +1146,41 @@ function heimTippt(){
 function bauAblage(){
   const a = L.ablage || {};
   if(!a.gelernt){
-    return `<div class="leise">Noch nicht gelernt.</div>
-      <div class="knopfreihe"><button onclick="tu('neu_lernen')">Jetzt aus meinen Ordnern lernen</button></div>`;
+    return `<div class="leise">${txt("ablage.leer")}</div>
+      <div class="knopfreihe"><button onclick="tu('neu_lernen')">${txt("ablage.jetzt_lernen")}</button></div>`;
   }
   const sw = a.schwaechen || {};
   const ordner = (a.ordner || []);
   return `<div class="kz">
-      <div><b class="zahl">${ordner.length}</b><span>Ordner</span></div>
-      <div><b class="zahl">${a.mails}</b><span>angesehen</span></div>
-      <div><b class="zahl">${a.absender}</b><span>Absender erkannt</span></div>
-      <div><b class="zahl">${a.deckung}%</b><span>Abdeckung</span></div>
+      <div><b class="zahl">${ordner.length}</b><span>${txt("ablage.ordner")}</span></div>
+      <div><b class="zahl">${a.mails}</b><span>${txt("ablage.angesehen")}</span></div>
+      <div><b class="zahl">${a.absender}</b><span>${txt("ablage.absender")}</span></div>
+      <div><b class="zahl">${a.deckung}%</b><span>${txt("ablage.deckung")}</span></div>
     </div>
-    <div class="leise klein" style="margin-top:.7rem">Er legt neue Post genau
-      dorthin, wo <b>du</b> Post von diesem Absender schon hingelegt hast — und
-      nur dorthin. Er erfindet kein Ziel und legt keinen Ordner an.
-      Gelernt: ${esc(zeit(a.gelernt))}.</div>
+    <div class="leise klein" style="margin-top:.7rem">${txt("ablage.wie", {zeit: esc(zeit(a.gelernt))})}</div>
     <div class="knopfreihe">
-      <button onclick="tu('neu_lernen')">Neu lernen</button>
-      <button onclick="aufraeumenFragen()">Posteingang aufräumen</button>
+      <button onclick="tu('neu_lernen')">${txt("ablage.neu_lernen")}</button>
+      <button onclick="aufraeumenFragen()">${txt("ablage.aufraeumen")}</button>
     </div>
-    <div class="leise klein">Im Normalbetrieb sieht er nur <b>neue</b> Post an.
-      Was schon im Posteingang liegt, hat er nie angefasst — „Aufräumen“ holt das
-      einmalig nach. Dabei meldet er <b>nichts</b>; jede Verschiebung steht unten
-      im Journal und lässt sich zurückholen.</div>
-    <details style="margin-top:.6rem"><summary>Alle ${ordner.length} Ordner</summary>
+    <div class="leise klein">${txt("ablage.aufraeumen_hilfe")}</div>
+    <details style="margin-top:.6rem"><summary>${txt("ablage.alle_ordner", {n: ordner.length})}</summary>
       <div class="liste" style="margin-top:.5rem">${ordner.map(([n,c]) =>
         `<div class="reihe"><div class="txt"><b>${esc(n)}</b></div>
            <span class="zahl leise">${c}</span></div>`).join("")}</div>
     </details>
     ${(sw.uneindeutig_gesamt || sw.fast_leer?.length || sw.leer?.length)
-      ? `<details style="margin-top:.4rem"><summary>Woran deine Ablage häkelt
-           (${(sw.uneindeutig_gesamt||0)} uneindeutig, ${(sw.fast_leer||[]).length} fast leer,
-            ${(sw.leer||[]).length} leer)</summary>
-         <div class="hinweis">Das ist kein Fehler, sondern das Rohmaterial für den
-           späteren Umbau: Absender, die du mal hierhin, mal dorthin gelegt hast —
-           bei denen bleibt die Mail vorsichtshalber liegen.</div>
+      ? `<details style="margin-top:.4rem"><summary>${txt("ablage.schwaechen", {
+             a: sw.uneindeutig_gesamt||0, b: (sw.fast_leer||[]).length,
+             c: (sw.leer||[]).length})}</summary>
+         <div class="hinweis">${txt("ablage.schwaechen_hilfe")}</div>
          ${(sw.uneindeutig||[]).map(u => `<div class="mail"><div class="ico">↔</div>
             <div class="inh"><div class="betreff">${esc(u.absender)}</div>
-              <div class="von">${u.gesamt} Mails, verteilt auf ${
-                (u.verteilt_auf||[]).map(v => esc(v[0])+" ("+v[1]+")").join(", ")}</div>
+              <div class="von">${txt("ablage.verteilt", {n: u.gesamt, wohin:
+                (u.verteilt_auf||[]).map(v => esc(v[0])+" ("+v[1]+")").join(", ")})}</div>
             </div></div>`).join("")}
          ${(sw.fast_leer||[]).length ? `<div class="von leise" style="margin-top:.5rem">
-            Fast leer: ${(sw.fast_leer||[]).map(esc).join(" · ")}</div>` : ""}
-         ${(sw.leer||[]).length ? `<div class="von leise">Leer: ${(sw.leer||[]).map(esc).join(" · ")}</div>` : ""}
+            ${txt("ablage.fast_leer")}: ${(sw.fast_leer||[]).map(esc).join(" · ")}</div>` : ""}
+         ${(sw.leer||[]).length ? `<div class="von leise">${txt("ablage.ganz_leer")}: ${(sw.leer||[]).map(esc).join(" · ")}</div>` : ""}
        </details>`
       : ""}`;
 }
@@ -1185,27 +1188,27 @@ function bauAblage(){
 /* ── Journal ───────────────────────────────────────────────────────────────── */
 function bauJournal(){
   const j = L.journal || [];
-  if(!j.length) return '<div class="leise">Noch nichts verschoben.'
-      + (L.scharf ? "" : " Im Lernlauf wird auch nichts verschoben.") + "</div>";
+  if(!j.length) return '<div class="leise">' + txt("journal.leer")
+      + (L.scharf ? "" : " " + txt("journal.leer_lernlauf")) + "</div>";
   return `<div class="knopfreihe" style="margin-top:0">
-       <button onclick="allesZurueck()">Alle ${j.length} zurück in den Posteingang</button>
+       <button onclick="allesZurueck()">${txt("journal.alle_zurueck", {n: j.length})}</button>
      </div>
      <div class="liste" style="margin-top:.6rem">` +
     j.map(e => `<div class="mail">
       <div class="ico">↩︎</div>
       <div class="inh">
-        <div class="betreff">${esc(e.betreff || "(ohne Betreff)")}</div>
+        <div class="betreff">${esc(e.betreff || txt("mail.ohne_betreff"))}</div>
         <div class="von">${esc(e.absender||"")} · ${esc(zeit(e.zeit))} → ${esc(e.nach||"")}</div>
       </div>
       <button class="leisetaste" onclick='tu("zurueck",{eintraege:[${
-        JSON.stringify({uid:e.uid, nach:e.nach})}]})'>zurück</button>
+        JSON.stringify({uid:e.uid, nach:e.nach})}]})'>${txt("journal.zurueck")}</button>
     </div>`).join("") + "</div>";
 }
 
 async function allesZurueck(){
   const j = L.journal || [];
   if(!j.length) return;
-  if(!confirm("Alle " + j.length + " Mails zurück in den Posteingang holen?")) return;
+  if(!confirm(txt("journal.alle_frage", {n: j.length}))) return;
   await tu("zurueck", {eintraege: j.map(e => ({uid:e.uid, nach:e.nach}))});
 }
 
@@ -1220,6 +1223,22 @@ function bauChronik(){
 }
 
 /* ── Laden ─────────────────────────────────────────────────────────────────── */
+/* ═══ Sprache ══════════════════════════════════════════════════════════════
+   Die Wahl geht an den Server, nicht in den Browser: die Postwache schreibt
+   auch dann Texte, wenn niemand hinsieht (Telegram, Chronik). Nach dem
+   Speichern wird die Seite neu geladen — die Texttabelle steckt im Markup. */
+function bauSprachen(){
+  return (typeof SPRACHEN !== "undefined" ? SPRACHEN : []).map(([code, name]) =>
+    `<button class="${code === LANG ? "haupt" : "leisetaste"}"
+       onclick="spracheWaehlen('${code}')" lang="${code}">${esc(name)}</button>`).join("");
+}
+async function spracheWaehlen(code){
+  if(code === LANG) return;
+  const a = await sende("konfig", {sprache: code});
+  if(a && a.ok) location.reload();
+  else melde(txt("sprache.fehler"), false);
+}
+
 /* ═══ Ansichten ═══════════════════════════════════════════════════════════
    Zwei Ansichten statt eines Onepagers. Die Wahl liegt im Browser, nicht auf
    dem Server: sie gilt fuer DIESES Geraet — wer am Telefon Einstellungen
@@ -1257,22 +1276,22 @@ function bauPostfaecher(){
   const zeilen = liste.map(f => `
     <div class="zeile">
       <div class="wachs">
-        <div><b>${esc(f.name)}</b>${f.an?"":' <span class="leise klein">— ruht</span>'}</div>
+        <div><b>${esc(f.name)}</b>${f.an?"":' <span class="leise klein">— ' + txt("pf.ruht") + '</span>'}</div>
         <div class="leise klein">${esc(f.adresse)} · ${esc(f.server)}:${f.port}
-          · Kennung <code>${esc(f.id)}</code>
-          · ${f.passwort_gesetzt?"Passwort hinterlegt":"<b>kein Passwort</b>"}</div>
+          · ${txt("pf.kennung")} <code>${esc(f.id)}</code>
+          · ${f.passwort_gesetzt ? txt("pf.passwort_da") : "<b>" + txt("pf.passwort_fehlt") + "</b>"}</div>
       </div>
       <div class="knopfreihe" style="margin:0">
         <button class="leisetaste" onclick="tu('postfach_schalten',{id:'${esc(f.id)}',an:${!f.an}})">
-          ${f.an?"ruhen lassen":"einschalten"}</button>
-        <button class="leisetaste" onclick="pfBearbeiten('${esc(f.id)}')">ändern</button>
+          ${f.an ? txt("pf.ruhen") : txt("pf.einschalten")}</button>
+        <button class="leisetaste" onclick="pfBearbeiten('${esc(f.id)}')">${txt("pf.aendern")}</button>
         <button class="leisetaste" style="color:var(--kritisch)"
-          onclick="pfEntfernen('${esc(f.id)}','${esc(f.name)}')">entfernen</button>
+          onclick="pfEntfernen('${esc(f.id)}','${esc(f.name)}')">${txt("pf.entfernen")}</button>
       </div>
     </div>`).join("");
-  return (zeilen || '<div class="leise klein">Noch keins.</div>') + `
+  return (zeilen || '<div class="leise klein">' + txt("pf.keins") + '</div>') + `
     <div class="knopfreihe">
-      <button class="haupt" onclick="pfBearbeiten('')">+ Postfach hinzufügen</button>
+      <button class="haupt" onclick="pfBearbeiten('')">${txt("pf.hinzufuegen")}</button>
     </div>
     <div id="pfform"></div>`;
 }
@@ -1283,26 +1302,26 @@ function pfBearbeiten(id){
   $("#pfform").innerHTML = `
     <div style="border-top:1px solid var(--rand);margin-top:.8rem;padding-top:.8rem">
       <div class="feldpaar">
-        <div style="flex:2 1 15rem"><label for="pf_adresse">E-Mail-Adresse</label>
+        <div style="flex:2 1 15rem"><label for="pf_adresse">${txt("pf.mail")}</label>
           <input id="pf_adresse" value="${esc(f.adresse||"")}" ${neu?"":"readonly"}
                  placeholder="post@beispiel.de" oninput="pfServerRaten()"></div>
-        <div style="flex:1 1 10rem"><label for="pf_name">Anzeigename</label>
-          <input id="pf_name" value="${esc(f.name||"")}" placeholder="Privat"></div>
+        <div style="flex:1 1 10rem"><label for="pf_name">${txt("pf.name")}</label>
+          <input id="pf_name" value="${esc(f.name||"")}" placeholder="${txt("pf.name_beispiel")}"></div>
       </div>
       <div class="feldpaar">
-        <div style="flex:2 1 14rem"><label for="pf_server">IMAP-Server</label>
+        <div style="flex:2 1 14rem"><label for="pf_server">${txt("pf.server")}</label>
           <input id="pf_server" value="${esc(f.server||"")}" placeholder="imap.beispiel.de"></div>
         <div style="flex:0 0 6rem"><label for="pf_port">Port</label>
           <input id="pf_port" type="number" value="${f.port||993}"></div>
-        <div style="flex:1 1 12rem"><label for="pf_passwort">Passwort</label>
+        <div style="flex:1 1 12rem"><label for="pf_passwort">${txt("allg.passwort")}</label>
           <input id="pf_passwort" type="password" autocomplete="new-password"
-                 placeholder="${f.passwort_gesetzt?"hinterlegt — leer lassen":"…"}"></div>
+                 placeholder="${f.passwort_gesetzt ? txt("allg.hinterlegt") : "…"}"></div>
       </div>
-      <div class="leise klein" style="margin-top:.5rem">Beim Speichern wird die
-        Verbindung sofort geprüft. ${neu?"":"Die Kennung <code>"+esc(id)+"</code> bleibt — an ihr hängt der gelernte Stand."}</div>
+      <div class="leise klein" style="margin-top:.5rem">${txt("pf.prueft")}
+        ${neu ? "" : txt("pf.kennung_bleibt", {id: "<code>" + esc(id) + "</code>"})}</div>
       <div class="knopfreihe">
-        <button class="haupt" onclick="pfSpeichern('${esc(id)}')">Prüfen und speichern</button>
-        <button class="leisetaste" onclick="$('#pfform').innerHTML=''">abbrechen</button>
+        <button class="haupt" onclick="pfSpeichern('${esc(id)}')">${txt("pf.speichern")}</button>
+        <button class="leisetaste" onclick="$('#pfform').innerHTML=''">${txt("allg.abbrechen")}</button>
       </div>
     </div>`;
   $("#pf_adresse").focus();
@@ -1322,55 +1341,46 @@ async function pfSpeichern(id){
   if(a.ok) $("#pfform").innerHTML = "";
 }
 async function pfEntfernen(id, name){
-  if(!confirm("„" + name + "“ aus der Liste nehmen?\n\nDer gelernte Stand bleibt "
-              + "erhalten — wer es wieder anlegt, ist sofort wieder da.")) return;
+  if(!confirm(txt("pf.entfernen_frage", {name: name}))) return;
   await tu("postfach_entfernen", {id:id});
 }
 
 /* ═══ Urteilshilfe ════════════════════════════════════════════════════════ */
-const KI_TEXT = {
-  aus:        ["aus", "Der Wächter entscheidet allein. Unklare Mails stehen auf der Seite."],
-  ollama:     ["lokales Modell (Ollama)", "Läuft auf deinem eigenen Rechner. <b>Nichts verlässt das Haus.</b>"],
-  openai:     ["OpenAI", "Absender und Betreff gehen an OpenAI. Kostet je Anfrage."],
-  anthropic:  ["Anthropic", "Absender und Betreff gehen an Anthropic. Kostet je Anfrage."],
-  werkstatt:  ["Werkstatt", "Legt die Fälle einem eigenen Agenten hin (nur dieses Haus)."],
-};
+function kiName(a){ return txt("ki.name." + a); }
+function kiHilfe(a){ return txt("ki.hilfe." + a); }
 let ki_tippt_bis = 0;
 function kiTippt(){ return Date.now() < ki_tippt_bis; }
 function bauKI(){
   const k = L.ki || {anbieter:"aus"};
   const wahl = (k.anbieter_liste || ["aus"]).map(a =>
-    `<option value="${a}" ${a===k.anbieter?"selected":""}>${(KI_TEXT[a]||[a])[0]}</option>`).join("");
+    `<option value="${a}" ${a===k.anbieter?"selected":""}>${esc(kiName(a))}</option>`).join("");
   const dienst = (k.anbieter === "openai" || k.anbieter === "anthropic");
   const eigen  = (k.anbieter === "ollama");
   const feld = (dienst || eigen) ? `
     <div class="feldpaar" style="margin-top:.6rem">
-      <div style="flex:2 1 15rem"><label for="ki_url">Adresse</label>
+      <div style="flex:2 1 15rem"><label for="ki_url">${txt("allg.adresse")}</label>
         <input id="ki_url" value="${esc(k.url||"")}" oninput="ki_tippt_bis=Date.now()+20000"></div>
-      <div style="flex:1 1 12rem"><label for="ki_modell">Modell</label>
+      <div style="flex:1 1 12rem"><label for="ki_modell">${txt("ki.modell")}</label>
         <input id="ki_modell" value="${esc(k.modell||"")}" oninput="ki_tippt_bis=Date.now()+20000"></div>
-      ${dienst ? `<div style="flex:1 1 12rem"><label for="ki_schluessel">Schlüssel</label>
+      ${dienst ? `<div style="flex:1 1 12rem"><label for="ki_schluessel">${txt("ki.schluessel")}</label>
         <input id="ki_schluessel" type="password" autocomplete="new-password"
-               placeholder="${k.schluessel_gesetzt?"hinterlegt — leer lassen":"…"}"
+               placeholder="${k.schluessel_gesetzt ? txt("allg.hinterlegt") : "…"}"
                oninput="ki_tippt_bis=Date.now()+20000"></div>` : ""}
     </div>` : "";
   const stand = k.anbieter === "aus" ? "" :
     `<div class="leise klein" style="margin-top:.5rem">${k.bereit
-      ? "✓ eingerichtet" : "⚠ " + esc(k.grund || "unvollständig")}</div>`;
+      ? "✓ " + txt("ki.bereit") : "⚠ " + esc(k.grund || txt("ki.unvollstaendig"))}</div>`;
   return `
-    <div class="leise klein">Wenn Mails in keine Schublade passen, kann ein
-      Sprachmodell <b>Regeln vorschlagen</b>. Es sortiert nichts — übernehmen tust du.
-      <br>🔴 Hinaus gehen nur <b>Absender, Name, Betreff</b> und die Begründung.
-      Nie der Text der Mail, nie ein Anhang.</div>
+    <div class="leise klein">${txt("ki.hilfe")}</div>
     <div class="feldpaar" style="margin-top:.7rem">
-      <div style="flex:1 1 14rem"><label for="ki_anbieter">Anbieter</label>
+      <div style="flex:1 1 14rem"><label for="ki_anbieter">${txt("ki.anbieter")}</label>
         <select id="ki_anbieter" onchange="kiAnbieterWechsel()">${wahl}</select></div>
     </div>
-    <div class="leise klein" style="margin-top:.4rem">${(KI_TEXT[k.anbieter]||["",""])[1]}</div>
+    <div class="leise klein" style="margin-top:.4rem">${kiHilfe(k.anbieter)}</div>
     ${feld}${stand}
     <div class="knopfreihe">
-      <button class="haupt" onclick="kiSpeichern()">Speichern</button>
-      <button class="leisetaste" onclick="tu('ki_pruefen',{})">Verbindung prüfen</button>
+      <button class="haupt" onclick="kiSpeichern()">${txt("allg.speichern")}</button>
+      <button class="leisetaste" onclick="tu('ki_pruefen',{})">${txt("allg.pruefen")}</button>
     </div>`;
 }
 async function kiAnbieterWechsel(){
@@ -1396,8 +1406,8 @@ function bauVorschlaege(){
         <div class="leise klein">${esc(x.warum)}</div>
       </div>
       <div class="knopfreihe" style="margin:0">
-        <button class="haupt" onclick="tu('vorschlag_uebernehmen',{absender:'${esc(x.absender)}',schublade:'${esc(x.schublade)}'})">übernehmen</button>
-        <button class="leisetaste" onclick="tu('vorschlag_verwerfen',{absender:'${esc(x.absender)}'})">verwerfen</button>
+        <button class="haupt" onclick="tu('vorschlag_uebernehmen',{absender:'${esc(x.absender)}',schublade:'${esc(x.schublade)}'})">${txt("vorschlag.uebernehmen")}</button>
+        <button class="leisetaste" onclick="tu('vorschlag_verwerfen',{absender:'${esc(x.absender)}'})">${txt("vorschlag.verwerfen")}</button>
       </div>
     </div>`).join("");
 }
@@ -1407,29 +1417,26 @@ let umg_tippt_bis = 0;
 function umgTippt(){ return Date.now() < umg_tippt_bis; }
 function bauUmgebung(){
   const k = L.konfig || {};
-  const t = ' oninput="umg_tippt_bis=Date.now()+20000"';
+  const tippmerker = ' oninput="umg_tippt_bis=Date.now()+20000"';
   return `
     <div class="feldpaar">
-      <div style="flex:2 1 18rem"><label for="u_seite">Adresse dieser Seite</label>
-        <input id="u_seite" value="${esc(k.seite||"")}"${t}></div>
-      <div style="flex:1 1 12rem"><label for="u_imap">IMAP-Server (Vorgabe)</label>
-        <input id="u_imap" value="${esc(k.imap_server||"")}" placeholder="aus der Adresse"${t}></div>
+      <div style="flex:2 1 18rem"><label for="u_seite">${txt("umg.seite")}</label>
+        <input id="u_seite" value="${esc(k.seite||"")}"${tippmerker}></div>
+      <div style="flex:1 1 12rem"><label for="u_imap">${txt("umg.imap")}</label>
+        <input id="u_imap" value="${esc(k.imap_server||"")}" placeholder="${txt("umg.imap_platzhalter")}"${tippmerker}></div>
     </div>
-    <div class="leise klein" style="margin-top:.4rem">Die Seitenadresse steht in
-      jeder Telegram-Nachricht. Stimmt sie nicht, führen die Links ins Leere.</div>
+    <div class="leise klein" style="margin-top:.4rem">${txt("umg.seite_hilfe")}</div>
     <div class="feldpaar" style="margin-top:.8rem">
       <div style="flex:1 1 13rem"><label for="u_ha">Home Assistant</label>
-        <input id="u_ha" value="${esc(k.ha_url||"")}" placeholder="leer = ohne"${t}></div>
-      <div style="flex:1 1 14rem"><label for="u_hatok">Token-Datei</label>
-        <input id="u_hatok" value="${esc(k.ha_token_datei||"")}" placeholder="leer = ohne"${t}></div>
-      <div style="flex:1 1 13rem"><label for="u_haschalter">Notaus-Schalter</label>
-        <input id="u_haschalter" value="${esc(k.ha_schalter||"")}" placeholder="input_boolean.…"${t}></div>
+        <input id="u_ha" value="${esc(k.ha_url||"")}" placeholder="${txt("umg.leer_ohne")}"${tippmerker}></div>
+      <div style="flex:1 1 14rem"><label for="u_hatok">${txt("umg.token")}</label>
+        <input id="u_hatok" value="${esc(k.ha_token_datei||"")}" placeholder="${txt("umg.leer_ohne")}"${tippmerker}></div>
+      <div style="flex:1 1 13rem"><label for="u_haschalter">${txt("umg.schalter")}</label>
+        <input id="u_haschalter" value="${esc(k.ha_schalter||"")}" placeholder="input_boolean.…"${tippmerker}></div>
     </div>
-    <div class="leise klein" style="margin-top:.4rem">${k.ha_an
-      ? "✓ angebunden — der Schalter am Handy legt die Postwache still."
-      : "Ohne Home Assistant. Der Notaus geht dann über die Datei <code>DISABLED</code>."}</div>
+    <div class="leise klein" style="margin-top:.4rem">${k.ha_an ? txt("umg.ha_an") : txt("umg.ha_aus")}</div>
     <div class="knopfreihe">
-      <button class="haupt" onclick="umgSpeichern()">Speichern</button>
+      <button class="haupt" onclick="umgSpeichern()">${txt("allg.speichern")}</button>
     </div>`;
 }
 async function umgSpeichern(){
@@ -1484,11 +1491,13 @@ async function hole(){
     if(!umgTippt()) male("#umgebung", [L.konfig], bauUmgebung);
     $("#vorschlagkarte").hidden = !(L.vorschlaege || []).length;
     male("#vorschlaege", [L.vorschlaege], bauVorschlaege);
+    male("#sprachen", [LANG], bauSprachen);
   }catch(e){
-    $("#unterzeile").textContent = "Seite nicht erreichbar.";
+    $("#unterzeile").textContent = txt("allg.seite_tot");
   }finally{ laden_laeuft = false; }
 }
 
+textenSetzen();
 zeigeAnsicht(ANSICHT);
 hole();
 setInterval(hole, 30000);

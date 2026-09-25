@@ -213,6 +213,25 @@ def schalter_zustand():
         return None
 
 
+def seite_mit_sprache(html: str) -> str:
+    """Die Texttabelle in die Seite legen, bevor sie ausgeliefert wird.
+
+    🔴 Nicht per zweitem Abruf: die Seite wuerde sonst einen Wimpernschlag lang
+    in Schluesseln dastehen („kopf.titel" statt „Postwache"), und genau dieser
+    Wimpernschlag ist das, was man auf einem Telefon sieht. Die Tabelle steht im
+    ersten Byte der Antwort.
+    """
+    if W is None:
+        return html
+    code = W.sprache()
+    kopf = ("const T = %s;\nconst LANG = %s;\nconst SPRACHEN = %s;"
+            % (json.dumps(W.alle_texte(code), ensure_ascii=False),
+               json.dumps(code),
+               json.dumps([[c, W.SPRACHNAMEN[c]] for c in W.SPRACHEN])))
+    html = html.replace("/*SPRACHE*/", kopf, 1)
+    return html.replace('<html lang="de"', '<html lang="%s"' % code, 1)
+
+
 def lage():
     gewaehlt = aktives_pf()
     pf_waehlen(gewaehlt)
@@ -268,10 +287,12 @@ def lage():
         "vorschlaege": (vorschlaege_lesen().get("liste") or [])[:40],
         "konfig": konfig_kurz(),
         "heimatlos": heimatlose(),
+        # 🔴 Nicht SCHUBLADEN direkt: die Namen darin sind der deutsche
+        # Rueckfall. Uebersetzt wird an EINER Stelle, im Waechter.
         "schubladen": {k: {"name": v["name"], "icon": v["icon"],
                            "alarm": k in ALARM, "laerm": k in LAERM,
                            "verschiebbar": k in LAERM}
-                       for k, v in SCHUBLADEN.items()},
+                       for k, v in (W.schubladen_namen() if W else SCHUBLADEN).items()},
         "heute": tag,
         "heute_gesamt": sum(int(v) for v in tag.values()),
         "wuerde_aussortieren": wuerde,
@@ -825,6 +846,11 @@ def konfig_speichern(d: dict) -> dict:
         k["seite"] = str(d.get("seite") or "").strip().rstrip("/")
     if "imap_server" in d:
         k["imap_server"] = str(d.get("imap_server") or "").strip()
+    if "sprache" in d:
+        code = str(d.get("sprache") or "").strip().lower()
+        if W is not None and code not in W.SPRACHEN:
+            return {"ok": False, "text": "Diese Sprache kenne ich nicht."}
+        k["sprache"] = code
     if "werkstatt" in d:
         k["werkstatt"] = str(d.get("werkstatt") or "").strip()
     if any(x in d for x in ("ha_url", "ha_token_datei", "ha_schalter")):
@@ -845,7 +871,7 @@ def konfig_kurz() -> dict:
     if W is None:
         return {}
     k = W.konfig()
-    return {"seite": k["seite"], "imap_server": k["imap_server"],
+    return {"sprache": k["sprache"], "seite": k["seite"], "imap_server": k["imap_server"],
             "werkstatt": k["werkstatt"], "ha_url": k["ha"]["url"],
             "ha_token_datei": k["ha"]["token_datei"], "ha_schalter": k["ha"]["schalter"],
             "ha_an": W.ha_an()}
@@ -1382,7 +1408,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             try:
                 with open(neben_dem_programm("post_web.html"), encoding="utf-8") as fh:
-                    return self._sende(200, fh.read(), "text/html; charset=utf-8")
+                    return self._sende(200, seite_mit_sprache(fh.read()),
+                                       "text/html; charset=utf-8")
             except OSError as e:
                 return self._sende(500, "Seite fehlt: %s" % e, "text/plain; charset=utf-8")
         self._sende(404, {"fehler": "nicht gefunden"})

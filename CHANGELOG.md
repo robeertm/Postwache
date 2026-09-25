@@ -7,6 +7,41 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [3.1.0] – 2026-09-25
+
+### Added
+- **Five languages: German, English, Spanish, French, Italian.** One click in
+  the settings changes everything — the page, the drawer names, the history,
+  the daily summary and every Telegram message. 288 keys per language, none
+  missing.
+- Strings live in `locales/<code>.json`, flat key/value, **next to the program**
+  rather than in the state directory: they belong to the code. The table is
+  placed **into the page** as it is served, not fetched afterwards — otherwise
+  the page stands there in raw keys for a blink, and on a phone that blink is
+  what you see.
+- 🔴 **The language is a setting of the installation, not a cookie.** The
+  watchman writes its history and its messages when nobody is looking; a cookie
+  cannot tell it which language to use.
+- Date and time formatting follow the language. An English page with German
+  dates looks like a job half done.
+- `probe_sprachen.py`: every language knows every key, no orphans, and
+  **placeholders survive translation** (a lost `{n}` means a missing number in
+  the sentence). It also refuses to pass while a German sentence is left in the
+  JavaScript — which is exactly the half that gets forgotten.
+
+### Fixed
+- 🔴 A **local variable named `t`** shadowed the translation function for a
+  whole block — six places in the JavaScript, a dozen in the watchman. The
+  function is now called `txt()`: two characters more, and the whole class of
+  bug is gone.
+- 🔴 **The fallback destroyed the normal case.** `if (typeof T === "undefined")
+  { var T = {} … }` collides with the injected `const T`: "Identifier 'T' has
+  already been declared". That is a *parse* error, so **not one line** of the
+  script runs — while the page still looks almost normal, because the static
+  HTML is there. Only the empty buttons give it away.
+- The deployment did not carry `locales/` along. The page would have shown its
+  keys, and nothing would have reported it.
+
 ## [3.0.0] – 2026-09-25
 
 First public release.
