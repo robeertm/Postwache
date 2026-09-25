@@ -124,6 +124,17 @@ button.haupt{background:var(--akzent);border-color:var(--akzent);color:#2a1d0a;f
 button.haupt:hover{filter:brightness(1.08);background:var(--akzent)}
 button.leisetaste{background:transparent;color:var(--leise)}
 button:disabled{opacity:.45;cursor:not-allowed}
+/* 🔴 Der Regelsatz oben heisst `button.leisetaste` — ein <a> mit derselben
+   Klasse waere sonst ein blauer Link zwischen zwei Knoepfen. Ein Download
+   MUSS aber ein <a download> sein, ein Knopf kann keine Datei holen. */
+a.leisetaste{display:inline-block;text-decoration:none;font:inherit;
+  color:var(--leise);background:transparent;border:1px solid var(--rand);
+  border-radius:.7rem;padding:.5rem .9rem;
+  transition:background .15s ease,border-color .15s ease}
+a.leisetaste:hover{background:rgba(255,255,255,.12)}
+/* Eine Karte in der Karte: abgesetzt, aber nicht noch einmal aufgeschlagen. */
+.unterkarte{background:rgba(255,255,255,.04);border:1px solid var(--rand);
+  border-radius:.9rem;padding:.85rem .9rem}
 input,select{font:inherit;color:var(--text);background:rgba(255,255,255,.06);
   border:1px solid var(--rand);border-radius:.7rem;padding:.55rem .7rem;width:100%}
 input:focus,select:focus{outline:2px solid var(--akzent);outline-offset:1px}
@@ -1381,7 +1392,65 @@ function bauKI(){
     <div class="knopfreihe">
       <button class="haupt" onclick="kiSpeichern()">${txt("allg.speichern")}</button>
       <button class="leisetaste" onclick="tu('ki_pruefen',{})">${txt("allg.pruefen")}</button>
-    </div>`;
+    </div>
+    ${(eigen || k.anbieter === "aus") ? bauKILokal() : ""}`;
+}
+
+/* ── Lokales Modell in einem Klick ─────────────────────────────────────────
+   Zwei Wege, und beide enden an derselben Stelle: „such es" fuer den, der
+   schon eine Ollama hat, „richte es ein" fuer den, der keine hat. */
+function bauKILokal(){
+  return `
+  <div class="unterkarte" style="margin-top:1rem">
+    <div class="klein" style="font-weight:600">🖥 ${txt("ki.lokal.titel")}</div>
+    <div class="leise klein" style="margin-top:.3rem">${txt("ki.lokal.hilfe")}</div>
+    <div class="knopfreihe" style="margin-top:.6rem">
+      <button class="leisetaste" id="ki_suchknopf"
+              onclick="kiSuchen()">🔍 ${txt("ki.lokal.suchen")}</button>
+    </div>
+    <div id="ki_funde"></div>
+    <div class="leise klein" style="margin-top:.9rem">${txt("ki.lokal.einrichten_hilfe")}</div>
+    <div class="knopfreihe" style="margin-top:.4rem">
+      <a class="leisetaste" href="/api/installer?os=mac" download>⬇ macOS</a>
+      <a class="leisetaste" href="/api/installer?os=windows" download>⬇ Windows</a>
+      <a class="leisetaste" href="/api/installer?os=linux" download>⬇ Linux</a>
+    </div>
+    <div class="leise klein" style="margin-top:.5rem">${txt("ki.lokal.hinweise")}</div>
+    <div class="leise klein" style="margin-top:.4rem">⚠ ${txt("ki.lokal.warnung")}</div>
+  </div>`;
+}
+
+/* 🔴 Die Funde stehen NICHT in L — sonst zeichnete sie die Signaturpruefung
+   beim naechsten Abruf wieder weg. Sie werden direkt in ihr Feld gesetzt und
+   verschwinden genau dann, wenn sich die Urteilshilfe wirklich aendert. */
+async function kiSuchen(){
+  const knopf = $("#ki_suchknopf");
+  const feld  = $("#ki_funde");
+  if(knopf){ knopf.disabled = true; knopf.textContent = txt("ki.lokal.sucht"); }
+  let a = {ok:false};
+  try{ a = await sende("ki_suchen", {}); }catch(e){ }
+  if(knopf){ knopf.disabled = false; knopf.textContent = "🔍 " + txt("ki.lokal.suchen"); }
+  melde(a.text || txt("allg.ging_nicht"), !!a.ok);
+  if(!feld) return;
+  const funde = a.fundstellen || [];
+  if(!funde.length){ feld.innerHTML = ""; return; }
+  feld.innerHTML = funde.map((f, i) => `
+    <div class="feldpaar" style="margin-top:.6rem;align-items:flex-end">
+      <div style="flex:2 1 15rem"><label>${txt("allg.adresse")}</label>
+        <input value="${esc(f.url)}" readonly></div>
+      <div style="flex:1 1 12rem"><label for="ki_fund_${i}">${txt("ki.modell")}</label>
+        <select id="ki_fund_${i}">${f.modelle.map(m =>
+          `<option value="${esc(m)}" ${m===f.vorschlag?"selected":""}>${esc(m)}</option>`
+        ).join("")}</select></div>
+      <div><button class="haupt" onclick="kiNehmen(${i}, '${esc(f.url)}')">${
+        txt("ki.lokal.uebernehmen")}</button></div>
+    </div>`).join("");
+}
+
+async function kiNehmen(i, url){
+  const w = $("#ki_fund_" + i);
+  ki_tippt_bis = 0;
+  await tu("ki_uebernehmen", {url: url, modell: w ? w.value : ""});
 }
 async function kiAnbieterWechsel(){
   ki_tippt_bis = 0;

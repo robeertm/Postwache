@@ -17,6 +17,7 @@ ohne Anmeldung auszubreiten.
 from __future__ import annotations
 
 import imaplib
+import io
 import json
 import os
 import re
@@ -27,6 +28,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -70,6 +72,16 @@ def _version() -> str:
             return fh.read().strip() or "?"
     except OSError:
         return "?"
+
+
+def txt(schluessel: str, **werte) -> str:
+    """Ein Text in der eingestellten Sprache.
+
+    🔴 Ohne Waechter kommt der SCHLUESSEL zurueck, nicht eine leere Zeichen-
+    kette: eine Antwort, die „a.kein_postfach" sagt, faellt sofort auf. Eine
+    leere faellt nie auf. Und sie heisst `txt`, nicht `t` — ein `t` verdeckt
+    ueberall dort, wo eine Schleifenvariable `t` heisst, die Uebersetzung."""
+    return W.txt(schluessel, **werte) if W is not None else schluessel
 
 
 SCHUBLADEN = (W.SCHUBLADEN if W else {})
@@ -414,9 +426,9 @@ def nachziehen(adresse: str, ziel: str) -> dict:
         return {"bewegt": 0, "text": ""}
     einst = W.einstellungen()
     if not einst.get("scharf"):
-        return {"bewegt": 0, "text": " (Lernlauf — es wird nichts verschoben.)"}
+        return {"bewegt": 0, "text": " " + txt("a.lernlauf")}
     if os.path.exists(DISABLED):
-        return {"bewegt": 0, "text": " (Notaus ist gesetzt.)"}
+        return {"bewegt": 0, "text": " " + txt("a.notaus_kurz")}
     adresse = (adresse or "").strip().lower()
     if not adresse or not ziel:
         return {"bewegt": 0, "text": ""}
@@ -482,16 +494,16 @@ def ordner_anlegen(d: dict) -> dict:
     Waechter: eine Struktur zu aendern ist eine Entscheidung, keine Ableitung.
     """
     if not W:
-        return {"ok": False, "text": "Waechter nicht ladbar."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     name = str(d.get("ordner") or "").strip().strip("/")
     adresse = str(d.get("adresse") or "").strip().lower()
     if not name:
         return {"ok": False, "text": "Kein Ordnername angegeben."}
     if len(name) > 60 or re.search(r"[\\\"\x00-\x1f]", name):
-        return {"ok": False, "text": "Dieser Ordnername geht nicht."}
+        return {"ok": False, "text": txt("a.ordnername")}
     zug = W.zugang()
     if not zug.get("adresse"):
-        return {"ok": False, "text": "Kein Postfach eingerichtet."}
+        return {"ok": False, "text": txt("a.kein_postfach")}
     try:
         with W.Postfach(zug, True) as pf:
             vorhanden = set(pf.ordner_liste())
@@ -504,9 +516,9 @@ def ordner_anlegen(d: dict) -> dict:
                 typ, antw = pf.m.create(pf._zitat(voll))
                 if typ != "OK":
                     return {"ok": False,
-                            "text": "Postfach lehnt ab: %s"
-                                    % (antw[0].decode(errors="replace")[:120]
-                                       if antw else "?")}
+                            "text": txt("a.postfach_lehnt_ab",
+                                        fehler=(antw[0].decode(errors="replace")[:120]
+                                                if antw else "?"))}
                 try:
                     pf.m.subscribe(pf._zitat(voll))
                 except Exception:
@@ -533,40 +545,38 @@ def ordner_anlegen(d: dict) -> dict:
 def statistik_neu(_d) -> dict:
     """Die Zahlen sofort neu rechnen. READONLY — eine Statistik fasst nichts an."""
     if not W:
-        return {"ok": False, "text": "Waechter nicht ladbar."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     zug = W.zugang()
     if not zug.get("adresse"):
-        return {"ok": False, "text": "Kein Postfach eingerichtet."}
+        return {"ok": False, "text": txt("a.kein_postfach")}
     try:
         with W.Postfach(zug, False) as pf:      # readonly
             k = W.statistik_lernen(pf)
         W.save(W.STATISTIK, k)
         return {"ok": True,
-                "text": "%d Mails aus %d Ordnern gelesen (%s bis %s), "
-                        "Schnitt %.1f pro Tag."
-                        % (k["mails"], k["ordner"], k["von"], k["bis"],
-                           k["schnitt_pro_tag"])}
+                "text": txt("a.statistik", mails=k["mails"], ordner=k["ordner"],
+                            von=k["von"], bis=k["bis"],
+                            schnitt="%.1f" % k["schnitt_pro_tag"])}
     except Exception as e:
-        return {"ok": False, "text": "Statistik fehlgeschlagen: %s" % str(e)[:160]}
+        return {"ok": False, "text": txt("a.statistik_fehler", fehler=str(e)[:160])}
 
 
 def neu_lernen(_d) -> dict:
     """Die Landkarte sofort neu bauen. Dauert Sekunden bis Minuten — deshalb
     laeuft es sonst nur einmal am Tag."""
     if not W:
-        return {"ok": False, "text": "Waechter nicht ladbar."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     zug = W.zugang()
     if not zug.get("adresse"):
-        return {"ok": False, "text": "Kein Postfach eingerichtet."}
+        return {"ok": False, "text": txt("a.kein_postfach")}
     try:
         with W.Postfach(zug, False) as pf:     # READONLY — Lernen veraendert nie etwas
             k = W.ablage_lernen(pf)
         W.save(W.ABLAGE, k)
         return {"ok": True,
-                "text": "%d Mails aus %d Ordnern gelesen, %d Absender eindeutig "
-                        "(%.0f%% Deckung)."
-                        % (k["mails"], len(k["ordner"]), len(k["absender"]),
-                           k["deckung"])}
+                "text": txt("a.gelernt", mails=k["mails"], ordner=len(k["ordner"]),
+                            absender=len(k["absender"]),
+                            deckung="%.0f" % k["deckung"])}
     except Exception as e:
         return {"ok": False, "text": "Lernen fehlgeschlagen: %s" % str(e)[:160]}
 
@@ -589,7 +599,7 @@ def tg_lage() -> dict:
                 d = json.loads(r.read().decode("utf-8", "replace"))
             name = "@" + (d.get("result") or {}).get("username", "?")
         except Exception:
-            name = "(Telegram antwortet nicht)"
+            name = txt("a.tg.stumm")
     return {"eigen": eigen, "bot": name, "chat_gesetzt": bool(chat),
             "chat": chat if chat else ""}
 
@@ -611,21 +621,21 @@ def tg_zugang_speichern(d: dict) -> dict:
         chat = str(alt.get("TELEGRAM_CHAT_ID") or "") or (
             W.tg_zugang("TELEGRAM_CHAT_ID") if W else "")
     if not tok:
-        return {"ok": False, "text": "Ohne Bot-Token geht es nicht."}
+        return {"ok": False, "text": txt("a.tg.kein_token")}
     if not chat:
-        return {"ok": False, "text": "Ohne Chat-ID weiss er nicht, wen er anfunken soll."}
+        return {"ok": False, "text": txt("a.tg.keine_chat")}
     # 1) Gehoert der Token zu einem echten Bot?
     try:
         with urllib.request.urlopen(
                 "https://api.telegram.org/bot%s/getMe" % tok, timeout=12) as r:
             g = json.loads(r.read().decode("utf-8", "replace"))
         if not g.get("ok"):
-            return {"ok": False, "text": "Telegram kennt diesen Token nicht."}
+            return {"ok": False, "text": txt("a.tg.token_unbekannt")}
         name = "@" + (g.get("result") or {}).get("username", "?")
     except urllib.error.HTTPError as e:
-        return {"ok": False, "text": "Telegram lehnt den Token ab (HTTP %s)." % e.code}
+        return {"ok": False, "text": txt("a.tg.token_abgelehnt", code=e.code)}
     except Exception as e:
-        return {"ok": False, "text": "Telegram nicht erreichbar: %s" % str(e)[:120]}
+        return {"ok": False, "text": txt("a.tg.nicht_erreichbar", fehler=str(e)[:120])}
     # 2) Erreicht er der Besitzer auch wirklich?
     try:
         req = urllib.request.Request(
@@ -643,15 +653,14 @@ def tg_zugang_speichern(d: dict) -> dict:
             pass
         if "chat not found" in grund.lower():
             return {"ok": False,
-                    "text": "%s erreicht dich noch nicht. Oeffne den Bot in Telegram "
-                            "und druecke einmal Start — vorher darf er dir nicht "
-                            "schreiben." % name}
-        return {"ok": False, "text": "%s kann nicht senden: %s" % (name, grund[:140])}
+                    "text": txt("a.tg.kein_start", name=name)}
+        return {"ok": False, "text": txt("a.tg.sendet_nicht", name=name,
+                                         fehler=grund[:140])}
     except Exception as e:
-        return {"ok": False, "text": "Senden fehlgeschlagen: %s" % str(e)[:140]}
+        return {"ok": False, "text": txt("a.tg.senden_fehler", fehler=str(e)[:140])}
     schreibe("telegram_zugang.json",
              {"TELEGRAM_BOT_TOKEN": tok, "TELEGRAM_CHAT_ID": chat}, 0o600)
-    return {"ok": True, "text": "%s ist eingetragen und hat dir gerade geschrieben." % name}
+    return {"ok": True, "text": txt("a.tg.gut", name=name)}
 
 
 # ── Aktionen ──────────────────────────────────────────────────────────────────
@@ -673,7 +682,7 @@ def postfach_speichern(d: dict) -> dict:
 
     if not vorhanden:
         if not adresse or "@" not in adresse:
-            return {"ok": False, "text": "Das sieht nicht nach einer Adresse aus."}
+            return {"ok": False, "text": txt("a.keine_adresse")}
         if not pid:
             stamm = re.sub(r"[^a-z0-9]", "", adresse.split("@")[0].lower()) or "postfach"
             pid, n = stamm, 2
@@ -684,7 +693,7 @@ def postfach_speichern(d: dict) -> dict:
 
     passwort = str(d.get("passwort") or "") or (vorhanden or {}).get("passwort") or ""
     if not passwort:
-        return {"ok": False, "text": "Ohne Passwort geht es nicht."}
+        return {"ok": False, "text": txt("a.kein_passwort")}
     server = (str(d.get("server") or "").strip()
               or (vorhanden or {}).get("server") or W._server_raten(adresse))
     try:
@@ -717,7 +726,7 @@ def postfach_entfernen(d: dict) -> dict:
     pid = str(d.get("id") or "").strip()
     liste = [e for e in pf_liste() if e["id"] != pid]
     if len(liste) == len(pf_liste()):
-        return {"ok": False, "text": "Dieses Postfach gibt es nicht."}
+        return {"ok": False, "text": txt("a.pf_unbekannt")}
     schreibe("postfaecher.json", {"liste": liste}, 0o600)
     return {"ok": True, "text": "Entfernt. Der gelernte Stand bleibt erhalten — "
                                 "wer das Postfach wieder anlegt, ist sofort wieder da."}
@@ -729,7 +738,7 @@ def postfach_schalten(d: dict) -> dict:
     pid = str(d.get("id") or "").strip()
     liste = pf_liste()
     if not any(e["id"] == pid for e in liste):
-        return {"ok": False, "text": "Dieses Postfach gibt es nicht."}
+        return {"ok": False, "text": txt("a.pf_unbekannt")}
     for e in liste:
         if e["id"] == pid:
             e["an"] = bool(d.get("an"))
@@ -738,6 +747,17 @@ def postfach_schalten(d: dict) -> dict:
 
 
 # ── Urteilshilfe ─────────────────────────────────────────────────────────────
+# 🔑 Wer gerade fragt. Gesetzt an EINER Stelle (do_POST), gelesen von der
+# Ollama-Suche — genau wie das Postfach. Haette jede Aktion sich die Adresse
+# selbst geholt, muesste jede Aktion den Handler kennen.
+_KLIENT = ""
+
+
+def klient_merken(adresse: str) -> None:
+    global _KLIENT
+    _KLIENT = str(adresse or "").strip()
+
+
 def ki_kurz() -> dict:
     """Was die Seite ueber die Urteilshilfe wissen darf. 🔴 Nie den Schluessel,
     nur ob einer hinterlegt ist."""
@@ -757,7 +777,7 @@ def ki_speichern(d: dict) -> dict:
     if "anbieter" in d:
         a = str(d.get("anbieter") or "aus").strip().lower()
         if a not in (W.KI_ANBIETER if W else ("aus",)):
-            return {"ok": False, "text": "Diesen Anbieter kenne ich nicht."}
+            return {"ok": False, "text": txt("a.ki_anbieter_unbekannt")}
         # Anbieterwechsel setzt Adresse und Modell auf die Vorgaben des neuen —
         # sonst bliebe die Ollama-Adresse stehen, wenn jemand auf OpenAI wechselt.
         if a != k.get("anbieter"):
@@ -773,7 +793,7 @@ def ki_speichern(d: dict) -> dict:
     if d.get("schluessel_loeschen"):
         k.pop("schluessel", None)
     schreibe("ki.json", k, 0o600)          # 🔴 0600 wie jeder andere Zugang
-    return {"ok": True, "text": "Gespeichert.", "ki": ki_kurz()}
+    return {"ok": True, "text": txt("a.gespeichert"), "ki": ki_kurz()}
 
 
 def ki_pruefen(_d=None) -> dict:
@@ -781,27 +801,65 @@ def ki_pruefen(_d=None) -> dict:
     sondern „antwortet" — ein Dienst, der 200 auf die Startseite gibt, aber das
     Modell nicht kennt, waere sonst gruen."""
     if W is None:
-        return {"ok": False, "text": "Waechter nicht geladen."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     ok, grund = W.ki_bereit()
     if not ok:
         return {"ok": False, "text": grund}
     if W.ki_konfig()["anbieter"] == "werkstatt":
-        return {"ok": True, "text": "Werkstatt-Ordner erreichbar."}
+        return {"ok": True, "text": txt("a.werkstatt_da")}
     t0 = time.time()
     try:
-        antwort = W.ki_fragen("Antworte mit genau einem Wort.", "Sag: bereit")
+        antwort = W.ki_fragen(txt("a.ki_probe_system"), txt("a.ki_probe_frage"))
     except Exception as e:
-        return {"ok": False, "text": "Keine Antwort: %s" % str(e)[:160]}
+        return {"ok": False, "text": txt("a.ki_keine_antwort", fehler=str(e)[:160])}
     dauer = time.time() - t0
     kurz = (antwort or "").strip().splitlines()[0][:60] if antwort else ""
     if not kurz:
-        return {"ok": False, "text": "Das Modell hat nichts geantwortet."}
-    return {"ok": True, "text": "Antwortet in %.1f s: „%s\u201c" % (dauer, kurz)}
+        return {"ok": False, "text": txt("a.ki_stumm")}
+    return {"ok": True, "text": txt("a.ki_antwortet", s="%.1f" % dauer, wort=kurz)}
 
 
 def vorschlaege_lesen() -> dict:
     v = lade(os.path.join(OUT, "vorschlaege.json"), {})
     return v if isinstance(v, dict) else {}
+
+
+def ki_suchen(_d=None) -> dict:
+    """Wo findet der WAECHTER ein lokales Modell?
+
+    🔴 Gesucht wird auf seiner Seite, nicht im Browser. Wer im Browser suchen
+    laesst, findet die Ollama auf dem eigenen Rechner und meldet „erreichbar",
+    waehrend der Waechter auf dem Pi nie hinkommt.
+    """
+    if W is None:
+        return {"ok": False, "text": txt("a.kein_waechter")}
+    # Der Rechner, der gerade die Seite offen hat, ist der wahrscheinlichste
+    # Ort fuer ein lokales Modell — er wird mitgefragt, sonst nichts.
+    gefunden = W.ollama_suchen([_KLIENT] if _KLIENT else [])
+    for e in gefunden:
+        e["vorschlag"] = W.ollama_taugliches(e["modelle"])
+    if not gefunden:
+        return {"ok": False, "text": W.txt("ki.lokal.nichts"), "fundstellen": []}
+    n = sum(len(e["modelle"]) for e in gefunden)
+    return {"ok": True, "fundstellen": gefunden,
+            "text": W.txt("ki.lokal.gefunden", n=n, wo=gefunden[0]["url"])}
+
+
+def ki_uebernehmen(d: dict) -> dict:
+    """Gefundene Adresse und Modell eintragen — und SOFORT nachfragen, ob es
+    wirklich antwortet. 🔴 „Gespeichert" ist nicht „funktioniert": genau
+    dieselbe Trennung wie bei einer Uebergabe an DocuSort."""
+    url = str(d.get("url") or "").strip().rstrip("/")
+    modell = str(d.get("modell") or "").strip()
+    if not url or not modell:
+        return {"ok": False, "text": (W.txt("ki.lokal.unvollstaendig") if W
+                                      else "Adresse oder Modell fehlt.")}
+    a = ki_speichern({"anbieter": "ollama", "url": url, "modell": modell})
+    if not a.get("ok"):
+        return a
+    probe = ki_pruefen()
+    return {"ok": bool(probe.get("ok")),
+            "text": probe.get("text") or a.get("text"), "ki": ki_kurz()}
 
 
 def vorschlag_uebernehmen(d: dict) -> dict:
@@ -849,7 +907,7 @@ def konfig_speichern(d: dict) -> dict:
     if "sprache" in d:
         code = str(d.get("sprache") or "").strip().lower()
         if W is not None and code not in W.SPRACHEN:
-            return {"ok": False, "text": "Diese Sprache kenne ich nicht."}
+            return {"ok": False, "text": txt("a.sprache_unbekannt")}
         k["sprache"] = code
     if "werkstatt" in d:
         k["werkstatt"] = str(d.get("werkstatt") or "").strip()
@@ -864,7 +922,7 @@ def konfig_speichern(d: dict) -> dict:
     schreibe("konfig.json", k)
     if W is not None:
         W._KONFIG_ZWISCHEN = None          # sofort wirksam, nicht erst beim Neustart
-    return {"ok": True, "text": "Gespeichert.", "konfig": konfig_kurz()}
+    return {"ok": True, "text": txt("a.gespeichert"), "konfig": konfig_kurz()}
 
 
 def konfig_kurz() -> dict:
@@ -900,16 +958,16 @@ def pruefen(adresse: str, passwort: str, server: str, port: int) -> dict:
             m.login(adresse, passwort)
             typ, daten = m.select("INBOX", readonly=True)
             anzahl = int(daten[0]) if typ == "OK" and daten and daten[0] else 0
-            return {"ok": True, "text": "%d Mails im Posteingang." % anzahl}
+            return {"ok": True, "text": txt("a.posteingang", n=anzahl)}
         finally:
             try:
                 m.logout()
             except Exception:
                 pass
     except imaplib.IMAP4.error as e:
-        return {"ok": False, "text": "Postfach lehnt ab: %s" % str(e)[:180]}
+        return {"ok": False, "text": txt("a.postfach_lehnt_ab", fehler=str(e)[:180])}
     except Exception as e:
-        return {"ok": False, "text": "Keine Verbindung: %s" % str(e)[:180]}
+        return {"ok": False, "text": txt("a.keine_verbindung", fehler=str(e)[:180])}
 
 
 def einstellung_setzen(d: dict) -> dict:
@@ -948,7 +1006,7 @@ def einstellung_setzen(d: dict) -> dict:
             bekannt = (st("ablage.json", {}) or {}).get("ordner") or {}
             if ordner not in bekannt:
                 return {"ok": False,
-                        "text": "Den Ordner %s gibt es in deinem Postfach nicht." % ordner}
+                        "text": txt("a.ordner_fehlt", ordner=ordner)}
             ar[a] = ordner
             # 🔑 An DIESER einen Stelle laufen alle Wege zusammen, auf denen eine
             # Absenderregel entsteht: der Knopf neben der Mail, „Hierhin" in der
@@ -962,8 +1020,8 @@ def einstellung_setzen(d: dict) -> dict:
     schreibe("einstellungen.json", e)
     if nachziehen_an:
         return {"ok": True,
-                "text": "Gespeichert." + nachziehen(*nachziehen_an)["text"]}
-    return {"ok": True, "text": "Gespeichert."}
+                "text": txt("a.gespeichert") + nachziehen(*nachziehen_an)["text"]}
+    return {"ok": True, "text": txt("a.gespeichert")}
 
 
 def notaus_datei(an: bool) -> dict:
@@ -971,12 +1029,12 @@ def notaus_datei(an: bool) -> dict:
         with open(DISABLED, "w", encoding="utf-8") as fh:
             fh.write("von der Uebersichtsseite gesetzt %s\n"
                      % datetime.now().isoformat(timespec="seconds"))
-        return {"ok": True, "text": "Notaus gesetzt — der Waechter ruehrt sich nicht mehr."}
+        return {"ok": True, "text": txt("a.notaus_an")}
     try:
         os.remove(DISABLED)
     except OSError:
         pass
-    return {"ok": True, "text": "Notaus aufgehoben."}
+    return {"ok": True, "text": txt("a.notaus_aus")}
 
 
 def schalten(an: bool) -> dict:
@@ -997,10 +1055,10 @@ def zuruecksortieren(eintraege: list) -> dict:
     """Verschiebungen rueckgaengig machen. Der Weg ZURUECK muss immer offen sein —
     sonst waere „erst Lernlauf, dann scharf" eine Einbahnstrasse."""
     if not W:
-        return {"ok": False, "text": "Waechter nicht ladbar."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     zug = W.zugang() if W else {}
     if not zug.get("adresse"):
-        return {"ok": False, "text": "Kein Postfach eingerichtet."}
+        return {"ok": False, "text": txt("a.kein_postfach")}
     journal = jsonl("journal.jsonl", 5000)
     gesucht = {(int(e.get("uid") or 0), str(e.get("nach") or "")) for e in eintraege}
     getan, fehler = 0, 0
@@ -1017,7 +1075,7 @@ def zuruecksortieren(eintraege: list) -> dict:
                 else:
                     fehler += 1
     except Exception as e:
-        return {"ok": False, "text": "Postfach: %s" % str(e)[:160]}
+        return {"ok": False, "text": txt("a.postfach", fehler=str(e)[:160])}
     try:
         tmp = os.path.join(OUT, "journal.jsonl.tmp")
         with open(tmp, "w", encoding="utf-8") as fh:
@@ -1026,8 +1084,8 @@ def zuruecksortieren(eintraege: list) -> dict:
     except OSError:
         pass
     return {"ok": getan > 0 or not fehler,
-            "text": "%d Mail(s) zurueck in den Posteingang%s."
-                    % (getan, ", %d fehlgeschlagen" % fehler if fehler else "")}
+            "text": txt("a.zurueck", n=getan,
+                        rest=(txt("a.zurueck_fehler", n=fehler) if fehler else ""))}
 
 
 def aufraeumen(d: dict) -> dict:
@@ -1048,16 +1106,16 @@ def aufraeumen(d: dict) -> dict:
     schon abgelegt hat oder wo sein Ordner den Absender beim Namen nennt.
     """
     if not W:
-        return {"ok": False, "text": "Waechter nicht ladbar."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     einst = W.einstellungen()
     if not einst.get("scharf"):
         return {"ok": False,
                 "text": "Er ist im Lernlauf. Erst „Wirklich sortieren\u201c einschalten."}
     if os.path.exists(DISABLED):
-        return {"ok": False, "text": "Notaus ist gesetzt."}
+        return {"ok": False, "text": txt("a.notaus_ist")}
     zug = W.zugang()
     if not zug.get("adresse"):
-        return {"ok": False, "text": "Kein Postfach eingerichtet."}
+        return {"ok": False, "text": txt("a.kein_postfach")}
     grenze = 500
     try:
         with W.Postfach(zug, True) as pf:
@@ -1107,8 +1165,8 @@ def aufraeumen(d: dict) -> dict:
               detail="%d von %d Mails einsortiert. Liegen geblieben: %s."
                      % (bewegt, gesehen, rest or "nichts"))
     return {"ok": True,
-            "text": "%d von %d Mails einsortiert. Liegen geblieben: %s."
-                    % (bewegt, gesehen, rest or "nichts")}
+            "text": txt("a.aufgeraeumt", bewegt=bewegt, gesehen=gesehen,
+                        rest=rest or txt("a.nichts"))}
 
 
 def jetzt_pruefen() -> dict:
@@ -1119,7 +1177,7 @@ def jetzt_pruefen() -> dict:
         return {"ok": r.returncode == 0,
                 "text": letzte[-1] if letzte else "Lauf beendet (rc=%s)." % r.returncode}
     except subprocess.TimeoutExpired:
-        return {"ok": False, "text": "Lauf dauert zu lange — laeuft im Hintergrund weiter."}
+        return {"ok": False, "text": txt("a.lauf_lang")}
     except Exception as e:
         return {"ok": False, "text": str(e)[:160]}
 
@@ -1151,7 +1209,7 @@ def ds_zugang_speichern(d: dict) -> dict:
             # 🔴 Nur HTTPS. Das Passwort dieses Zugangs geht ueber diese
             # Verbindung; DocuSort spricht ohnehin nur TLS (http:// gibt dort
             # gar keine Antwort).
-            return {"ok": False, "text": "Die Adresse muss mit https:// beginnen."}
+            return {"ok": False, "text": txt("a.https")}
         z["url"] = url
     if "benutzer" in d:
         z["benutzer"] = str(d.get("benutzer") or "").strip()
@@ -1165,30 +1223,29 @@ def ds_zugang_speichern(d: dict) -> dict:
         except (TypeError, ValueError):
             pass
     schreibe("docusort.json", z, 0o600)      # 🔴 0600, wie der Postfach-Zugang
-    return {"ok": True, "text": "Gespeichert."}
+    return {"ok": True, "text": txt("a.gespeichert")}
 
 
 def ds_pruefen(_d=None) -> dict:
     """Einmal wirklich anmelden. Ein gespeicherter Zugang, der nicht geht, ist
     schlimmer als keiner — er sieht auf der Seite genauso aus."""
     if not W:
-        return {"ok": False, "text": "Waechter nicht ladbar."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     ds, grund = W.ds_bereit()
     if ds is None:
         return {"ok": False, "text": "DocuSort ist %s." % grund}
     v = ds.version()
     if not v:
-        return {"ok": False, "text": "Nicht erreichbar: %s" % (ds.fehler or "?")}
+        return {"ok": False, "text": txt("a.ds_weg", fehler=ds.fehler or "?")}
     fehl = ds.anmelden()
     if fehl:
         return {"ok": False, "text": fehl}
-    return {"ok": True, "text": "DocuSort %s erreichbar, Anmeldung als %s gilt."
-                                % (v, ds.benutzer)}
+    return {"ok": True, "text": txt("a.ds_da", version=v, benutzer=ds.benutzer)}
 
 
 def dokumente_suchen(d: dict) -> dict:
     if not W:
-        return {"gesamt": 0, "treffer": [], "fehler": "Waechter nicht ladbar."}
+        return {"gesamt": 0, "treffer": [], "fehler": txt("a.kein_waechter")}
     idx = W.anhang_index()
     erg = W.dokumente_suchen(idx, str(d.get("q") or ""),
                              str(d.get("art") or "dokument"),
@@ -1206,7 +1263,7 @@ def dokumente_stand(_d=None) -> dict:
     DocuSort das Dokument bestaetigt. Genau dafuer fragt die Seite nach, solange
     noch etwas unterwegs ist."""
     if not W:
-        return {"ok": False, "text": "Waechter nicht ladbar."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     ds, grund = W.ds_bereit()
     if ds is None:
         return {"ok": False, "text": "DocuSort ist %s." % grund}
@@ -1225,32 +1282,30 @@ def dokumente_stand(_d=None) -> dict:
     W.dokument_kurz_schreiben(idx)
     return {"ok": True, "geaendert": n,
             "unterwegs": z["unterwegs"], "uebergeben": z["uebergeben"],
-            "text": ("%d Dokument(e) noch unterwegs." % z["unterwegs"])
-                    if z["unterwegs"] else "DocuSort ist durch."}
+            "text": (txt("a.unterwegs", n=z["unterwegs"])
+                     if z["unterwegs"] else txt("a.ds_durch"))}
 
 
 def dokumente_nachtragen(d: dict) -> dict:
     """Den Rueckstand jetzt lesen statt beim naechsten Lauf. READONLY — ein
     Nachtrag fasst im Postfach nichts an."""
     if not W:
-        return {"ok": False, "text": "Waechter nicht ladbar."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     zug = W.zugang()
     if not zug.get("adresse"):
-        return {"ok": False, "text": "Kein Postfach eingerichtet."}
+        return {"ok": False, "text": txt("a.kein_postfach")}
     try:
         idx = W.anhang_index()
         with W.Postfach(zug, False) as pf:          # readonly
             erg = W.anhaenge_nachtragen(pf, idx, frist=int(d.get("frist") or 60))
         W.anhang_index_sichern(idx)
         return {"ok": True,
-                "text": "%d Ordner, %d Mails angesehen, %d neu im Index"
-                        "%s (%.0f s)."
-                        % (erg["ordner"], erg["mails"], erg["neu"],
-                           "" if not erg["offen"] else
-                           ", %d Ordner noch offen" % erg["offen"],
-                           erg["dauer"])}
+                "text": txt("a.nachtrag", ordner=erg["ordner"], mails=erg["mails"],
+                            neu=erg["neu"], s="%.0f" % erg["dauer"],
+                            rest=("" if not erg["offen"] else
+                                  txt("a.nachtrag_offen", n=erg["offen"])))}
     except Exception as e:
-        return {"ok": False, "text": "Nachtrag fehlgeschlagen: %s" % str(e)[:160]}
+        return {"ok": False, "text": txt("a.nachtrag_fehler", fehler=str(e)[:160])}
 
 
 # Grenzen der Sammel-Uebergabe. 🔴 Beide sind noetig und meinen Verschiedenes:
@@ -1261,11 +1316,12 @@ def dokumente_nachtragen(d: dict) -> dict:
 DOK_SAMMEL_MAX = 60
 DOK_SAMMEL_FRIST = 150
 
-DS_KLARTEXT = {"zu_gross": "zu gross", "phishing": "Phishing-Verdacht",
-               "kann_docusort_nicht": "Dateityp nimmt DocuSort nicht",
-               "fehler": "fehlgeschlagen", "finanzen": "in die Finanzen",
-               "doppelt": "hatte DocuSort schon", "abgelegt": "abgelegt",
-               "pruefen": "wartet auf Pruefung"}
+def ds_klartext(stand: str) -> str:
+    """Ein Uebergabe-Stand in Worten. Genommen wird derselbe Text, den auch
+    die Seite an der Mail zeigt — zwei Listen fuer dieselbe Sache gehen
+    auseinander, und zwar in der Sprache, die niemand nachliest."""
+    fertig = txt("ds.stand." + stand)
+    return stand if fertig == "ds.stand." + stand else fertig
 
 
 def dokumente_geben(d: dict) -> dict:
@@ -1280,7 +1336,7 @@ def dokumente_geben(d: dict) -> dict:
     mit einer Liste der Laenge 1 herein. Zwei Wege, die dasselbe tun sollen,
     laufen irgendwann auseinander."""
     if not W:
-        return {"ok": False, "text": "Waechter nicht ladbar."}
+        return {"ok": False, "text": txt("a.kein_waechter")}
     roh = d.get("schluessel")
     if isinstance(roh, str):
         roh = [roh]
@@ -1324,25 +1380,24 @@ def dokumente_geben(d: dict) -> dict:
                         staende[k] = staende.get(k, 0) + 1
     except Exception as ex:
         W.anhang_index_sichern(idx)       # was schon drueben ist, bleibt vermerkt
-        return {"ok": False, "text": "Uebergabe abgebrochen nach %d Dokument(en): %s"
-                                     % (gegeben, str(ex)[:140])}
+        return {"ok": False, "text": txt("a.uebergabe_ab", n=gegeben,
+                                         fehler=str(ex)[:140])}
     W.anhang_index_sichern(idx)
     teile = []
     if gegeben:
-        teile.append("%d Dokument(e) aus %d Mail(s) an DocuSort gegeben"
-                     % (gegeben, mails))
+        teile.append(txt("a.uebergeben", n=gegeben, mails=mails))
     for stand, n in sorted(staende.items(), key=lambda kv: -kv[1]):
         if stand == "uebergeben":
             continue                      # steht schon in der ersten Zeile
-        teile.append("%d × %s" % (n, DS_KLARTEXT.get(stand, stand)))
+        teile.append("%d × %s" % (n, ds_klartext(stand)))
     if rest:
-        teile.append("%d Mail(s) blieben uebrig (Grenze) — einfach noch einmal" % rest)
+        teile.append(txt("a.uebrig", n=rest))
     if umgezogen:
-        teile.append("%d gerade umgezogen, der naechste Nachtrag findet sie" % umgezogen)
+        teile.append(txt("a.umgezogen", n=umgezogen))
     if unbekannt:
-        teile.append("%d nicht mehr im Index" % unbekannt)
+        teile.append(txt("a.nicht_im_index", n=unbekannt))
     if not teile:
-        teile.append("Nichts zu uebergeben — alles war schon drueben")
+        teile.append(txt("a.nichts_zu_geben"))
     return {"ok": bool(gegeben), "text": ". ".join(teile) + "."}
 
 
@@ -1377,10 +1432,89 @@ AKTIONEN = {
     "postfach_schalten": postfach_schalten,
     "ki": ki_speichern,
     "ki_pruefen": ki_pruefen,
+    "ki_suchen": ki_suchen,
+    "ki_uebernehmen": ki_uebernehmen,
     "vorschlag_uebernehmen": vorschlag_uebernehmen,
     "vorschlag_verwerfen": vorschlag_verwerfen,
     "konfig": konfig_speichern,
 }
+
+
+# ── Ein-Klick-Einrichtung fuer ein lokales Modell ────────────────────────────
+# Der Launcher ist drei Zeilen: Skript holen, Skript starten, Adresse der
+# Postwache mitgeben. Das eigentliche Werk steht in `ollama_einrichten.py` —
+# EINE Datei, die alle drei Systeme bedient, statt drei, die auseinanderlaufen.
+#
+# 🔴 Unter macOS und Linux wird der Launcher in ein ZIP gepackt. Ein Browser
+# wirft beim Speichern das Ausfuehrungsrecht weg; im ZIP ueberlebt der Modus,
+# und ohne ihn antwortet macOS beim Doppelklick „you don't have permission".
+# Windows braucht das nicht — eine .bat startet ohne Recht.
+INSTALLER_SKRIPT = "ollama_einrichten.py"
+
+
+def _als_zip(name: str, inhalt: str) -> bytes:
+    puffer = io.BytesIO()
+    with zipfile.ZipFile(puffer, "w", zipfile.ZIP_DEFLATED) as z:
+        eintrag = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+        eintrag.create_system = 3                 # Unix
+        eintrag.external_attr = (0o755 << 16)     # rwxr-xr-x
+        z.writestr(eintrag, inhalt)
+    return puffer.getvalue()
+
+
+def installer_bauen(system: str, herkunft: str):
+    """(Dateiname, Typ, Inhalt) fuer das gewaehlte System.
+
+    🔴 Der Launcher raeumt hinter sich auf. Ein heruntergeladenes Skript, das
+    unter einem Zufallsnamen in /tmp liegen bleibt, ist genau die Sorte
+    Wegwerfdatei, von der spaeter niemand mehr weiss, warum sie da ist."""
+    kurz = herkunft.split("//")[-1].split(":")[0].replace("/", "") or "postwache"
+    skript = herkunft + "/api/installer/skript"
+    if system in ("mac", "macos", "darwin"):
+        rumpf = "\n".join([
+            "#!/bin/bash",
+            "# Postwache - set up a local model (Ollama). Double-click me.",
+            "# If macOS blocks the first start: right-click -> Open.",
+            "set -e",
+            'echo "Postwache - local model setup"',
+            'ORDNER="$(mktemp -d -t postwache_ollama)"',
+            "trap 'rm -rf \"$ORDNER\"' EXIT",
+            'curl -fsSL "%s" -o "$ORDNER/ollama_einrichten.py"' % skript,
+            '/usr/bin/env python3 "$ORDNER/ollama_einrichten.py" --postwache "%s"' % herkunft,
+            "",
+        ])
+        return ("postwache-ollama-%s-mac.zip" % kurz, "application/zip",
+                _als_zip("postwache-ollama-%s.command" % kurz, rumpf))
+    if system == "linux":
+        rumpf = "\n".join([
+            "#!/bin/bash",
+            "# Postwache - set up a local model (Ollama).",
+            "set -e",
+            'ORDNER="$(mktemp -d -t postwache_ollama.XXXXXX)"',
+            "trap 'rm -rf \"$ORDNER\"' EXIT",
+            'curl -fsSL "%s" -o "$ORDNER/ollama_einrichten.py"' % skript,
+            'python3 "$ORDNER/ollama_einrichten.py" --postwache "%s"' % herkunft,
+            "",
+        ])
+        return ("postwache-ollama-%s-linux.zip" % kurz, "application/zip",
+                _als_zip("postwache-ollama-%s.sh" % kurz, rumpf))
+    if system in ("win", "windows"):
+        # 🔴 EIN Prozentzeichen. `%%TEMP%%` steht in einer .bat woertlich da —
+        # zu sehen nur in der ERZEUGTEN Datei, nie im Quelltext hier.
+        rumpf = "\r\n".join([
+            "@echo off",
+            "REM Postwache -- set up a local model (Ollama). Double-click me.",
+            "set ZIEL=%TEMP%\\postwache_ollama_einrichten.py",
+            "powershell -NoProfile -Command \"Invoke-WebRequest '%s' -OutFile '%%ZIEL%%'\"" % skript,
+            "if errorlevel 1 (echo Download failed.& pause & exit /b 1)",
+            "python \"%%ZIEL%%\" --postwache \"%s\"" % herkunft,
+            "del \"%ZIEL%\" >nul 2>&1",
+            "pause",
+            "",
+        ])
+        return ("postwache-ollama-%s.bat" % kurz, "application/x-bat",
+                rumpf.encode("utf-8"))
+    return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1405,6 +1539,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._sende(200, lage())
             except Exception as e:
                 return self._sende(500, {"fehler": str(e)[:200]})
+        if self.path.startswith("/api/installer"):
+            return self._installer()
         if self.path in ("/", "/index.html"):
             try:
                 with open(neben_dem_programm("post_web.html"), encoding="utf-8") as fh:
@@ -1412,7 +1548,38 @@ class Handler(BaseHTTPRequestHandler):
                                        "text/html; charset=utf-8")
             except OSError as e:
                 return self._sende(500, "Seite fehlt: %s" % e, "text/plain; charset=utf-8")
-        self._sende(404, {"fehler": "nicht gefunden"})
+        self._sende(404, {"fehler": txt("a.nicht_gefunden")})
+
+    def _installer(self):
+        """Den Einrichter ausliefern — als Quelltext oder als fertigen Launcher.
+
+        🔴 Hier steht kein Geheimnis drin (anders als bei DocuSorts Bruecke, die
+        einen Zugriffsschluessel mitgibt): der Launcher traegt nur die Adresse
+        dieser Postwache. Trotzdem `no-store` — eine zwischengespeicherte
+        Adresse waere nach einem Umzug schlicht falsch."""
+        pfad, _, abfrage = self.path.partition("?")
+        if pfad.rstrip("/") == "/api/installer/skript":
+            try:
+                with open(neben_dem_programm(INSTALLER_SKRIPT), encoding="utf-8") as fh:
+                    return self._sende(200, fh.read(), "text/x-python; charset=utf-8")
+            except OSError as e:
+                return self._sende(404, "Einrichter fehlt: %s" % e,
+                                   "text/plain; charset=utf-8")
+        system = (urllib.parse.parse_qs(abfrage).get("os") or ["mac"])[0].lower()
+        # Hinter einem Gegenstueck mit TLS ist das Schema nicht http.
+        schema = (self.headers.get("X-Forwarded-Proto") or "http").split(",")[0].strip()
+        wirt = self.headers.get("Host") or ("127.0.0.1:%d" % PORT)
+        gebaut = installer_bauen(system, "%s://%s" % (schema, wirt))
+        if gebaut is None:
+            return self._sende(400, {"fehler": "unbekanntes System: %s" % system})
+        name, typ, inhalt = gebaut
+        self.send_response(200)
+        self.send_header("Content-Type", typ)
+        self.send_header("Content-Length", str(len(inhalt)))
+        self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(inhalt)
 
     def do_POST(self):
         name = self.path.rsplit("/", 1)[-1]
@@ -1428,6 +1595,7 @@ class Handler(BaseHTTPRequestHandler):
             # 🔑 EINE Stelle waehlt das Postfach — vor jeder Aktion. Haette
             # jede Aktion das selbst getan, waere die eine, die es vergisst,
             # genau die, die in den falschen Ordner schreibt.
+            klient_merken(self.client_address[0] if self.client_address else "")
             gewaehlt = aktives_pf(d.get("pf") or "")
             if d.get("pf") and d["pf"] != (st("ansicht.json", {}) or {}).get("pf"):
                 pf_merken(gewaehlt)
@@ -1436,6 +1604,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._sende(200, AKTIONEN[name](d))
             finally:
                 pf_waehlen("")
+                klient_merken("")
         except Exception as e:
             return self._sende(200, {"ok": False, "text": str(e)[:200]})
 

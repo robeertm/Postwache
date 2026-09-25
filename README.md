@@ -12,7 +12,7 @@
   <img alt="Image" src="https://img.shields.io/badge/ghcr.io-postwache-0b5">
 </p>
 
-![The overview](docs/screenshots/07-english.png)
+![The overview](docs/screenshots/01-overview.png)
 
 ---
 
@@ -150,6 +150,35 @@ rule itself. You see the proposal and take it or leave it.
 
 ![The judgment helper](docs/screenshots/04-ai.png)
 
+### A local model, in one click
+
+A local model is the only setting where *nothing at all* leaves your house, so
+the Postwache makes it the easy one.
+
+**If you already run Ollama**, press **Find a model**. The Postwache looks on
+its own machine, on the host of its container, and on the computer you have the
+page open on — then offers what it found, with a model already picked.
+
+🔴 **It looks from the watchman's side, not from your browser's.** Your browser
+sits on the machine where Ollama runs; it would happily report "reachable"
+while the Postwache — on a Raspberry Pi in the cupboard — cannot get there at
+all. The question is never whether *you* can reach it.
+
+**If you don't have Ollama yet**, download the setup for your system, double-
+click it, and it does the rest: install Ollama, make it listen where the
+Postwache can reach it, pull a model, write the address into your settings —
+and then ask *the Postwache* whether it works. Not the machine it runs on. The
+Postwache.
+
+![One click to a local model](docs/screenshots/05-ollama.png)
+
+⚠️ If the model ends up on a different machine than the Postwache, Ollama has
+to listen on the network, and Ollama has no password — anyone on that network
+can then use it. The setup says so and asks before it does it. On one machine,
+none of this applies.
+
+The setup itself speaks English, whatever language the page is set to.
+
 ## Languages
 
 **German, English, Spanish, French, Italian.** One click in the settings, and
@@ -163,10 +192,15 @@ watchman writes its history and sends its messages when nobody is looking; a
 cookie in somebody's browser cannot tell it which language to use. If you need
 two languages in one house, you need two Postwachen.
 
-Strings live in `locales/<code>.json` as flat key/value files — 288 keys, and
+Strings live in `locales/<code>.json` as flat key/value files — 396 keys, and
 the probe refuses to pass if one of them is missing, orphaned, or has lost a
 `{placeholder}` in translation. Adding a language is one file and a line in
 `SPRACHEN`; anything missing falls back to German rather than showing a blank.
+
+That count covers more than the buttons. Every answer the server gives you —
+"Saved.", "The mailbox refuses: …" — and every line the watchman writes about a
+mail — *why* it was filed there, *why* it was unclear — is translated too. A
+page in English that answers in German is a page that was only half done.
 
 ## Works with DocuSort
 
@@ -235,7 +269,8 @@ root on the host — that is the price, stated plainly.
 
 - **The code and its comments are German.** The interface is not — see
   *Languages* above — but anyone reading the source will find German in it.
-  That is where this program grew up.
+  That is where this program grew up. The one-click Ollama setup prints in
+  English regardless of the page language.
 - **No user accounts.** One page, one household. See *Privacy* above.
 - **IMAP only.** No Exchange, no Gmail API — an IMAP account of any provider.
 - It was built for one household and now runs in more than one. Bugs you find

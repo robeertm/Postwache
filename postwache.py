@@ -49,6 +49,7 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -922,14 +923,14 @@ def stopped(tok: str) -> str:
             grund = open(DISABLED, encoding="utf-8").read().strip()
         except OSError:
             grund = ""
-        return "Datei DISABLED" + (" — " + grund[:120] if grund else "")
+        return txt("w.aus.datei") + (" — " + grund[:120] if grund else "")
     if os.path.exists(PAUSE):
         try:
             p = json.load(open(PAUSE, encoding="utf-8"))
             bis = datetime.fromisoformat(p.get("bis"))
             if datetime.now() < bis:
-                return "Pause bis %s — %s" % (bis.strftime("%H:%M"),
-                                              p.get("grund") or "ohne Grund")
+                return txt("w.aus.pause", bis=bis.strftime("%H:%M"),
+                           grund=p.get("grund") or txt("w.aus.ohne_grund"))
             os.remove(PAUSE)
             chronik("pause_ende", titel=txt("w.pause.titel"), detail=txt("w.pause.detail"))
         except (OSError, ValueError, TypeError):
@@ -942,7 +943,7 @@ def stopped(tok: str) -> str:
     try:
         st = api("/api/states/" + konfig()["ha"]["schalter"], tok, timeout=10)
         if isinstance(st, dict) and st.get("state") == "off":
-            return "Schalter %s ist aus" % konfig()["ha"]["schalter"]
+            return txt("w.aus.schalter", was=konfig()["ha"]["schalter"])
     except urllib.error.HTTPError as e:
         # 404 = der Schalter existiert (noch) nicht. Das ist KEIN Notaus — sonst
         # koennte ein vergessener Helfer den Waechter stumm stilllegen.
@@ -1010,7 +1011,7 @@ def phishing_verdacht(name: str, adresse: str) -> str:
     dom = adresse.split("@")[-1] if "@" in adresse else ""
     for marke, muss in MARKEN.items():
         if marke in n and muss not in dom:
-            return "Anzeigename nennt %s, Absender ist aber %s" % (marke, dom or "?")
+            return txt("w.grund.phishing", marke=marke, wo=dom or "?")
     return ""
 
 
@@ -1039,7 +1040,7 @@ def einordnen(kopf: dict, text: str) -> dict:
     # 1) Sicherheit — schlaegt alles andere, auch ein Rundschreiben und auch
     #    einen no-reply-Absender: echte Warnungen kommen fast immer von einem.
     if W_SICHER.search(heu):
-        g = "Wort aus dem Sicherheitsbereich in Betreff oder Text"
+        g = txt("w.grund.sicherheit")
         if verdacht:
             g += " · \u26a0\ufe0f " + verdacht
         return {"klasse": "sicherheit", "grund": g, "phishing": verdacht}
@@ -1050,13 +1051,14 @@ def einordnen(kopf: dict, text: str) -> dict:
     if W_FRIST.search(heu):
         hat_zahl = bool(BETRAG.search(heu) or DATUM.search(heu))
         if not bulk or hat_zahl:
-            g = "Frist- oder Zahlungsbegriff" + (" mit Betrag/Datum" if hat_zahl else "")
+            g = txt("w.grund.frist_zahl") if hat_zahl else txt("w.grund.frist")
             return {"klasse": "frist", "grund": g, "phishing": verdacht}
 
     # 3) Amt, Bank, Versicherung — am Absender ODER am Text.
     if W_AMT_DOMAIN.search(adresse) or W_AMT_TEXT.search(heu):
-        woran = "Absenderdomain" if W_AMT_DOMAIN.search(adresse) else "Betreff/Text"
-        return {"klasse": "amt", "grund": "Amt/Bank/Versicherung erkannt am " + woran,
+        woran = (txt("w.grund.woran_domain") if W_AMT_DOMAIN.search(adresse)
+                 else txt("w.grund.woran_text"))
+        return {"klasse": "amt", "grund": txt("w.grund.amt", woran=woran),
                 "phishing": verdacht}
 
     # 3b) Maschinenpost. ZWEI Merkmale muessen zusammenkommen, nie eines
@@ -1065,7 +1067,7 @@ def einordnen(kopf: dict, text: str) -> dict:
     #
     #     🔴 Die erste Fassung liess auch „Name sieht aus wie eine Geraete-
     #     kennung" (maro02) als zweites Merkmal gelten. Die Gegenprobe erledigte
-    #     das sofort: `"robert2" <robert2@example.de>` mit „Servus" waere eine
+    #     das sofort: `"anna2" <anna2@example.de>` mit „Servus" waere eine
     #     Maschine gewesen. Ein Riegel, der nur in EINE Richtung geprueft wird,
     #     ist kein Beweis — dieselbe Lehre wie beim Tippriegel der Seite.
     maschine = bool(n_name and n_name == normal(lokal)
@@ -1074,10 +1076,10 @@ def einordnen(kopf: dict, text: str) -> dict:
         n_betreff = normal(kopf.get("betreff") or "")
         if W_STOERUNG_HART.search(heu) or W_STOERUNG_WEICH.search(n_betreff):
             return {"klasse": "stoerung",
-                    "grund": "Ger\u00e4t %s meldet eine St\u00f6rung" % name.strip(),
+                    "grund": txt("w.grund.stoerung", wer=name.strip()),
                     "phishing": verdacht}
         return {"klasse": "automatisch",
-                "grund": "Ger\u00e4t %s meldet Vollzug \u2014 nichts zu tun" % name.strip(),
+                "grund": txt("w.grund.vollzug", wer=name.strip()),
                 "phishing": verdacht}
 
     # 4) Mensch — VOR dem Laerm, damit ein Bekannter mit Newsletter-Signatur
@@ -1086,39 +1088,38 @@ def einordnen(kopf: dict, text: str) -> dict:
     if not bulk and not noreply and not rolle and not W_FIRMA.search(n_name):
         if name.strip():
             return {"klasse": "mensch",
-                    "grund": "Person schreibt direkt (%s)" % name.strip(),
+                    "grund": txt("w.grund.person", wer=name.strip()),
                     "phishing": verdacht}
         # Kein Anzeigename, aber eine persoenlich aussehende Adresse
         # (vorname.nachname@...) ist immer noch ein Mensch.
         if re.fullmatch(r"[a-z]{2,}[._-][a-z]{2,}\d{0,3}", lokal):
             return {"klasse": "mensch",
-                    "grund": "Persoenliche Adresse ohne Anzeigenamen (%s)" % lokal,
+                    "grund": txt("w.grund.person_adresse", wer=lokal),
                     "phishing": verdacht}
 
     # 5) Laerm — nur was sich selbst als Rundschreiben ausweist.
     if bulk:
-        grund_kopf = kopf.get("bulk_grund") or "Listenkopf"
+        grund_kopf = kopf.get("bulk_grund") or txt("w.grund.listenkopf")
         if W_WERBUNG.search(heu):
             return {"klasse": "werbung",
-                    "grund": "Rundschreiben (%s) mit Verkaufsabsicht" % grund_kopf,
+                    "grund": txt("w.grund.werbung", woran=grund_kopf),
                     "phishing": verdacht}
         return {"klasse": "newsletter",
-                "grund": "Rundschreiben — %s" % grund_kopf,
+                "grund": txt("w.grund.newsletter", woran=grund_kopf),
                 "phishing": verdacht}
 
     # 6) Automat ohne Listenkopf (Bestellbestaetigung, Systemmeldung).
     if noreply:
         return {"klasse": "automatisch",
-                "grund": "Absender %s antwortet nicht (Automat)" % lokal,
+                "grund": txt("w.grund.automat", wer=lokal),
                 "phishing": verdacht}
 
     # 7) Rollen-Postfach ohne weiteres Merkmal: dahinter sitzt ein Mensch, aber
     #    der Waechter kann nicht sagen, ob es der Besitzer betrifft. Genau das sind die
     #    Faelle, fuer die es den Agenten gibt.
     return {"klasse": "unklar",
-            "grund": ("Rollen-Postfach %s, sonst kein Merkmal" % lokal) if rolle
-                     else ("Passt in keine Schublade — weder Rundschreiben noch "
-                           "Automat noch erkennbare Person"),
+            "grund": (txt("w.grund.rolle", wer=lokal) if rolle
+                      else txt("w.grund.unklar")),
             "phishing": verdacht}
 
 
@@ -2136,7 +2137,7 @@ class DocuSort:
                 return None, "HTTP %d" % e.code
             except Exception as e:
                 return None, str(e)[:140]
-        return None, "Sitzung liess sich nicht erneuern."
+        return None, txt("a.ds.sitzung")
 
     # -- Was Postwache braucht ----------------------------------------------
     def hochladen(self, dateiname: str, inhalt: bytes) -> dict:
@@ -2160,7 +2161,7 @@ class DocuSort:
             d = json.loads(antw.read().decode("utf-8", "replace"))
         except Exception:
             # 🔴 Kein JSON heisst: das war nicht der Upload, sondern eine Seite.
-            return {"stand": "fehler", "text": "Antwort war kein Upload-Ergebnis."}
+            return {"stand": "fehler", "text": txt("a.ds.kein_ergebnis")}
         if d.get("saved"):
             return {"stand": "uebergeben", "inbox": d["saved"][0].get("inbox_name") or "",
                     "text": ""}
@@ -2169,11 +2170,11 @@ class DocuSort:
             if erste.get("error"):
                 return {"stand": "fehler", "text": str(erste["error"])[:160]}
             return {"stand": "finanzen",
-                    "text": "%s Buchungen" % (erste.get("rows_inserted") or 0)}
+                    "text": txt("a.ds.buchungen", n=(erste.get("rows_inserted") or 0))}
         if d.get("rejected"):
             return {"stand": "kann_docusort_nicht",
-                    "text": "DocuSort nimmt diesen Dateityp nicht."}
-        return {"stand": "fehler", "text": "DocuSort hat nichts gemeldet."}
+                    "text": txt("a.ds.dateityp")}
+        return {"stand": "fehler", "text": txt("a.ds.stumm")}
 
     def stand(self, inbox_name: str) -> dict:
         antw, fehl = self._mit_sitzung(
@@ -2274,11 +2275,12 @@ def ds_uebergeben(ds, pf, eintrag: dict, ordner: str, uid: int,
             satz["text"] = "Phishing-Verdacht — nichts weitergereicht."
         elif not ds_verdaulich(name):
             satz["stand"] = "kann_docusort_nicht"
-            satz["text"] = "DocuSort nimmt nur PDF und CSV."
+            satz["text"] = txt("a.ds.nur_pdf")
         elif int(f.get("b") or 0) > ds.max_mb * 1024 * 1024:
             satz["stand"] = "zu_gross"
-            satz["text"] = "%.1f MB — ueber der Grenze von %.0f MB." % (
-                int(f.get("b") or 0) / 1048576.0, ds.max_mb)
+            satz["text"] = txt("a.ds.zu_gross",
+                                mb="%.1f" % (int(f.get("b") or 0) / 1048576.0),
+                                grenze="%.0f" % ds.max_mb)
         elif getan >= offen:
             continue                       # naechster Lauf, Eintrag bleibt offen
         else:
@@ -2290,7 +2292,7 @@ def ds_uebergeben(ds, pf, eintrag: dict, ordner: str, uid: int,
                 log("Anhang %s (UID %s) nicht holbar: %s" % (name, uid, str(e)[:110]))
             if not roh:
                 satz["stand"] = "fehler"
-                satz["text"] = "Anhang liess sich nicht holen."
+                satz["text"] = txt("a.ds.kein_anhang")
             else:
                 erg = ds.hochladen(name, roh)
                 satz.update({k: v for k, v in erg.items() if k in ("stand", "inbox", "text")})
@@ -2919,8 +2921,7 @@ def namens_ziel(karte: dict, adresse: str):
     treffer = sorted({o for mk, o in marken.items() if mk in e})
     if len(treffer) != 1:
         return None, ""
-    return treffer[0], ("Dein Ordner %s ist nach diesem Absender benannt"
-                        % treffer[0])
+    return treffer[0], txt("w.ziel.namensordner", ordner=treffer[0])
 
 
 def ziel_finden(karte: dict, adresse: str):
@@ -2939,18 +2940,21 @@ def ziel_finden(karte: dict, adresse: str):
     """
     adresse = (adresse or "").lower()
     if not adresse or "@" not in adresse:
-        return None, "keine Absenderadresse", 0, False
+        return None, txt("w.ziel.keine_adresse"), 0, False
     # Gezaehlt wird zuerst: wo der Besitzer wirklich abgelegt hat, schlaegt jeden
     # Namensvergleich. Erst wenn das Zaehlen schweigt, kommt die Bruecke.
-    for stufe, wert, wie in (
-            ("absender", adresse, "Post von %s legst du immer nach"),
-            ("domain", adresse.split("@")[-1], "Post von %s legst du immer nach")):
+    # 🔴 Der GANZE Satz gehoert in EINEN Schluessel. Wer „Post von X legst du
+    #    immer nach" und „ %s (%d von %d)" getrennt uebersetzt, zwingt jede
+    #    Sprache in die deutsche Wortstellung.
+    for stufe, wert, schluessel in (
+            ("absender", adresse, "w.ziel.immer"),
+            ("domain", adresse.split("@")[-1], "w.ziel.immer")):
         e = (karte.get(stufe) or {}).get(wert)
         if not e:
             continue
         sicher = round(100.0 * e["treffer"] / max(e["gesamt"], 1))
-        grund = (wie % wert) + " %s (%d von %d)" % (e["ordner"], e["treffer"],
-                                                    e["gesamt"])
+        grund = txt(schluessel, wer=wert, ordner=e["ordner"],
+                    treffer=e["treffer"], gesamt=e["gesamt"])
         return e["ordner"], grund, sicher, LERN_SCHWELLEN[stufe][2]
 
     # 🔑 Die Namensbruecke. Sie steht GENAU hier — gemessen am 12.09.2026:
@@ -2960,22 +2964,22 @@ def ziel_finden(karte: dict, adresse: str):
     if n_ziel:
         return n_ziel, n_grund, 90, True
 
-    for stufe, wert, wie in (
-            ("haupt", haupt_domain(adresse), "Post von %s legst du meist nach"),
-            ("v_absender", adresse, "Post von %s landet meistens in"),
-            ("v_domain", adresse.split("@")[-1], "Post von %s landet meistens in"),
-            ("v_haupt", haupt_domain(adresse), "Post von %s landet meistens in")):
+    for stufe, wert, schluessel in (
+            ("haupt", haupt_domain(adresse), "w.ziel.meist"),
+            ("v_absender", adresse, "w.ziel.meistens"),
+            ("v_domain", adresse.split("@")[-1], "w.ziel.meistens"),
+            ("v_haupt", haupt_domain(adresse), "w.ziel.meistens")):
         e = (karte.get(stufe) or {}).get(wert)
         if not e:
             continue
         sicher = round(100.0 * e["treffer"] / max(e["gesamt"], 1))
         darf = LERN_SCHWELLEN.get(stufe, (0, 0, False))[2]
-        grund = (wie % wert) + " %s (%d von %d)" % (e["ordner"], e["treffer"],
-                                                    e["gesamt"])
+        grund = txt(schluessel, wer=wert, ordner=e["ordner"],
+                    treffer=e["treffer"], gesamt=e["gesamt"])
         if not darf:
-            grund += " — zu unsicher zum Selbstentscheiden, sag einmal Ja"
+            grund += txt("w.ziel.unsicher")
         return e["ordner"], grund, sicher, darf
-    return None, "Absender kommt in keinem deiner Ordner vor", 0, False
+    return None, txt("w.ziel.unbekannt"), 0, False
 
 
 # ── Ein Lauf ──────────────────────────────────────────────────────────────────
@@ -3090,19 +3094,106 @@ def ki_bereit() -> tuple:
     er soll sagen, was FEHLT, nicht dass etwas kaputt ist."""
     k = ki_konfig()
     if k["anbieter"] == "aus":
-        return False, "Keine Urteilshilfe eingerichtet"
+        return False, txt("ki.grund.aus")
     if k["anbieter"] == "werkstatt":
         pfad = konfig()["werkstatt"]
         if not (pfad and os.path.isdir(pfad)):
-            return False, "Werkstatt-Ordner nicht erreichbar"
+            return False, txt("ki.grund.werkstatt")
         return True, ""
     if not k["url"]:
-        return False, "Keine Adresse eingetragen"
+        return False, txt("ki.grund.adresse")
     if k["anbieter"] in ("openai", "anthropic") and not k["schluessel"]:
-        return False, "Kein Schluessel hinterlegt"
+        return False, txt("ki.grund.schluessel")
     if not k["modell"]:
-        return False, "Kein Modell eingetragen"
+        return False, txt("ki.grund.modell")
     return True, ""
+
+
+# ── Ein lokales Modell finden, statt eine Adresse abzutippen ─────────────────
+# 🔴 Gesucht wird VOM WAECHTER AUS, nie aus dem Browser. Der Browser laeuft auf
+# dem Rechner, auf dem Ollama steht — er wuerde „erreichbar" melden, waehrend
+# der Waechter auf seinem kleinen Rechner gar nicht hinkommt. Die Frage ist
+# aber nicht, ob DU hinkommst, sondern ob ER fragen kann.
+OLLAMA_PORT = 11434
+# Reihenfolge = Vorliebe. Ein Modell, das der Waechter nicht brauchen kann
+# (Einbettungen), waere die schlechteste Vorauswahl, die man treffen kann.
+OLLAMA_WUNSCH = ("llama3.1:8b", "llama3.2:3b", "qwen2.5:7b-instruct",
+                 "qwen2.5:14b-instruct", "mistral:7b", "gemma2:9b")
+OLLAMA_UNTAUGLICH = ("embed", "bge-", "minilm", "clip", "rerank", "nomic-")
+
+
+def ollama_modelle(url: str, zeit: float = 2.0) -> list:
+    """Die Modellliste einer Ollama unter `url` — oder eine leere Liste.
+
+    Wirft nie: eine Suche ueber mehrere Adressen darf nicht an der ersten
+    enden, die niemand bedient."""
+    try:
+        req = urllib.request.Request(url.rstrip("/") + "/api/tags")
+        with urllib.request.urlopen(req, timeout=zeit) as r:
+            daten = json.loads(r.read().decode("utf-8", "replace") or "{}")
+    except Exception:
+        return []
+    namen = [str((m or {}).get("name") or "") for m in (daten.get("models") or [])]
+    return [n for n in namen if n]
+
+
+def ollama_taugliches(modelle: list) -> str:
+    """Das Modell, mit dem der Waechter am ehesten zurechtkommt."""
+    brauchbar = [m for m in modelle
+                 if not any(s in m.lower() for s in OLLAMA_UNTAUGLICH)]
+    for w in OLLAMA_WUNSCH:
+        for m in brauchbar:
+            if m == w or m.split(":")[0] == w.split(":")[0]:
+                return m
+    return brauchbar[0] if brauchbar else ""
+
+
+def ollama_suchen(zusatz=()) -> list:
+    """Alle Adressen, unter denen der Waechter eine Ollama findet.
+
+    Gefragt werden nur Adressen, die ohnehin feststehen: die eingetragene, der
+    eigene Rechner, der Wirt des Containers — und der Rechner, der gerade die
+    Seite geoeffnet hat (`zusatz`). Der letzte ist der haeufigste Fall: die
+    Postwache laeuft auf einem kleinen Rechner, das Modell auf dem Arbeitsplatz
+    davor. Keine Netzsuche, kein Abklappern von Adressbereichen.
+    """
+    kandidaten = []
+
+    def dazu(u):
+        u = (u or "").strip().rstrip("/")
+        if u and u not in kandidaten:
+            kandidaten.append(u)
+
+    k = ki_konfig()
+    if k["anbieter"] == "ollama":
+        dazu(k["url"])
+    dazu("http://127.0.0.1:%d" % OLLAMA_PORT)
+    if os.path.exists("/.dockerenv") or os.environ.get("POSTWACHE_IM_CONTAINER"):
+        dazu("http://host.docker.internal:%d" % OLLAMA_PORT)
+    for a in (zusatz or ()):
+        a = str(a or "").strip()
+        if not a or a.startswith("127.") or a == "::1":
+            continue
+        dazu("http://%s:%d" % (("[%s]" % a) if ":" in a else a, OLLAMA_PORT))
+
+    gefunden, faeden, sperre = [], [], threading.Lock()
+
+    def pruefe(u):
+        m = ollama_modelle(u)
+        if m:
+            with sperre:
+                gefunden.append({"url": u, "modelle": m})
+
+    # Nebeneinander, nicht nacheinander: vier unerreichbare Adressen waeren
+    # sonst vier Wartezeiten hintereinander, und die Seite stuende solange.
+    for u in kandidaten:
+        f = threading.Thread(target=pruefe, args=(u,), daemon=True)
+        f.start()
+        faeden.append(f)
+    for f in faeden:
+        f.join(timeout=3.0)
+    gefunden.sort(key=lambda e: kandidaten.index(e["url"]))
+    return gefunden
 
 
 def _ki_http(url: str, kopf: dict, rumpf: dict) -> dict:
@@ -3183,6 +3274,7 @@ def ki_regeln_vorschlagen(faelle: list) -> list:
         "nicht sicher bist, lass ihn weg — ein fehlender Vorschlag kostet nichts, "
         "ein falscher raeumt Post an den falschen Ort."
     )
+    system += " " + txt("w.ki.antwortsprache", sprache=SPRACHNAMEN.get(sprache(), "Deutsch"))
     frage = "Schubladen: %s\n\nUnklare Mails:\n%s" % (schubladen, "\n".join(zeilen))
     try:
         roh = _json_aus_text(ki_fragen(system, frage))
@@ -3389,7 +3481,7 @@ def main() -> int:
     faecher = [f for f in postfaecher() if f["an"]]
     if not faecher:
         status_schreiben({"aktiv": True, "eingerichtet": False,
-                          "grund": "Kein Postfach eingerichtet"})
+                          "grund": txt("a.kein_postfach")})
         # Kein Weckruf, keine Meldung: das ist kein Fehler, sondern der Zustand
         # vor der Einrichtung.
         return 0

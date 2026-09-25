@@ -3,16 +3,28 @@
 """Baut eine Postwache mit ERFUNDENEN Daten — fuer Screenshots und zum Ausprobieren.
 
     python3 demo/demo_daten.py /tmp/postwache-demo
+    python3 demo/demo_daten.py /tmp/postwache-demo --sprache en
     POSTWACHE_HOME=/tmp/postwache-demo python3 post_web.py
 
 Es wird kein Postfach angefasst und nichts abgerufen: die Datei schreibt genau
 den Zustand, den ein paar Wochen Betrieb hinterlassen haetten. Alle Namen,
 Adressen und Betreffzeilen sind ausgedacht.
+
+🔴 Die Sprache faerbt nicht nur die Oberflaeche. Absender, Betreffzeilen,
+Ordnernamen und die Chronik schreibt der Waechter — eine englische Seite mit
+deutschen Betreffzeilen sieht aus wie halb fertig. Deshalb gibt es die Welt
+zweimal, nicht die Seite einmal und den Inhalt einsprachig.
 """
-import json, os, random, sys
+import argparse, io, json, os, random, sys
 from datetime import datetime, timedelta
 
-ZIEL = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "/tmp/postwache-demo")
+_p = argparse.ArgumentParser(add_help=True)
+_p.add_argument("ziel", nargs="?", default="/tmp/postwache-demo")
+_p.add_argument("--sprache", default="de", choices=("de", "en"))
+_a = _p.parse_args()
+
+ZIEL = os.path.abspath(_a.ziel)
+SPRACHE = _a.sprache
 STATE, OUT = os.path.join(ZIEL, "state"), os.path.join(ZIEL, "out")
 PF = os.path.join(STATE, "pf", "privat")
 for d in (STATE, OUT, PF, os.path.join(STATE, "pf", "buero")):
@@ -35,50 +47,169 @@ def zeilen(pfad, saetze):
             fh.write(json.dumps(s, ensure_ascii=False) + "\n")
 
 
-# ── die erfundene Welt ───────────────────────────────────────────────────────
-ABSENDER = [
-    # (Adresse, Name, Klasse, Ordner, wie oft)
-    ("rechnung@stadtwerke-elmbruck.de", "Stadtwerke Elmbruck", "frist", "Rechnungen", 24),
-    ("service@nordlicht-versicherung.de", "Nordlicht Versicherung", "amt", "Versicherung", 11),
-    ("post@kreissparkasse-elmbruck.de", "Kreissparkasse Elmbruck", "amt", "Bank", 18),
-    ("buergerbuero@elmbruck.de", "Stadt Elmbruck", "amt", "Behoerden", 6),
-    ("versand@paket24.example", "Paket24", "automatisch", "Shopping.Paket24", 63),
-    ("newsletter@gartenhaus-weber.example", "Gartenhaus Weber", "newsletter", "Newsletter", 41),
-    ("angebote@elektro-lindner.example", "Elektro Lindner", "werbung", "Newsletter", 37),
-    ("sekretariat@schule-am-anger.example", "Schule Am Anger", "mensch", "Schule", 9),
-    ("nas01@heimnetz.example", "NAS01", "automatisch", "Technik.Sicherungen", 88),
-    ("nas02@heimnetz.example", "NAS02", "automatisch", "Technik.Sicherungen", 86),
-    ("no-reply@quellwerk.example", "Quellwerk", "unklar", "", 14),
-    ("hinweis@leitungsdienst.example", "Leitungsdienst", "unklar", "", 8),
-    ("m.kessler@dachdecker-kessler.example", "Martin Kessler", "mensch", "Handwerker", 5),
-    ("sicherheit@kontoschutz.example", "Kontoschutz", "sicherheit", "", 3),
-]
-BETREFF = {
-    "frist": ["Ihre Abschlagsrechnung {m} 2026", "Jahresabrechnung Strom 2025",
-              "Zahlungserinnerung — Vertrag 44-20871"],
-    "amt": ["Beitragsanpassung zum 01.01.2027", "Ihr Kontoauszug {m} 2026",
-            "Bescheid ueber Grundsteuer 2026", "Neue Nachricht im Postfach"],
-    "automatisch": ["[heimnetz]Sicherung abgeschlossen", "Ihre Sendung ist unterwegs",
-                    "Zustellung fuer heute angekuendigt", "[heimnetz]Pruefung ohne Befund"],
-    "newsletter": ["Herbst im Garten — 12 Ideen", "Unser Newsletter {m}",
-                   "Neu eingetroffen: Hochbeete"],
-    "werbung": ["-20 % auf alles bis Sonntag", "Nur heute: Aktionswoche"],
-    "mensch": ["Elternabend am 8. Oktober", "Kurze Rueckfrage zum Angebot",
-               "Termin naechste Woche?"],
-    "unklar": ["Ihre Anfrage 2026-{n}", "Wichtige Information", "Statusmeldung {n}"],
-    "sicherheit": ["Ungewoehnliche Anmeldung bemerkt", "Bitte bestaetigen Sie Ihr Konto"],
-}
-MONATE = ["Januar", "Februar", "Maerz", "April", "Mai", "Juni", "Juli",
-          "August", "September", "Oktober", "November", "Dezember"]
-GRUND = {"frist": "Betreff nennt eine Zahlung", "amt": "Absender ist eine Behoerde oder Bank",
-         "automatisch": "Maschinenpost — fester Absender, fester Betreff",
-         "newsletter": "Kopfzeile List-Unsubscribe", "werbung": "Werbewortmuster im Betreff",
-         "mensch": "Kein Rundschreiben, persoenliche Anrede",
-         "unklar": "Kein Muster getroffen", "sicherheit": "Sicherheitswortmuster"}
+# ── die erfundene Welt, zweimal ──────────────────────────────────────────────
+# Derselbe Haushalt, dieselben Zahlen — nur in der jeweiligen Sprache. Die
+# Schubladenschluessel (frist, amt, …) bleiben gleich: die uebersetzt die Seite.
+WELTEN = {}
+
+WELTEN["de"] = dict(
+    absender=[
+        # (Adresse, Name, Klasse, Ordner, wie oft)
+        ("rechnung@stadtwerke-elmbruck.example", "Stadtwerke Elmbruck", "frist", "Rechnungen", 24),
+        ("service@nordlicht-versicherung.example", "Nordlicht Versicherung", "amt", "Versicherung", 11),
+        ("post@kreissparkasse-elmbruck.example", "Kreissparkasse Elmbruck", "amt", "Bank", 18),
+        ("buergerbuero@elmbruck.example", "Stadt Elmbruck", "amt", "Behoerden", 6),
+        ("versand@paket24.example", "Paket24", "automatisch", "Shopping.Paket24", 63),
+        ("newsletter@gartenhaus-weber.example", "Gartenhaus Weber", "newsletter", "Newsletter", 41),
+        ("angebote@elektro-lindner.example", "Elektro Lindner", "werbung", "Newsletter", 37),
+        ("sekretariat@schule-am-anger.example", "Schule Am Anger", "mensch", "Schule", 9),
+        ("nas01@heimnetz.example", "NAS01", "automatisch", "Technik.Sicherungen", 88),
+        ("nas02@heimnetz.example", "NAS02", "automatisch", "Technik.Sicherungen", 86),
+        ("no-reply@quellwerk.example", "Quellwerk", "unklar", "", 14),
+        ("hinweis@leitungsdienst.example", "Leitungsdienst", "unklar", "", 8),
+        ("m.kessler@dachdecker-kessler.example", "Martin Kessler", "mensch", "Handwerker", 5),
+        ("sicherheit@kontoschutz.example", "Kontoschutz", "sicherheit", "", 3),
+    ],
+    betreff={
+        "frist": ["Ihre Abschlagsrechnung {m} 2026", "Jahresabrechnung Strom 2025",
+                  "Zahlungserinnerung — Vertrag 44-20871"],
+        "amt": ["Beitragsanpassung zum 01.01.2027", "Ihr Kontoauszug {m} 2026",
+                "Bescheid ueber Grundsteuer 2026", "Neue Nachricht im Postfach"],
+        "automatisch": ["[heimnetz]Sicherung abgeschlossen", "Ihre Sendung ist unterwegs",
+                        "Zustellung fuer heute angekuendigt", "[heimnetz]Pruefung ohne Befund"],
+        "newsletter": ["Herbst im Garten — 12 Ideen", "Unser Newsletter {m}",
+                       "Neu eingetroffen: Hochbeete"],
+        "werbung": ["-20 % auf alles bis Sonntag", "Nur heute: Aktionswoche"],
+        "mensch": ["Elternabend am 8. Oktober", "Kurze Rueckfrage zum Angebot",
+                   "Termin naechste Woche?"],
+        "unklar": ["Ihre Anfrage 2026-{n}", "Wichtige Information", "Statusmeldung {n}"],
+        "sicherheit": ["Ungewoehnliche Anmeldung bemerkt", "Bitte bestaetigen Sie Ihr Konto"],
+    },
+    monate=["Januar", "Februar", "Maerz", "April", "Mai", "Juni", "Juli",
+            "August", "September", "Oktober", "November", "Dezember"],
+    dokumente=[("Abschlagsrechnung-09-2026.pdf", "Stadtwerke Elmbruck", "Rechnungen", 148230),
+               ("Beitragsanpassung-2027.pdf", "Nordlicht Versicherung", "Versicherung", 203440),
+               ("Kontoauszug-2026-08.pdf", "Kreissparkasse Elmbruck", "Bank", 96110),
+               ("Grundsteuerbescheid-2026.pdf", "Stadt Elmbruck", "Behoerden", 312880),
+               ("Elternabend-Einladung.pdf", "Schule Am Anger", "Schule", 88420)],
+    chronik=[
+        ("sortiert", "Aussortiert", "18 Mail(s) aus dem Posteingang in Unterordner verschoben."),
+        ("dokumente", "Dokumente an DocuSort", "3 Dokument(e) aus neuer Post uebergeben."),
+        ("vorschlaege", "2 Regelvorschlaege",
+         "Aus 9 unklaren Mails. Auf der Seite ansehen und einzeln uebernehmen."),
+        ("sortiert", "Aussortiert", "23 Mail(s) aus dem Posteingang in Unterordner verschoben."),
+        ("kaltstart", "Kaltstart",
+         "300 Mails als Ausgangslage eingeordnet — nichts gemeldet, nichts verschoben."),
+    ],
+    postfaecher=[("privat", "Privat", "post@beispielhaus.example", True),
+                 ("buero", "Buero", "buero@beispielhaus.example", False)],
+    vorschlaege=[
+        ("no-reply@quellwerk.example", "automatisch",
+         "Immer derselbe Absender, immer dieselbe Betreffform — Maschinenpost.", 84),
+        ("hinweis@leitungsdienst.example", "newsletter",
+         "Rundschreiben mit Abmeldelink, kein persoenlicher Bezug.", 71)],
+)
+
+WELTEN["en"] = dict(
+    absender=[
+        ("billing@elmbrook-utilities.example", "Elmbrook Utilities", "frist", "Invoices", 24),
+        ("service@northlight-insurance.example", "Northlight Insurance", "amt", "Insurance", 11),
+        ("post@elmbrook-savings.example", "Elmbrook Savings Bank", "amt", "Bank", 18),
+        ("cityhall@elmbrook.example", "City of Elmbrook", "amt", "Authorities", 6),
+        ("shipping@parcel24.example", "Parcel24", "automatisch", "Shopping.Parcel24", 63),
+        ("newsletter@weber-gardens.example", "Weber Gardens", "newsletter", "Newsletter", 41),
+        ("offers@lindner-electric.example", "Lindner Electric", "werbung", "Newsletter", 37),
+        ("office@anger-lane-school.example", "Anger Lane School", "mensch", "School", 9),
+        ("nas01@homenet.example", "NAS01", "automatisch", "Tech.Backups", 88),
+        ("nas02@homenet.example", "NAS02", "automatisch", "Tech.Backups", 86),
+        ("no-reply@springworks.example", "Springworks", "unklar", "", 14),
+        ("notice@pipeline-services.example", "Pipeline Services", "unklar", "", 8),
+        ("m.kessler@kessler-roofing.example", "Martin Kessler", "mensch", "Trades", 5),
+        ("security@account-guard.example", "Account Guard", "sicherheit", "", 3),
+    ],
+    betreff={
+        "frist": ["Your instalment invoice, {m} 2026", "Annual electricity statement 2025",
+                  "Payment reminder — contract 44-20871"],
+        "amt": ["Premium adjustment as of 1 January 2027", "Your account statement, {m} 2026",
+                "Property tax assessment 2026", "New message in your mailbox"],
+        "automatisch": ["[homenet] Backup completed", "Your parcel is on its way",
+                        "Delivery announced for today", "[homenet] Check completed, nothing found"],
+        "newsletter": ["Autumn in the garden — 12 ideas", "Our newsletter, {m}",
+                       "Just arrived: raised beds"],
+        "werbung": ["-20 % on everything until Sunday", "Today only: promotion week"],
+        "mensch": ["Parents' evening on 8 October", "Quick question about your quote",
+                   "Time for a call next week?"],
+        "unklar": ["Your enquiry 2026-{n}", "Important information", "Status notice {n}"],
+        "sicherheit": ["Unusual sign-in noticed", "Please confirm your account"],
+    },
+    monate=["January", "February", "March", "April", "May", "June", "July",
+            "August", "September", "October", "November", "December"],
+    dokumente=[("Instalment-invoice-09-2026.pdf", "Elmbrook Utilities", "Invoices", 148230),
+               ("Premium-adjustment-2027.pdf", "Northlight Insurance", "Insurance", 203440),
+               ("Account-statement-2026-08.pdf", "Elmbrook Savings Bank", "Bank", 96110),
+               ("Property-tax-assessment-2026.pdf", "City of Elmbrook", "Authorities", 312880),
+               ("Parents-evening-invitation.pdf", "Anger Lane School", "School", 88420)],
+    chronik=[
+        ("sortiert", "Sorted out", "Moved 18 mail(s) from the inbox into subfolders."),
+        ("dokumente", "Documents to DocuSort", "Handed over 3 document(s) from new mail."),
+        ("vorschlaege", "2 rule suggestions",
+         "From 9 unclear mails. Look at them on the page and adopt them one by one."),
+        ("sortiert", "Sorted out", "Moved 23 mail(s) from the inbox into subfolders."),
+        ("kaltstart", "Cold start",
+         "Filed 300 mails as a baseline — nothing reported, nothing moved."),
+    ],
+    postfaecher=[("privat", "Private", "post@examplehouse.example", True),
+                 ("buero", "Office", "office@examplehouse.example", False)],
+    vorschlaege=[
+        ("no-reply@springworks.example", "automatisch",
+         "Always the same sender, always the same shape of subject — machine mail.", 84),
+        ("notice@pipeline-services.example", "newsletter",
+         "A circular with an unsubscribe link, nothing personal in it.", 71)],
+)
+
+# 🔴 Die Begruendungen erfindet die Demo NICHT selbst: sie nimmt genau die
+# Texte, die der Waechter schreiben wuerde. Sonst zeigt ein Screenshot eine
+# Formulierung, die es in keiner Installation gibt — und der erste echte Blick
+# auf die Seite sieht anders aus als das Bild, mit dem geworben wurde.
+with io.open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "locales", "%s.json" % SPRACHE), encoding="utf-8") as _fh:
+    TEXTE = json.load(_fh)
+
+
+def t(schluessel, **werte):
+    wert = TEXTE.get(schluessel, schluessel)
+    return wert.format(**werte) if werte else wert
+
+
+W = WELTEN[SPRACHE]
+ABSENDER, BETREFF, MONATE = W["absender"], W["betreff"], W["monate"]
 ORDNER = {}
-for _a, _n, _k, o, _c in ABSENDER:
+for _a2, _n, _k, o, _c in ABSENDER:
     if o:
         ORDNER[o] = ORDNER.get(o, 0) + _c
+
+_ZAHL = {a: c for a, _n, _k, _o, c in ABSENDER}
+
+
+def grund_fuer(klasse, name, adresse):
+    """Genau der Satz, den `einordnen()` in dieser Sprache schreiben wuerde."""
+    lokal = adresse.split("@")[0]
+    if klasse == "frist":
+        return t("w.grund.frist_zahl")
+    if klasse == "amt":
+        return t("w.grund.amt", woran=t("w.grund.woran_domain"))
+    if klasse == "automatisch":
+        return t("w.grund.automat", wer=lokal)
+    if klasse == "newsletter":
+        return t("w.grund.newsletter", woran="List-Unsubscribe")
+    if klasse == "werbung":
+        return t("w.grund.werbung", woran="List-Unsubscribe")
+    if klasse == "mensch":
+        return t("w.grund.person", wer=name)
+    if klasse == "sicherheit":
+        return t("w.grund.sicherheit")
+    return t("w.grund.unklar")
+
 
 # ── koepfe: was er zuletzt eingeordnet hat ───────────────────────────────────
 koepfe, uid = [], 41200
@@ -90,15 +221,17 @@ for i in range(260):
     uid += random.randint(1, 4)
     laerm = klasse in ("newsletter", "werbung", "automatisch")
     koepfe.append({
-        "uid": uid, "klasse": klasse, "grund": GRUND[klasse],
-        "phishing": "Absender gibt sich als Bank aus" if klasse == "sicherheit" and i % 3 == 0 else "",
+        "uid": uid, "klasse": klasse, "grund": grund_fuer(klasse, name, adresse),
+        "phishing": (t("w.grund.phishing", marke="your bank", wo=adresse.split("@")[-1])
+                     if klasse == "sicherheit" and i % 3 == 0 else ""),
         "kopf": {"betreff": betreff, "name": name, "adresse": adresse,
                  "datum": wann.isoformat(timespec="seconds"),
                  "bulk": laerm, "bulk_grund": "List-Unsubscribe" if laerm else "",
-                 "message_id": "<demo%05d@beispielhaus.de>" % i},
+                 "message_id": "<demo%05d@examplehouse.example>" % i},
         "ziel": ordner, "ziel_sicher": random.choice([88, 92, 96, 100]) if ordner else 0,
-        "ziel_grund": ("So legst du Post von diesem Absender ab" if ordner
-                       else "Kein Ordner gelernt — bleibt liegen"),
+        "ziel_grund": (t("w.ziel.immer", wer=adresse, ordner=ordner,
+                         treffer=max(2, _ZAHL[adresse] - 2), gesamt=_ZAHL[adresse])
+                       if ordner else t("w.ziel.unbekannt")),
         "ziel_darf": bool(ordner), "gesehen": wann.isoformat(timespec="seconds"),
         "verschoben_nach": ordner if (ordner and laerm) else "",
     })
@@ -135,7 +268,8 @@ tage = [{"tag": (JETZT - timedelta(days=d)).strftime("%Y-%m-%d"),
 schreib(os.path.join(PF, "statistik.json"), {
     "gebaut": JETZT.isoformat(timespec="seconds"), "dauer": 9.2, "mails": 4820,
     "eigene_ausgelassen": 612, "ordner": 9, "von": "2019-04-02", "bis": "2026-09-25",
-    "vollstaendig_ab": "2024-01-01", "schnitt_pro_tag": 10.7, "tage_gemessen": 90,
+    "vollstaendig_ab": tage[0]["tag"], "schnitt_pro_tag": 10.7, "tage_gemessen": 90,
+    "absender_gesamt": len(ABSENDER),
     "je_tag": tage,
     "je_stunde": [1, 0, 0, 0, 1, 3, 12, 28, 46, 61, 58, 44, 39, 47, 52, 49, 41, 33, 26, 19, 12, 7, 4, 2],
     "je_wochentag": [128, 141, 136, 133, 119, 47, 29],
@@ -145,17 +279,12 @@ schreib(os.path.join(PF, "statistik.json"), {
 })
 
 # ── Anhaenge und Dokumente ───────────────────────────────────────────────────
-dok = [("Abschlagsrechnung-09-2026.pdf", "Stadtwerke Elmbruck", "Rechnungen", 148230),
-       ("Beitragsanpassung-2027.pdf", "Nordlicht Versicherung", "Versicherung", 203440),
-       ("Kontoauszug-2026-08.pdf", "Kreissparkasse Elmbruck", "Bank", 96110),
-       ("Grundsteuerbescheid-2026.pdf", "Stadt Elmbruck", "Behoerden", 312880),
-       ("Elternabend-Einladung.pdf", "Schule Am Anger", "Schule", 88420)]
 eintraege = {}
-for i, (datei, wer, ordner, groesse) in enumerate(dok):
+for i, (datei, wer, ordner, groesse) in enumerate(W["dokumente"]):
     eintraege["m%02d" % i] = {
         "ordner": ordner, "uid": 900 + i,
         "betreff": datei.replace("-", " ").replace(".pdf", ""),
-        "absender": wer.lower().replace(" ", ".") + "@beispiel.example",
+        "absender": wer.lower().replace(" ", ".") + "@example.example",
         "name": wer, "datum": (JETZT - timedelta(days=i * 6)).isoformat(timespec="seconds"),
         "dateien": [{"n": datei, "art": "dokument", "b": groesse, "t": "application/pdf", "nr": "2"}],
         "ds": [{"n": datei, "stand": "abgelegt", "doc": str(510 + i), "text": ordner,
@@ -184,13 +313,20 @@ schreib(os.path.join(PF, "lauf.json"), {
     "historie": [(JETZT - timedelta(minutes=m)).isoformat(timespec="seconds")
                  for m in range(0, 90)]})
 schreib(os.path.join(STATE, "pf", "buero", "lauf.json"), {"uid": 0, "fehler": "", "grund": ""})
+_ver = "3.2.0"
+try:
+    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "VERSION"), encoding="utf-8") as _fh:
+        _ver = _fh.read().strip() or _ver
+except OSError:
+    pass
 schreib(os.path.join(OUT, "status.json"), {
     "aktiv": True, "eingerichtet": True, "scharf": True, "postfaecher_gesamt": 2,
     "neu": 26, "verschoben": 18, "gemeldet": 6, "unklar": 2, "dokumente": 3,
     "postfaecher": {"privat": {"aktiv": True, "eingerichtet": True, "scharf": True,
                                "neu": 26, "uid": uid,
-                               "zeit": JETZT.isoformat(timespec="seconds"), "version": "3.0.0"}},
-    "zeit": JETZT.isoformat(timespec="seconds"), "version": "3.0.0"})
+                               "zeit": JETZT.isoformat(timespec="seconds"), "version": _ver}},
+    "zeit": JETZT.isoformat(timespec="seconds"), "version": _ver})
 
 # ── Journal und Chronik ──────────────────────────────────────────────────────
 zeilen(os.path.join(OUT, "journal.jsonl"), [
@@ -202,44 +338,34 @@ zeilen(os.path.join(OUT, "journal.jsonl"), [
 zeilen(os.path.join(OUT, "chronik.jsonl"), [
     {"zeit": (JETZT - timedelta(hours=h)).isoformat(timespec="seconds"), "art": art,
      "titel": t, "detail": d, "n": 1}
-    for h, (art, t, d) in enumerate([
-        ("sortiert", "Aussortiert", "18 Mail(s) aus dem Posteingang in Unterordner verschoben."),
-        ("dokumente", "Dokumente an DocuSort", "3 Dokument(e) aus neuer Post uebergeben."),
-        ("vorschlaege", "2 Regelvorschlaege", "Aus 9 unklaren Mails. Auf der Seite ansehen und einzeln uebernehmen."),
-        ("sortiert", "Aussortiert", "23 Mail(s) aus dem Posteingang in Unterordner verschoben."),
-        ("kaltstart", "Kaltstart", "300 Mails als Ausgangslage eingeordnet — nichts gemeldet, nichts verschoben."),
-    ])])
+    for h, (art, t, d) in enumerate(W["chronik"])])
 
 # ── global: Postfaecher, Einstellungen, Urteilshilfe, Vorschlaege ────────────
 schreib(os.path.join(STATE, "postfaecher.json"), {"liste": [
-    {"id": "privat", "name": "Privat", "adresse": "post@beispielhaus.example",
-     "passwort": "demo", "server": "imap.beispielhaus.example", "port": 993, "an": True},
-    {"id": "buero", "name": "Buero", "adresse": "buero@beispielhaus.example",
-     "passwort": "demo", "server": "imap.beispielhaus.example", "port": 993, "an": False},
-]}, 0o600)
+    {"id": pid, "name": pname, "adresse": padr, "passwort": "demo",
+     "server": "imap." + padr.split("@")[1], "port": 993, "an": pan}
+    for pid, pname, padr, pan in W["postfaecher"]]}, 0o600)
 schreib(os.path.join(STATE, "einstellungen.json"), {
     "scharf": True, "telegram": True, "bericht_stunde": 7, "wichtiges_bleibt": False,
     "regeln": {k: {"melden": True} for k in ("frist", "amt", "sicherheit", "mensch")},
-    "absender_regeln": {"versand@paket24.example": "Shopping.Paket24"}})
+    "absender_regeln": {ABSENDER[4][0]: ABSENDER[4][3]}})
 schreib(os.path.join(STATE, "ki.json"), {"anbieter": "ollama",
                                          "url": "http://127.0.0.1:11434",
                                          "modell": "llama3.1:8b"}, 0o600)
-schreib(os.path.join(STATE, "konfig.json"), {"seite": "http://heimserver:8110",
+# 🔴 Die Sprache ist eine Einstellung der INSTALLATION — sie steht hier, nicht
+# in einem Cookie. Ohne diese Zeile zeigte eine englische Demo deutsche Seite.
+schreib(os.path.join(STATE, "konfig.json"), {"seite": "http://homeserver:8110",
+                                             "sprache": SPRACHE,
                                              "ha": {"url": "", "token_datei": "", "schalter": ""},
                                              "werkstatt": "", "imap_server": ""})
-schreib(os.path.join(STATE, "docusort.json"), {"url": "https://docusort.heimnetz.example:9876",
+schreib(os.path.join(STATE, "docusort.json"), {"url": "https://docusort.homenet.example:9876",
                                                "benutzer": "postwache", "passwort": "demo",
                                                "aktiv": True, "max_mb": 25.0}, 0o600)
 schreib(os.path.join(OUT, "vorschlaege.json"), {
-    "zeit": JETZT.isoformat(timespec="seconds"), "quelle": "ollama", "liste": [
-        {"absender": "no-reply@quellwerk.example", "schublade": "automatisch",
-         "warum": "Immer derselbe Absender, immer dieselbe Betreffform — Maschinenpost.",
-         "sicher": 84},
-        {"absender": "hinweis@leitungsdienst.example", "schublade": "newsletter",
-         "warum": "Rundschreiben mit Abmeldelink, kein persoenlicher Bezug.", "sicher": 71}]})
+    "zeit": JETZT.isoformat(timespec="seconds"), "quelle": "ollama",
+    "liste": [{"absender": a, "schublade": s, "warum": warum, "sicher": sicher}
+              for a, s, warum, sicher in W["vorschlaege"]]})
 
-# Die Versionsnummer steht neben dem Skript — die Demo braucht sie auch,
-# sonst zeigt die Fusszeile ein Fragezeichen.
 # Die Seite und die Versionsnummer liegen neben dem Waechter — die Demo
 # braucht beides in IHREM Ordner, weil POSTWACHE_HOME dorthin zeigt.
 import shutil
@@ -250,8 +376,9 @@ for _datei in ("VERSION", "post_web.html"):
     except OSError:
         pass
 
-print("Demo gebaut in", ZIEL)
-print("  Postfaecher : Privat (an), Buero (ruht)")
+print("Demo gebaut in %s  (Sprache: %s)" % (ZIEL, SPRACHE))
+print("  Postfaecher : %s" % ", ".join("%s (%s)" % (n, "an" if an else "ruht")
+                                       for _i, n, _a3, an in W["postfaecher"]))
 print("  Mails       : %d eingeordnet, %d Ordner gelernt" % (len(koepfe), len(ORDNER)))
 print("  Dokumente   : 286 von 412 Mails mit Anhang")
 print("\nStarten:  POSTWACHE_HOME=%s python3 post_web.py" % ZIEL)

@@ -7,6 +7,53 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [3.2.0] – 2026-09-25
+
+### Added
+- **A local model in one click.** Press *Find a model* and the Postwache looks
+  for an Ollama on its own machine, on its container host, and on the computer
+  the page is open on — then offers what it found with a usable model already
+  picked (it skips embedding and vision models, which cannot propose a rule).
+- 🔴 **It looks from the watchman's side, not from the browser's.** The browser
+  runs on the machine where Ollama sits; it would report "reachable" while the
+  Postwache on a small machine elsewhere cannot get there at all. The question
+  was never whether *you* can reach it.
+- **A setup you download and double-click** (macOS, Windows, Linux), with the
+  address of your own Postwache already in it. It installs Ollama (Homebrew /
+  the official script / winget), makes it listen where the Postwache can reach
+  it, pulls a model, writes the setting — and then **asks the Postwache**
+  whether it works, rather than reporting success from the machine it runs on.
+- ⚠️ Putting Ollama on the network means anyone on that network can use it —
+  Ollama has no password. The setup says that in plain words and asks first.
+  On a single machine it never comes up.
+
+### Changed
+- **The answers are translated too, not only the page.** Every reply the server
+  sends ("Saved.", "The mailbox refuses: …") and every line the watchman writes
+  about a mail — why it was filed there, why it was unclear, where it belongs —
+  now follows the language of the installation. 396 keys per language.
+  🔴 Until now an English Postwache explained every single mail in German. The
+  page was translated in 3.1.0; the answers were not, and nothing said so.
+- All screenshots are now taken from the English demo, and the demo no longer
+  invents its own wording: it renders the exact sentences a real installation
+  writes.
+
+### Added (probes)
+- `probe_ausrollen.py` — every program file has to travel on *every* rollout
+  path (deploy, container image, public tree). This trap has now been sprung
+  twice: `locales/` in 3.1.0, the Ollama setup in 3.2.0. Both times the program
+  was perfectly fine. It just did not arrive.
+- `probe_sprachen.py` gained two checks: no German sentence left in the
+  **server's answers** (the gap this release closes), and no invented key —
+  a key handed around as a variable has no call site to find, and a typo in one
+  never shows up as an error, only as a key printed on the page.
+
+### Fixed
+- The generated Windows launcher wrote `%%TEMP%%`, which a `.bat` takes
+  literally. Visible only in the generated file, never in the source.
+- Two numbers the demo never set: the sender count read "0 senders", and the
+  daily curve claimed to start on a date two years before its first bar.
+
 ## [3.1.0] – 2026-09-25
 
 ### Added

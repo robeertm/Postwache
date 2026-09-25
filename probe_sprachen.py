@@ -23,6 +23,12 @@ def probe(name, ok, zusatz=""):
         fehler.append(name)
 
 
+def leeren(treffer):
+    """Einen Fund durch ebenso viele Zeilenumbrueche ersetzen — der Inhalt ist
+    weg, die Zeilennummern bleiben."""
+    return "\n" * treffer.group(0).count("\n")
+
+
 def sprachen():
     d = os.path.join(HIER, "locales")
     return sorted(f[:-5] for f in os.listdir(d) if f.endswith(".json"))
@@ -62,7 +68,7 @@ print("\n── 2. Keine deutschen Saetze mehr in der Seite ──")
 html = io.open(os.path.join(HIER, "post_web.html"), encoding="utf-8").read()
 js = html.split("<script>", 1)[1].rsplit("</script>", 1)[0]
 # Kommentare raus — die duerfen deutsch bleiben, sie erreichen niemanden.
-js = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+js = re.sub(r"/\*.*?\*/", leeren, js, flags=re.S)
 js = re.sub(r"(?m)^\s*//.*$", "", js)
 # Woerter, die nur in deutschen SAETZEN vorkommen (nicht in Bezeichnern).
 VERDACHT = re.compile(
@@ -110,6 +116,37 @@ probe("kein alter t()-Aufruf mehr", not uebrig,
       (uebrig[0].strip()[:60] + " …") if uebrig else "")
 probe("alle benutzten Schluessel hinterlegt", not unbekannt,
       ", ".join(unbekannt[:5]) if unbekannt else "%d benutzt" % len(benutzt))
+# 🔴 Nicht jeder Schluessel steht im HTML. Der Waechter und die Seite schreiben
+# selbst Texte (`W.txt("ki.lokal.nichts")`) — wer nur das HTML absucht, meldet
+# genau die als verwaist und braucht dann eine handgepflegte Ausnahmeliste, die
+# beim naechsten Mal wieder nicht stimmt. Also dort nachsehen, wo sie benutzt
+# werden.
+for datei in ("post_web.py", "postwache.py"):
+    quelle = io.open(os.path.join(HIER, datei), encoding="utf-8").read()
+    # `W.txt(` ist derselbe Aufruf — der Blick nach links darf ihn nicht
+    # wegwerfen, sonst gilt jeder Text der Seite wieder als verwaist.
+    benutzt |= {k for k in re.findall(
+        r"""(?<![\w.$])(?:W\.)?txt\(\s*["']([\w.]+)["']""", quelle)
+                if not k.endswith(".")}
+
+# 🔴 Ein Schluessel, der nicht als `txt("…")` dasteht, sondern als Wert durch
+# eine Schleife wandert (`for stufe, wert, schluessel in (…, "w.ziel.immer")`),
+# faellt durch jede Suche nach Aufrufen. Ein Tippfehler darin faellt NIE auf:
+# `txt()` gibt dann brav den Schluessel zurueck und die Seite zeigt ihn an.
+# Deshalb: jede Zeichenkette, die AUSSIEHT wie ein Schluessel, muss einer sein.
+wie_ein_schluessel = set()
+for datei in ("post_web.py", "postwache.py"):
+    quelle = io.open(os.path.join(HIER, datei), encoding="utf-8").read()
+    wie_ein_schluessel |= set(re.findall(
+        r"""["']((?:w|a|ki|ds|schublade|allg|zeit)\.[a-z_]+(?:\.[a-z_]+)*)["']""", quelle))
+DATEIENDUNG = ("json", "py", "html", "md", "sh", "txt", "log", "jsonl", "cron")
+wie_ein_schluessel = {k for k in wie_ein_schluessel
+                      if k.rsplit(".", 1)[-1] not in DATEIENDUNG}
+erfunden = sorted(wie_ein_schluessel - set(basis))
+probe("kein erfundener Schluessel im Quelltext", not erfunden,
+      ", ".join(erfunden[:5]) if erfunden else "%d geprueft" % len(wie_ein_schluessel))
+benutzt |= (wie_ein_schluessel & set(basis))
+
 ungenutzt = sorted(set(basis) - benutzt)
 # Schluessel, die der WAECHTER benutzt, stehen nicht im HTML.
 # Schluessel, die nur der WAECHTER benutzt (w.*) oder die zusammengesetzt
@@ -118,6 +155,32 @@ ungenutzt = [k for k in ungenutzt if not k.startswith(("w.", "schublade.", "ds.s
                                                        "ki.name.", "ki.hilfe."))]
 probe("keine verwaisten Schluessel", not ungenutzt,
       ", ".join(ungenutzt[:5]) if ungenutzt else "")
+
+# ── 4. Kein deutscher Satz mehr in den ANTWORTEN ─────────────────────────
+# 🔴 Die Lehre aus 3.1.0: die SEITE war uebersetzt, die ANTWORTEN nicht. Wer
+# in einer englischen Postwache auf einen Knopf drueckte, bekam „Gespeichert."
+# — und auf der Uebersichtsseite stand die Begruendung jeder einzelnen Mail auf
+# Deutsch. Die Probe von Punkt 2 sah das nicht: sie schaut nur ins JavaScript.
+print("\n── 4. Keine deutschen Saetze in den Antworten des Servers ──")
+ANTWORT = re.compile(r'"text"\s*:|"fehler"\s*:|"grund"\s*:|return\s+(?:True|False)\s*,'
+                     r'|satz\["text"\]\s*=|teile\.append\(')
+for datei in ("post_web.py", "postwache.py"):
+    quelle = io.open(os.path.join(HIER, datei), encoding="utf-8").read()
+    quelle = re.sub(r'"""(?:.|\n)*?"""', leeren, quelle)    # Dokumentation darf deutsch
+    quelle = re.sub(r"(?m)^\s*#.*$", "", quelle)           # Kommentare auch
+    quelle = re.sub(r"(?m)\s+#\s.*$", "", quelle)
+    roh = []
+    for i, z in enumerate(quelle.splitlines(), 1):
+        if not ANTWORT.search(z):
+            continue
+        # Zeilen mit Uebersetzungsaufruf sind genau das Gegenteil des Befundes.
+        ohne = re.sub(r"""(?:W\.)?txt\(\s*["'][\w.]+["']""", "txt(", z)
+        m = VERDACHT.search(ohne)
+        if m and " " in m.group(0)[1:-1].strip():
+            roh.append("Zeile %d: %s" % (i, m.group(0)[:64]))
+    probe("%s antwortet uebersetzt" % datei, not roh, "%d Stellen" % len(roh))
+    for x in roh[:8]:
+        print("        " + x)
 
 print("\n%s  %d Fehlschlaege" % ("ALLES GRUEN" if not fehler else "ROT", len(fehler)))
 sys.exit(1 if fehler else 0)
