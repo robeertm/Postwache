@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Pruefstand fuer den Umbau (umbau.py).
+"""Test bench for the restructuring (umbau.py).
 
-🔑 Jeder Fall hier ist ein Fehler, der am 27.09.2026 WIRKLICH passiert ist —
-   kein erfundener Test. Ein Prüfstand, der nur bestaetigt, was man sich
-   gedacht hat, misst das eigene Gedaechtnis.
+🔑 Every case here is a mistake that REALLY happened on 2026-09-27 — not an
+   invented test. A test bench that only confirms what you thought is measuring
+   your own memory.
 
-Aufruf:  python3 probe_umbau.py
+Call:  python3 probe_umbau.py
 """
 import ast
 import os
@@ -34,31 +34,31 @@ def mail(von, betreff="", an="", datum="2020-01-01T00:00:00"):
             "uid": 1, "mid": "<x@y>", "name": "", "liste": False}
 
 
-# ── Ein ERFUNDENER persoenlicher Katalog ────────────────────────────────────
-# 🔴 27.09.2026: hier standen die echten Adressen von dessen Bankberaterin,
-#    seinem Architekten und seiner Familie — und `probe_umbau.py` steht auf der
-#    Veroeffentlichungsliste. Seit 4.5.1 liegt der persoenliche Teil in
-#    `state/regeln_eigen.json`; der Pruefstand setzt sich einen EIGENEN,
-#    vollstaendig ausgedachten Katalog und prueft damit dieselben Vorrangfragen.
-#    🔑 Ein Pruefstand, der echte Personendaten braucht, um zu pruefen, ist
-#    falsch gebaut.
+# ── An INVENTED personal catalogue ────────────────────────────
+# 🔴 2026-09-27: the real addresses of his bank adviser, his architect and his
+#    family stood here — and `probe_umbau.py` is on the publication list. Since
+#    4.5.1 the personal part lives in `state/regeln_eigen.json`; the test bench
+#    sets itself a catalogue of its OWN, entirely made up, and checks the same
+#    precedence questions with it.
+#    🔑 A test bench that needs real personal data in order to check is built
+#    wrongly.
 def setze_katalog(eintraege, adressen=()):
-    """Einen erfundenen persoenlichen Katalog setzen — mit POSITIONEN.
+    """Set an invented personal catalogue — with POSITIONS.
 
-    🔴 Die Position gehoert dazu: ohne sie standen beim ersten Anlauf alle
-       persoenlichen Regeln vorn, „Eigene Post Archiv" kam vor die
-       Geraeteregeln, und 823 Geraetemeldungen von der eigenen Adresse landeten
-       im Archiv. Gemessen an 17.966 Mails, behoben, hier festgehalten.
+    🔴 The position is part of it: without it, all personal rules stood at the
+       front on the first attempt, „Eigene Post Archiv“ came before the device
+       rules, and 823 device reports from the own address landed in the archive.
+       Measured against 17,966 mails, fixed, recorded here.
     """
     umbau._EIGEN_ZWISCHEN["katalog"] = {
         "eigene_adressen": list(adressen),
         "regeln": [{"nr": nr, "regel": r} for nr, r in eintraege],
     }
-    umbau._EIGEN_ZWISCHEN.pop("katalog_voll", None)   # sonst gilt der alte
+    umbau._EIGEN_ZWISCHEN.pop("katalog_voll", None)   # otherwise the old one still applies
 
 
-# Positionen so gewaehlt, dass sie die echten Vorrangfragen nachstellen:
-# Geraete (0) VOR eigener Post (68) — und die Beraterin vor der Bank.
+# Positions chosen so that they reproduce the real precedence questions:
+# devices (0) BEFORE own post (68) — and the adviser before the bank.
 setze_katalog([
     (0,  ("Technik.Synology", (), (),
           r"diskstation|synology|\bDSM\b|beispielhaus|systemprotokoll")),
@@ -68,28 +68,28 @@ setze_katalog([
     (9,  ("Hausbau.Allgemein", (), (), r"musterdorfer|bauvorhaben")),
     (23, ("Banking.Sparkasse Musterstadt", (), ("sparkasse.example",), r"")),
     (44, ("Menschen.Uwe Winter", ("u.winter@beispiel.example",), (), r"")),
-    # 🔑 Vor `Menschen.Weitere` (landet bei 56) und nach den Geraeteregeln —
-    #    genau die Reihenfolge, die am 27.09. dessen 863 eigene Mails rettete.
+    # 🔑 Before `Menschen.Weitere` (which lands at 56) and after the device
+    #    rules — exactly the order that saved his 863 own mails on 2026-09-27.
     (54, ("Eigene Post Archiv", (), (), r"")),
 ], adressen=["besitzer@beispiel.example", "besitzer@zweitanbieter.example"])
 
 print("\n── Die zwei Fehler vom 27.09., die die Messung gefunden hat ──")
-# 🔴 „Menschen.Weitere" mit gmail.com nahm dessen 863 EIGENE gesendete Mails
-#    mit: „Eigene Post Archiv" fiel von 963 auf 14.
+# 🔴 „Menschen.Weitere“ with gmail.com took his 863 OWN sent mails with it:
+#    „Eigene Post Archiv“ fell from 963 to 14.
 pruef("eigene gesendete Post -> Eigene Post Archiv",
       umbau.ziel_fuer(mail("besitzer@beispiel.example", "Re: wetter",
                            "u.winter@beispiel.example"))[0],
       umbau.EIGENE_POST)
-# 🔴 m8mit.de (120 KIA-Leistungsnachweise) war angekuendigt, aber nicht
-#    eingetragen — 120 Mails landeten im Auffang.
+# 🔴 m8mit.de (120 KIA service records) had been announced but not entered —
+#    120 mails landed in the catch folder.
 pruef("m8mit.de -> Auto.KIA",
       umbau.ziel_fuer(mail("no-reply@m8mit.de",
                            "Leistungsnachweis SNE-23-013793"))[0],
       "Auto.KIA")
 
 print("\n── Der Befund, der den Entwurf gekippt hat ──")
-# Die DiskStation verschickte ueber das eigene Konto: 6.954 Archivmails tragen
-# die EIGENE Adresse. Hier entscheidet der Betreff, nicht der Absender.
+# The DiskStation sent through the owner's own account: 6,954 archive mails carry
+# the OWN address. Here the subject decides, not the sender.
 pruef("Geraetebericht von eigener Adresse -> Technik.Synology",
       umbau.ziel_fuer(mail("besitzer@beispiel.example",
                            "DISKSTATION_ Monatlicher Festplattenintegritätsbericht",
@@ -105,9 +105,9 @@ pruef("FRITZ!Powerline -> Technik.Netzwerk",
       "Technik.Netzwerk")
 
 print("\n── Vorrang: der persoenliche Katalog schlaegt den allgemeinen ──")
-# 🔑 Die Bankberaterin schreibt zum Hausbau. Ihre Post ist Hausbau, nicht
-#    Banking — und weil der persoenliche Katalog VOR dem allgemeinen gefragt
-#    wird, gewinnt sie auch gegen eine allgemeine Bankregel.
+# 🔑 The bank adviser writes about the house building. Her post is house
+#    building, not banking — and because the personal catalogue is asked BEFORE the
+#    general one, she also wins against a general banking rule.
 pruef("Beraterin/Hausplanung -> Hausbau.Finanzierung",
       umbau.ziel_fuer(mail("beraterin@sparkasse.example",
                            "AW: Muster - Hausplanung - Finanzierung"))[0],
@@ -124,8 +124,8 @@ pruef("Ortsname im Betreff -> Hausbau.Allgemein",
       umbau.ziel_fuer(mail("info@fremde-firma.xy",
                            "Ummeldung der Gasversorgung Musterdorfer Straße 54"))[0],
       "Hausbau.Allgemein")
-# 🔴 Und ohne persoenlichen Katalog faellt NICHTS davon um — es wird nur
-#    allgemeiner. Eine frische Installation muss laufen.
+# 🔴 And without a personal catalogue NOTHING of this falls over — it only gets
+#    more general. A fresh installation has to run.
 _gemerkt = umbau._EIGEN_ZWISCHEN["katalog"]
 umbau._EIGEN_ZWISCHEN["katalog"] = {"eigene_adressen": [], "regeln": []}
 pruef("ohne persoenlichen Katalog kein Absturz",
@@ -146,37 +146,36 @@ pruef("Apple-Kaufbeleg -> Einkauf.Apple",
       "Einkauf.Apple")
 
 print("\n── Umschrift: das Muster darf den Umlaut nicht brauchen ──")
-# Dieselbe Lehre wie am 11.09.: `normal()` macht ä→ae, deshalb muss beides
-# gleich einsortiert werden.
+# The same lesson as on 2026-09-11: `normal()` turns ä into ae, so both have to be
+# filed the same way.
 a = umbau.ziel_fuer(mail("x@y.de", "Betreuungsrechnung für Juli"))[0]
 b = umbau.ziel_fuer(mail("x@y.de", "Betreuungsrechnung fuer Juli"))[0]
 pruef("Umlaut und Umschrift gleich behandelt", a, b)
 
 print("\n── Reihenfolge-Zusagen im Katalog ──")
-# 🔑 Gegen den VERZAHNTEN Katalog, nicht gegen den Quelltext allein — der
-#    persoenliche Teil sitzt zwischen den allgemeinen Regeln.
+# 🔑 Against the INTERLEAVED catalogue, not against the source alone — the
+#    personal part sits between the general rules.
 ziele = [r[0] for r in umbau.katalog()]
 technik = min(i for i, z in enumerate(ziele) if z.startswith("Technik."))
 eigen = ziele.index(umbau.EIGENE_POST)
 menschen = ziele.index("Menschen.Weitere")
 pruef("Geraete VOR eigener Post VOR Menschen.Weitere",
       technik < eigen < menschen, True)
-# 🔑 Der Vorrang „meine Beraterin vor irgendeiner Bank" haengt seit 4.5.1 nicht
-#    mehr an der Reihenfolge IM QUELLTEXT, sondern daran, dass der persoenliche
-#    Katalog VOR dem allgemeinen gefragt wird. Genau das prueft der Block oben
-#    („Vorrang: der persoenliche Katalog schlaegt den allgemeinen"). Hier bleibt
-#    die Zusage, die den Quelltext betrifft:
-# (Die Gegenprobe gegen den persoenlichen Katalog steht gleich darunter — sie
-#  braucht keinen Namen in dieser Datei.)
-# 🔴 Und die Gegenprobe fuer den GANZEN Katalog — OHNE einen einzigen Namen in
-#    dieser Datei. Der Pruefstand steht selbst auf der Veroeffentlichungsliste;
-#    eine Verbotsliste mit echten Nachnamen darin waere genau derselbe Fehler,
-#    den sie verhindern soll.
+# 🔑 Since 4.5.1 the precedence „my adviser before some bank“ no longer hangs on
+#    the order IN THE SOURCE but on the personal catalogue being asked BEFORE the
+#    general one. That is exactly what the block above checks („precedence: the
+#    personal catalogue beats the general one“). What remains here is the promise
+#    that concerns the source:
+# (The counter-check against the personal catalogue follows right below — it needs
+#  no name in this file.)
+# 🔴 And the counter-check for the WHOLE catalogue — WITHOUT a single name in this
+#    file. The test bench is itself on the publication list; a forbidden-word list
+#    with real surnames in it would be exactly the mistake it is meant to prevent.
 #
-# 🔑 Geprueft wird gegen die ZUSTANDSDATEI: keine Adresse und keine Domain aus
-#    `state/regeln_eigen.json` darf im Quelltext-Katalog auftauchen. Wo es die
-#    Datei nicht gibt (frische Installation, fremder Rechner), entfaellt die
-#    Frage — dort kann auch nichts ausgelaufen sein.
+# 🔑 The check runs against the STATE FILE: no address and no domain from
+#    `state/regeln_eigen.json` may appear in the source catalogue. Where the file
+#    does not exist (a fresh installation, a stranger's machine) the question falls
+#    away — nothing can have leaked there either.
 _eigen = umbau.eigen_laden()
 _persoenlich = set(_eigen["eigene_adressen"])
 for _r in _eigen["regeln"]:
@@ -189,8 +188,8 @@ if _persoenlich:
     _drin = sorted(w for w in _persoenlich if w and w in _katalogtext)
     pruef("nichts aus dem persoenlichen Katalog steht im Quelltext",
           _drin, [])
-    # Auch der Kern einer Domain reicht als Fund („sparkasse-musterstadt" aus
-    # „noreply@sparkasse-musterstadt.de").
+    # The core of a domain counts as a finding too („sparkasse-musterstadt“ out of
+    # „noreply@sparkasse-musterstadt.de“).
     _kerne = {w.split("@")[-1].split(".")[0] for w in _persoenlich if len(w) > 4}
     _drin2 = sorted(k for k in _kerne if len(k) > 4 and k in _katalogtext)
     pruef("auch kein Domain-Kern daraus", _drin2, [])
@@ -215,19 +214,19 @@ pruef("leerer Absender -> Auffang",
       umbau.ziel_fuer(mail("", ""))[0], umbau.AUFFANG)
 
 print("\n── Neue Post selbst einsortieren (27.09., dessen Nachtrag) ──")
-# der Besitzer: „wenn neue mails kommen muessen die immer analysiert werden und
-# einsortiert werden und wenn es neue ordner braucht dann soll es die
-# selbstaendig erstellen."
+# der Besitzer: new mail must always be analysed and filed, and where new folders are
+# needed it should create them on its own — „wenn neue mails kommen muessen die
+# immer analysiert werden und einsortiert werden“.
 import tempfile
 _tmp = tempfile.mkdtemp()
 _echt = umbau.out_pfad
-umbau.out_pfad = lambda n: os.path.join(_tmp, n)     # nichts ins Projekt schreiben
+umbau.out_pfad = lambda n: os.path.join(_tmp, n)     # write nothing into the project
 try:
     pruef("bekannte Regel schlaegt die Ableitung",
           umbau.ziel_fuer_neue(mail("service@paypal.de", "Neue Nachricht"))[:1],
           ("Banking.PayPal",))
-    # 🔴 Erst ab der Schwelle ein EIGENER Ordner — sonst waechst das Postfach um
-    #    einen Ordner pro einmaligem Newsletter.
+    # 🔴 A folder of its OWN only from the threshold up — otherwise the mailbox
+    #    grows by one folder per one-off newsletter.
     wege = [umbau.ziel_fuer_neue(mail("shop@neuerladen.de", "Ihre Bestellung %d" % i))[0]
             for i in range(1, 6)]
     pruef("erste drei -> Kategorie.Allgemein", wege[:3],
@@ -259,9 +258,9 @@ pruef("ein Treffer unter zehn -> nichts (Raten waere schlimmer)",
       umbau.kategorie_aus_inhalt(["Bestellung"] + ["blah"] * 9), "")
 
 print("\n── Der Riegel vor dem Verschieben (27.09., Nachweis am lebenden Postfach) ──")
-# 🔴 `anwenden` meldete „3 bewegt", obwohl es nichts bewegt hatte: nach einem
-#    `zurueck` lagen die Mails unter NEUEN UIDs, die alte UID lieferte keinen
-#    Kopf — und ein LEERES Ergebnis galt als bestaetigt.
+# 🔴 `anwenden` reported „3 moved“ although it had moved nothing: after a
+#    `zurueck` the mails lay under NEW UIDs, the old UID returned no header — and
+#    an EMPTY result counted as confirmed.
 pruef("gleiche Message-Id -> bewegen erlaubt",
       umbau.mid_bestaetigt("<a@b>", "<a@b>"), True)
 pruef("Leerzeichen/Umbruch stoert nicht",
@@ -276,34 +275,32 @@ pruef("beides leer -> NICHT bewegen",
       umbau.mid_bestaetigt("", ""), False)
 
 print("\n── Mehrdeutige Absender: die Domain darf nicht entscheiden ──")
-# der Besitzer, 27.09.2026: „ich habe mails von check24 die bieten ja alles an, ich
-# habe da eine reise gebucht, also sollte diese mail unter reisen auftauchen
-# nicht unter versicherungen."
-# 🔴 Das stand schon in Phase 1 (11.09.): „check24.de macht Hotels UND
-#    Versicherungen — die Hauptdomain darf vorschlagen, nicht handeln." Ich
-#    hatte sie trotzdem handeln lassen.
+# der Besitzer, 2026-09-27 — he has mail from check24, who offer everything; he booked a
+# trip there, so that mail should appear under travel and not under insurance.
+# 🔴 This already stood in phase 1 (2026-09-11): „check24.de does hotels AND
+#    insurance — the main domain may suggest, not act.“ I let it act anyway.
 for von, betreff, soll in (
     ("info@hotel.check24.de", 'Eingangsbestätigung Ihrer Buchung "Wolin" (319991)', "Reisen"),
     ("no-reply@hotel.check24.de", 'Buchungsbestätigung "Wolin" (319992)', "Reisen"),
     ("e-scooter-versicherung@check24.de",
      "Ihr Versicherungsschein zur E-Scooter-Versicherung ist online",
      "Versicherungen.Allgemein"),
-    # 🔴 Der Wortstamm zaehlt: „Kfz-Versicherer" enthaelt kein „Versicherung".
+    # 🔴 The word stem counts: „Kfz-Versicherer“ contains no „Versicherung“.
     ("kfz-serviceteam@check24.de",
      "Bewerten Sie uns und Ihren neuen Kfz-Versicherer für Ihren Kia Carens",
      "Versicherungen.Allgemein"),
     ("kundenkonto@check24.de", "Ihr CHECK24 Sicherheitscode", "Konten.Allgemein"),
     ("login@check24.de", "Ihr CHECK24 Kundenbereich", "Konten.Allgemein"),
-    # Passt gar nichts, gilt der Rueckfall der Domain — geraten wird nicht.
+    # If nothing matches at all, the domain's fallback applies — no guessing.
     ("smily@check24.de", "Willkommen bei Smily", "Versicherungen.Allgemein"),
-    # Dieselbe Regel, anderer Absender: die Post liefert Pakete UND Steuertipps.
+    # Same rule, different sender: the post office delivers parcels AND tax tips.
     ("noreply@deutschepost.de", "Ihre Sendung wurde zugestellt", "Einkauf.Versand"),
     ("steuertipps@deutschepost.de", "Steuertipps zum Jahresende", "Steuer"),
 ):
     pruef("%-34s -> %s" % (von, soll), umbau.ziel_fuer(mail(von, betreff))[0], soll)
 
-# Eine Regel auf die GENAUE Adresse bleibt unangetastet — sie ist schon so
-# genau, wie es geht.
+# A rule on the EXACT address stays untouched — it is already as precise as it
+# gets.
 pruef("genaue Adresse schlaegt die Feinentscheidung",
       umbau.ziel_fuer(mail("beraterin@sparkasse.example",
                            "Hausplanung - Finanzierung"))[0],
@@ -313,10 +310,10 @@ pruef("eindeutiger Absender bleibt unberuehrt",
       "Banking.PayPal")
 
 print("\n── Netzaussetzer: die Verbindung wird wiederholt ──")
-# der Besitzer, 27.09.2026: „manchmal ist das postfach nicht erreichbar."
-# Gemessen: der Anbieter nimmt 8 gleichzeitige Verbindungen — KEINE Abfragesperre.
-# Im Pi-Protokoll stehen aber zwei echte DNS-Aussetzer. Ein Hickser von zwei
-# Sekunden darf keinen Lauf von sechs Minuten abbrechen.
+# der Besitzer, 2026-09-27: „manchmal ist das postfach nicht erreichbar.“ (sometimes the
+# mailbox is unreachable) Measured: the provider takes 8 simultaneous connections —
+# NO rate limit. But the Pi's log holds two genuine DNS dropouts. A two-second
+# hiccup must not abort a six-minute run.
 import postwache as _pw
 
 class _Kaputt:
@@ -337,7 +334,7 @@ class _Kaputt:
 
 _echt_pf, _echt_stand, _echt_schlaf = _pw.Postfach, umbau.stand_schreiben, umbau.time.sleep
 umbau.stand_schreiben = lambda **k: None
-umbau.time.sleep = lambda s: None          # Probe soll nicht 6 s warten
+umbau.time.sleep = lambda s: None          # the probe should not wait 6 s
 try:
     _pw.Postfach = _Kaputt
     _Kaputt.versuche, _Kaputt.scheitert_bis = 0, 3
@@ -354,10 +351,10 @@ finally:
     _pw.Postfach, umbau.stand_schreiben, umbau.time.sleep = _echt_pf, _echt_stand, _echt_schlaf
 
 print("\n── Leere Ordner entfernen: was NIE angefasst wird ──")
-# der Besitzer, 27.09.2026: „ordner die nicht mehr gebraucht werden entfernen aber
-# nur wenn darin keine mails mehr sind."
-# 🔴 Sonderordner erkennt man an der FLAGGE, nicht am Namen — ein englisches
-#    Postfach nennt den Papierkorb anders, die Flagge ist dieselbe.
+# der Besitzer, 2026-09-27: remove folders that are no longer needed, but only when
+# there are no mails left in them.
+# 🔴 Special folders are recognised by their FLAG, not by their name — an English
+#    mailbox calls the trash something else, the flag is the same.
 for flags, soll in (("\\HasNoChildren", False),
                     ("\\Trash \\HasNoChildren", True),
                     ("\\Junk", True),
@@ -372,8 +369,8 @@ for flags, soll in (("\\HasNoChildren", False),
 print("\n── Gegenprobe am Quelltext: geloescht wird nie ──")
 baum = ast.parse(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    "umbau.py"), encoding="utf-8").read())
-# 🔴 Nicht per Wortsuche, sondern ueber den AST: in welchen Funktionen steht
-#    ueberhaupt ein expunge/Deleted?
+# 🔴 Not by text search but through the AST: in which functions does an
+#    expunge/Deleted appear at all?
 wo = {}
 for fn in [n for n in ast.walk(baum) if isinstance(n, ast.FunctionDef)]:
     quelle = ast.unparse(fn)
@@ -381,8 +378,8 @@ for fn in [n for n in ast.walk(baum) if isinstance(n, ast.FunctionDef)]:
         wo[fn.name] = (quelle.count("expunge("), quelle.count("Deleted"))
 pruef("expunge/Deleted nur in anwenden und zurueck",
       sorted(wo), ["anwenden", "zurueck"])
-# 🔴 Ordner entfernen ist die EINZIGE Ausnahme — und sie darf nur an EINER
-#    Stelle stehen, damit die Bedingung „leer" nicht irgendwo umgangen wird.
+# 🔴 Removing folders is the ONLY exception — and it may stand at just ONE place,
+#    so that the condition „empty“ cannot be bypassed somewhere.
 loescht = sorted(fn.name for fn in ast.walk(baum)
                  if isinstance(fn, ast.FunctionDef)
                  and re.search(r"\.delete\(", ast.unparse(fn)))
@@ -394,20 +391,20 @@ pruef("in ordner_raeumen: Leer-Pruefung steht VOR dem Entfernen",
       q_ord.index("_ordner_leer") < q_ord.index(".delete("), True)
 pruef("Vorgabe ist trocken (Entfernen nur mit --scharf)",
       umbau.ordner_raeumen.__defaults__[0], True)
-# 🔴 Ein Umbau, der die gelernte Landkarte nicht mitnimmt, sortiert morgen in
-#    Ordner, die es nicht mehr gibt (46 gelernt, 29 davon nach dem Lauf leer).
+# 🔴 A restructuring that does not take the learned map with it sorts into
+#    folders tomorrow that no longer exist (46 learned, 29 of them empty after).
 for fn_name in ("anwenden", "ordner_raeumen"):
     q = ast.unparse([n for n in ast.walk(baum) if isinstance(n, ast.FunctionDef)
                      and n.name == fn_name][0])
     pruef("%s erneuert die Landkarte" % fn_name, "ablage_erneuern" in q, True)
-    # 🔴 Und zwar SOLANGE die Verbindung offen ist — sonst kann es nur den
-    #    Merker loeschen, und der Waechter lernt erst beim naechsten Lauf,
-    #    der ueberhaupt Post sieht.
+    # 🔴 And WHILE the connection is open — otherwise it can only delete the
+    #    marker, and the watchman only learns on the next run that sees any post
+    #    at all.
     pruef("%s erneuert INNERHALB des with-Blocks" % fn_name,
           q.index("ablage_erneuern") > q.index("verbindung(")
           and "ablage_erneuern(pf)" in q, True)
-# 🔴 Am 27.09. meldete `ablage_veralten()` False: von der Kommandozeile ist
-#    `_PF_ID` leer, also las es die GLOBALE ablage.json statt der des Postfachs.
+# 🔴 On 2026-09-27 `ablage_veralten()` returned False: from the command line
+#    `_PF_ID` is empty, so it read the GLOBAL ablage.json instead of the mailbox's.
 pruef("ablage_veralten waehlt das Postfach",
       "postfach_gewaehlt" in ast.unparse([n for n in ast.walk(baum)
                                           if isinstance(n, ast.FunctionDef)
@@ -422,7 +419,7 @@ pruef("ablage_veralten fasst nur das Feld 'gelernt' an",
                                 and n.name == "ablage_veralten"][0]), True)
 pruef("in anwenden genau EIN expunge (ein Stapel je Ordner)",
       wo.get("anwenden", (0, 0))[0], 1)
-# Kopie muss VOR dem Abhaken stehen — sonst kann Post verloren gehen.
+# The copy has to come BEFORE the tick-off — otherwise post can be lost.
 fn = [n for n in ast.walk(baum)
       if isinstance(n, ast.FunctionDef) and n.name == "anwenden"][0]
 q = ast.unparse(fn)
@@ -432,11 +429,11 @@ pruef("kein 'store' ohne vorherige Kopiepruefung (typ != OK -> continue)",
       "if typ != 'OK'" in q.replace('"', "'"), True)
 
 print("\n── Folge des Umbaus fuer den Rest des Programms (27.09., dessen Befund) ──")
-# 🔴 „ich habe bei neu anlegen auto.autohaus-nord angegeben … aber die mail dahinter
-#    von j. haller nicht dorthin geschoben, jetzt finde ich sie garnicht mehr."
-#    Die Mails lagen in „Unsortiert". `nachziehen()` sah NUR den Posteingang an —
-#    bis 4.0.0 richtig, seit dem Umbau still falsch: unerkannte Post bleibt nicht
-#    mehr im Posteingang liegen, sie wird in den Auffang geraeumt.
+# 🔴 He had entered auto.autohaus-nord under „create new“, but the mail behind it
+#    was not moved there and he could not find it at all any more.
+#    The mails lay in „Unsortiert“. `nachziehen()` looked ONLY at the inbox — right
+#    up to 4.0.0, silently wrong since the restructuring: unrecognised post no
+#    longer stays in the inbox, it is cleared into the catch folder.
 import post_web  # noqa: E402
 
 
@@ -454,8 +451,8 @@ pruef("Auffangorte: der Auffang ist dabei", umbau.AUFFANG in orte, True)
 pruef("Auffangorte: jedes Allgemein ist dabei",
       sorted(o for o in orte if o.endswith("Allgemein")),
       ["Auto.Allgemein", "Einkauf.Allgemein"])
-# 🔴 Das ist die Grenze, die das Ganze verteidigbar macht: aus einem GEPFLEGTEN
-#    Ordner wird nichts geholt. Dort ist die Entscheidung schon gefallen.
+# 🔴 This is the limit that makes the whole thing defensible: nothing is fetched
+#    out of a CURATED folder. There the decision has already been made.
 pruef("Auffangorte: ein gepflegter Ordner ist NICHT dabei", "Auto.KIA" in orte, False)
 pruef("Auffangorte: Newsletter ist NICHT dabei", "Newsletter" in orte, False)
 pruef("Auffangorte: genau vier Orte (INBOX, Unsortiert, 2x Allgemein)",
@@ -470,9 +467,9 @@ pruef("nachziehen holt nicht aus dem Ziel selbst", "if ort == voll" in q_nach, T
 pruef("nachziehen schreibt den ECHTEN Herkunftsordner ins Journal",
       "'von': ort" in q_nach, True)
 pruef("nachziehen nennt die Herkunft in der Meldung", "orte=woher" in q_nach, True)
-# 🔴 Ein `or`, dessen zweiter Teil den ersten verschluckt, prueft nichts —
-#    deshalb hier die eine Frage, um die es geht: wird ueberhaupt
-#    zurueckgestellt? `ast.unparse` schreibt einfache Anfuehrungszeichen.
+# 🔴 An `or` whose second half swallows the first checks nothing — hence the one
+#    question that matters here: is anything restored at all? `ast.unparse` writes
+#    single quotes.
 pruef("nachziehen stellt am Ende auf INBOX zurueck",
       "select('INBOX'" in q_nach, True)
 
@@ -492,10 +489,10 @@ pruef("Unterordner lehrt fuer die Kategorie",
 pruef("auch dessen eigene Schubladen lehren",
       umbau.kategorie_des_ordners("Fahrrad"), "Fahrrad")
 
-# 🔴 DER FEHLER, DEN DIE KREUZPROBE ERLEGT HAT. Erst liess ich das Vorwissen
-#    ueber die Groesse weg — dann gewann `Gesundheit` (15 Mails) gegen `Technik`
-#    (7.433): bei Add-1-Glaettung ist ein unbekanntes Wort in einer winzigen
-#    Kategorie billig. 25,7 % Treffer. Dieser Fall haelt das fest.
+# 🔴 THE MISTAKE THE CROSS-CHECK KILLED. First I left out the prior knowledge
+#    about size — then `Gesundheit` (15 mails) beat `Technik` (7,433): with add-1
+#    smoothing an unknown word is cheap in a tiny category. 25.7 % right. This case
+#    holds that down.
 KLEIN = {"kategorien": {
             "Technik": {"diskstation": 900, "systemprotokoll": 800, "festplatte": 700,
                         "bericht": 300, "rechnung": 40},
@@ -513,8 +510,8 @@ pruef("unbekannte Woerter geben kein Urteil",
       umbau.kategorie_aus_wortschatz(["Quastelquiek Blubberfug"], dict(KLEIN))[0], "")
 pruef("ohne Wortschatz kein Urteil",
       umbau.kategorie_aus_wortschatz(["Rezept Praxis"], {"kategorien": {}, "mails": {}})[0], "")
-# 🔑 Die Kreuzprobe muss die eigene Mail abziehen, sonst beantwortet sich jede
-#    Mail selbst und die Trefferquote ist eine Selbstauskunft.
+# 🔑 The cross-check has to subtract the mail's own words, otherwise every mail
+#    answers itself and the hit rate is a self-report.
 EINZEL = {"kategorien": {"A": {"eins": 1, "zwei": 1}, "B": {"drei": 5, "vier": 5}},
           "mails": {"A": 1, "B": 5}}
 pruef("mit Abzug beantwortet sich eine Mail nicht selbst",
@@ -525,9 +522,9 @@ pruef("ohne Abzug wuerde sie es",
 pruef("die gemessene Schwelle steht im Code", umbau.WORT_ABSTAND, 2.5)
 
 print("\n── Der Wortschatz darf keine Marken erfinden (nach dem ersten scharfen Lauf) ──")
-# 🔴 Gemessen: der erste scharfe Lauf erzeugte `Reisen.Samsung`,
+# 🔴 Measured: the first armed run produced `Reisen.Samsung`,
 #    `Kinder.Endomondo`, `Versicherungen.Fastspring`, `Gaming.Highresaudio`.
-#    Ein geratener NAME ist schlimmer als eine geratene Schublade.
+#    A guessed NAME is worse than a guessed drawer.
 q_str = ast.unparse([n for n in ast.walk(baum) if isinstance(n, ast.FunctionDef)
                      and n.name == "struktur_lernen"][0])
 pruef("struktur_lernen prueft die Quelle vor einem eigenen Ordner",
@@ -551,7 +548,7 @@ pruef("nur Domain und Betreffe werden uebergeben (kein Text, keine Menschen)",
       "'betreffe'" in q_wf and "text" not in q_wf.split("daten = ")[1][:200], True)
 q_wa = ast.unparse([n for n in ast.walk(baum) if isinstance(n, ast.FunctionDef)
                     and n.name == "werkstatt_antwort_holen"][0])
-# 🔴 Eine Antwort aus einem Auftragsbuch ist FREMDER TEXT.
+# 🔴 An answer out of a task book is FOREIGN TEXT.
 pruef("jede Antwort wird gegen die erlaubten Kategorien geprueft",
       "erlaubt" in q_wa and "not in erlaubt" in q_wa, True)
 pruef("die Antwortdatei wird umbenannt, nicht geloescht",
@@ -583,11 +580,11 @@ pruef("der Lauf prueft die Auftraege", "auftraege_pruefen" in q_lauf, True)
 pruef("der Lauf holt die Werkstatt-Antwort", "werkstatt_antwort_holen" in q_lauf, True)
 q_fp = pw_fn("lauf_fuer_postfach")
 pruef("kein neuer Weckruf bei Stau", "auftrag_stau" in q_fp, True)
-# 🔴 Die erste Haelfte war tautologisch („x < x+1") und prueft nichts. Was
-#    zaehlt, ist: bei Stau entfaellt der WECKRUF, nicht der BEFUND.
+# 🔴 The first half was tautological („x < x+1“) and checks nothing. What counts
+#    is: in a jam the WAKE-UP CALL is dropped, not the FINDING.
 pruef("der Befund geht TROTZDEM in die Chronik",
       "chronik('auftrag_stau'" in q_fp.replace('"', "'"), True)
-# 🔴 Ein leeres Ergebnis der Werkstatt darf nicht „alles erledigt" heissen.
+# 🔴 An empty result from the workshop must not mean „all done“.
 q_zu = pw_fn("_werkstatt_zustaende")
 pruef("faellt die Werkstatt aus, kommt ein LEERES Woerterbuch (kein Erfolg)",
       q_zu.rstrip().endswith("return {}"), True)
@@ -597,8 +594,8 @@ pruef("die Karte erscheint nur mit Werkstatt",
       "konfig().get('werkstatt')" in q_web.replace('"', "'"), True)
 
 print("\n── dessen eigene Regeln schlagen alles (27.09., teuer gelernt) ──")
-# 🔴 Der Umbau entfernte `Auto.Autohaus-nord` — dessen EIGENEN Ordner mit seiner
-#    EIGENEN Regel. Danach zeigte die Regel ins Nichts.
+# 🔴 The restructuring removed `Auto.Autohaus-nord` — his OWN folder with his OWN
+#    rule. Afterwards the rule pointed into nothing.
 _echt_einst = umbau.pw.einstellungen
 umbau._EIGEN_ZWISCHEN.clear()
 umbau.pw.einstellungen = lambda: {"absender_regeln": {"j.haller@autohaus-nord.example": "Auto.Autohaus-nord"}}
@@ -624,9 +621,9 @@ pruef("die eigenen Ziele werden VOR der Schleife gelesen",
       q_ra.index("eigene_ziele = ") < q_ra.index("for nr, name in"), True)
 
 print("\n── Die Seite: eine Liste der Ansichten, nicht zwei ──")
-# 🔴 4.5.0: für den Hash gab es eine ZWEITE, hartkodierte Aufzählung. Beim
-#    vierten Reiter wurde nur die untere gepflegt — ein geteilter Link
-#    `…/#umzug` landete still auf der Übersicht.
+# 🔴 4.5.0: there was a SECOND, hard-coded enumeration for the hash. With the
+#    fourth tab only the lower one was maintained — a shared link `…/#umzug` landed
+#    silently on the overview.
 _html = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "post_web.html"), encoding="utf-8").read()
 pruef("ANSICHTEN steht genau EINMAL im Quelltext",
@@ -640,13 +637,13 @@ pruef("alle vier Reiter stehen in der einen Liste",
           for n in ("uebersicht", "umbau", "umzug", "einstellungen")), True)
 
 print("\n── Eigene Adressen: EINE Wahrheit, nicht zwei Listen (27.09.) ──")
-# 🔴 In `regeln_eigen.json` stand dieselbe Adressliste zweimal: als
-#    `eigene_adressen` und in der Regel „Eigene Post Archiv" selbst. Geroutet
-#    wurde nach der Regel — eine neu eingetragene eigene Adresse blieb ohne
-#    Wirkung. Kein Fehler, keine Spur, nur eine Mail im Auffang.
-#    🔑 Genau dieser Fall: die Regel trägt EINE Adresse, `eigene_adressen`
-#    trägt eine ZWEITE — beide müssen ins Archiv finden. Gegen den alten Stand
-#    (`if ... and not adressen`) ist der zweite Fall rot.
+# 🔴 In `regeln_eigen.json` the same address list stood twice: as
+#    `eigene_adressen` and inside the rule „Eigene Post Archiv“ itself. Routing went
+#    by the rule — a newly entered own address had no effect. No error, no trace,
+#    just one mail in the catch folder.
+#    🔑 Exactly this case: the rule carries ONE address, `eigene_adressen` carries
+#    a SECOND — both have to find the archive. Against the previous code
+#    (`if ... and not adressen`) the second case is red.
 umbau._EIGEN_ZWISCHEN.clear()
 umbau._EIGEN_ZWISCHEN["katalog"] = {
     "eigene_adressen": ["zweite@erfunden.example"],
@@ -663,15 +660,14 @@ pruef("eine fremde Adresse bleibt draußen",
 umbau._EIGEN_ZWISCHEN.clear()
 
 print("\n── Der Arbeitsplatz des Agenten (27.09., die Ursache dieses Falles) ──")
-# 🔴 Der Werkstatt-Agent bekam einen von HAND gebauten Arbeitsplatz — dabei
-#    fehlten die zwei Wege, die der Provisioner sonst setzt: der VAULT-SPIEGEL
-#    (dessen Wissensstand) und der EINWURF (wohin seine Notizen gehen). Er
-#    urteilte deshalb bei 199 Absendern allein nach Domain und Betreff und
-#    schrieb das auch hin — in eine Notiz, die durch den fehlenden Einwurf
-#    niemanden erreichte.
-#    🔑 Darum laeuft dieser Fall WIRKLICH, gegen einen kaputten und einen
-#    geheilten Arbeitsplatz. Eine Quelltextzusage haette denselben Satz
-#    behauptet, ohne ihn einmal zu erleben.
+# 🔴 The workshop agent was given a workplace built BY HAND — and the two paths
+#    the provisioner otherwise creates were missing: the VAULT MIRROR (what the
+#    owner knows) and the DROP FOLDER (where its notes go). So it judged 199 senders
+#    by domain and subject alone and wrote that down as well — into a note which,
+#    because the drop folder was missing, reached nobody.
+#    🔑 That is why this case RUNS for real, against a broken and a repaired
+#    workplace. A promise about the source would have claimed the same sentence
+#    without ever living through it.
 import tempfile
 
 _pw = umbau.pw

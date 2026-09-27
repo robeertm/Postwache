@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Baut eine Postwache mit ERFUNDENEN Daten — fuer Screenshots und zum Ausprobieren.
+"""Builds a Postwache with INVENTED data — for screenshots and for trying it out.
 
     python3 demo/demo_daten.py /tmp/postwache-demo
     python3 demo/demo_daten.py /tmp/postwache-demo --sprache en
     POSTWACHE_HOME=/tmp/postwache-demo python3 post_web.py
 
-Es wird kein Postfach angefasst und nichts abgerufen: die Datei schreibt genau
-den Zustand, den ein paar Wochen Betrieb hinterlassen haetten. Alle Namen,
-Adressen und Betreffzeilen sind ausgedacht.
+No mailbox is touched and nothing is fetched: the file writes exactly the state a
+few weeks of operation would have left behind. Every name, address and subject
+line is made up.
 
-🔴 Die Sprache faerbt nicht nur die Oberflaeche. Absender, Betreffzeilen,
-Ordnernamen und die Chronik schreibt der Waechter — eine englische Seite mit
-deutschen Betreffzeilen sieht aus wie halb fertig. Deshalb gibt es die Welt
-zweimal, nicht die Seite einmal und den Inhalt einsprachig.
+🔴 The language colours more than the surface. Senders, subject lines, folder
+names and the history are written by the watchman — an English page with German
+subject lines looks half finished. So the world exists twice, rather than the page
+once and its content in one language.
 """
 import argparse, io, json, os, random, sys
 from datetime import datetime, timedelta
@@ -47,9 +47,9 @@ def zeilen(pfad, saetze):
             fh.write(json.dumps(s, ensure_ascii=False) + "\n")
 
 
-# ── die erfundene Welt, zweimal ──────────────────────────────────────────────
-# Derselbe Haushalt, dieselben Zahlen — nur in der jeweiligen Sprache. Die
-# Schubladenschluessel (frist, amt, …) bleiben gleich: die uebersetzt die Seite.
+# ── the invented world, twice ────────────────────────────────
+# The same household, the same numbers — only in the respective language. The
+# drawer keys (frist, amt, …) stay the same: the page translates those.
 WELTEN = {}
 
 WELTEN["de"] = dict(
@@ -167,10 +167,10 @@ WELTEN["en"] = dict(
          "A circular with an unsubscribe link, nothing personal in it.", 71)],
 )
 
-# 🔴 Die Begruendungen erfindet die Demo NICHT selbst: sie nimmt genau die
-# Texte, die der Waechter schreiben wuerde. Sonst zeigt ein Screenshot eine
-# Formulierung, die es in keiner Installation gibt — und der erste echte Blick
-# auf die Seite sieht anders aus als das Bild, mit dem geworben wurde.
+# 🔴 The demo does NOT invent the reasons itself: it takes exactly the texts the
+# watchman would write. Otherwise a screenshot shows wording that exists in no
+# installation — and the first real look at the page differs from the image it was
+# advertised with.
 with io.open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                           "locales", "%s.json" % SPRACHE), encoding="utf-8") as _fh:
     TEXTE = json.load(_fh)
@@ -211,7 +211,7 @@ def grund_fuer(klasse, name, adresse):
     return t("w.grund.unklar")
 
 
-# ── koepfe: was er zuletzt eingeordnet hat ───────────────────────────────────
+# ── koepfe: what it classified most recently ──────────────────────
 koepfe, uid = [], 41200
 for i in range(260):
     adresse, name, klasse, ordner, _ = random.choice(ABSENDER)
@@ -238,11 +238,11 @@ for i in range(260):
 koepfe.sort(key=lambda e: e["gesehen"])
 schreib(os.path.join(PF, "koepfe.json"), koepfe)
 
-# ── Ablage: die gelernte Landkarte ───────────────────────────────────────────
-# 🔴 `ordner` ist eine flache Zaehlung {Name: Zahl}, kein verschachteltes
-# Woerterbuch — die Seite sortiert danach (`-kv[1]`) und waere an einem dict
-# mit „bad operand type for unary -" gescheitert. Genau deshalb wird die Demo
-# gegen die ECHTE Struktur gebaut und nicht gegen eine vermutete.
+# ── Filing: the learned map ──────────────────────────────────
+# 🔴 `ordner` is a flat count {name: number}, not a nested dictionary — the page
+# sorts by it (`-kv[1]`) and would have failed on a dict with „bad operand type for
+# unary -“. That is exactly why the demo is built against the REAL structure and
+# not against an assumed one.
 schreib(os.path.join(PF, "ablage.json"), {
     "gelernt": JETZT.isoformat(timespec="seconds"), "dauer": 6.7, "mails": 4820,
     "deckung": 91.4,
@@ -278,7 +278,7 @@ schreib(os.path.join(PF, "statistik.json"), {
                      for a, n, _k, _o, c in sorted(ABSENDER, key=lambda x: -x[4])[:8]],
 })
 
-# ── Anhaenge und Dokumente ───────────────────────────────────────────────────
+# ── Attachments and documents ───────────────────────────────
 eintraege = {}
 for i, (datei, wer, ordner, groesse) in enumerate(W["dokumente"]):
     eintraege["m%02d" % i] = {
@@ -328,7 +328,7 @@ schreib(os.path.join(OUT, "status.json"), {
                                "zeit": JETZT.isoformat(timespec="seconds"), "version": _ver}},
     "zeit": JETZT.isoformat(timespec="seconds"), "version": _ver})
 
-# ── Journal und Chronik ──────────────────────────────────────────────────────
+# ── Journal and history ───────────────────────────────────
 zeilen(os.path.join(OUT, "journal.jsonl"), [
     {"zeit": (JETZT - timedelta(minutes=i * 13)).isoformat(timespec="seconds"),
      "uid": 41000 + i, "von": "INBOX", "nach": "INBOX." + e["ziel"], "anzeige": e["ziel"],
@@ -352,16 +352,16 @@ schreib(os.path.join(STATE, "einstellungen.json"), {
 schreib(os.path.join(STATE, "ki.json"), {"anbieter": "ollama",
                                          "url": "http://127.0.0.1:11434",
                                          "modell": "llama3.1:8b"}, 0o600)
-# 🔴 Die Sprache ist eine Einstellung der INSTALLATION — sie steht hier, nicht
-# in einem Cookie. Ohne diese Zeile zeigte eine englische Demo deutsche Seite.
+# 🔴 The language is a setting of the INSTALLATION — it stands here, not in a
+# cookie. Without this line an English demo showed a German page.
 schreib(os.path.join(STATE, "konfig.json"), {"seite": "http://homeserver:8110",
                                              "sprache": SPRACHE,
                                              "ha": {"url": "", "token_datei": "", "schalter": ""},
-                                             # 🔑 Damit die Karte „Auftraege in der
-                                             # Werkstatt" im Bild erscheint. Ohne
-                                             # Werkstatt bleibt sie verborgen —
-                                             # so soll es bei jedem sein, der
-                                             # keine hat.
+                                             # 🔑 So that the card „tasks in the
+                                             # workshop“ appears in the image.
+                                             # Without a workshop it stays hidden —
+                                             # which is how it should be for
+                                             # everyone who has none.
                                              "werkstatt": "/srv/workshop/postwache",
                                              "imap_server": ""})
 schreib(os.path.join(STATE, "docusort.json"), {"url": "https://docusort.homenet.example:9876",
@@ -372,10 +372,10 @@ schreib(os.path.join(OUT, "vorschlaege.json"), {
     "liste": [{"absender": a, "schublade": s, "warum": warum, "sicher": sicher}
               for a, s, warum, sicher in W["vorschlaege"]]})
 
-# ── Seit 4.5.0: Umbau, Umzug und die Auftraege haben eigene Karten ──────────
-# 🔴 Ohne diese Dateien zeigen die neuen Reiter ihren LEERZUSTAND. Das ist
-#    ehrlich, aber als Bild im README nutzlos: wer die Postwache noch nie gesehen
-#    hat, soll sehen, was sie KANN. Erfunden ist hier alles, wie ueberall sonst.
+# ── Since 4.5.0: restructuring, migration and the tasks have cards of their own
+# 🔴 Without these files the new tabs show their EMPTY state. That is honest but
+#    useless as an image in the README: someone who has never seen the Postwache
+#    should see what it CAN do. Everything here is invented, as everywhere else.
 _KAT = ([("Shopping", 1284), ("Technology", 963), ("Banking", 742),
          ("Travel", 318), ("People", 287), ("Insurance", 146),
          ("Newsletter", 132), ("Authorities", 74), ("Health", 61),
@@ -403,10 +403,10 @@ schreib(os.path.join(OUT, "umzug_stand.json"), {
     "baum": [[k, n] for k, n in _KAT[:8]],
     "text": ("4120 of 4120 at B" if SPRACHE == "en" else "4120 von 4120 bei B")})
 
-# 🔴 Die Auftraege bekommen ECHTE Zeitstempel, nicht JETZT-relative: das Alter
-#    rechnet der Server gegen die wirkliche Uhr, und ein Auftrag, der „seit 49 h
-#    bearbeitet wird", sieht im Bild nach einem Haenger aus, obwohl die Demo
-#    nur ein paar Tage alt ist.
+# 🔴 The tasks get REAL timestamps, not ones relative to now: the age is computed
+#    by the server against the actual clock, and a task that „has been running for
+#    49 h“ looks like a hang in the image, although the demo is only a few days
+#    old.
 _NUN = datetime.now()
 schreib(os.path.join(OUT, "auftraege.json"), [
     {"nr": 7, "titel": ("Postwache: 24 senders without a category"
@@ -432,9 +432,9 @@ schreib(os.path.join(OUT, "auftraege.json"), [
      "gemeldet": False},
 ])
 
-# 🔴 Inventar und Plan muessen wirklich DA sein, sonst zeigt die Karte
-#    „318 Bewegungen geplant" UND daneben „Plan: —". Ein Bild, das sich selbst
-#    widerspricht, ist schlechter als gar keins.
+# 🔴 Inventory and plan really have to BE there, otherwise the card shows
+#    „318 moves planned“ AND „plan: —“ next to it. An image that contradicts itself
+#    is worse than none.
 import gzip as _gzip
 _inv = {"gemessen": JETZT.isoformat(timespec="seconds"),
         "ordner": {k: {"uidvalidity": 1, "signatur": [1, n, n + 1], "leser": 2,
@@ -457,8 +457,8 @@ schreib(os.path.join(OUT, "umbau_wortschatz.json"), {
     "mails": {k: n for k, n in _KAT},
     "kategorien": {k: {"beispielwort": n // 3} for k, n in _KAT}})
 
-# Die Seite und die Versionsnummer liegen neben dem Waechter — die Demo
-# braucht beides in IHREM Ordner, weil POSTWACHE_HOME dorthin zeigt.
+# The page and the version number lie next to the watchman — the demo needs both
+# in ITS folder, because POSTWACHE_HOME points there.
 import shutil
 _quelle = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _datei in ("VERSION", "post_web.html"):

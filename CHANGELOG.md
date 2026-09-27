@@ -7,6 +7,42 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [4.6.0] – 2026-09-27
+
+### The source is commented in English
+Counted beforehand: **1,679 comment lines, 225 docstrings** and ~130 lines in shell
+and HTML — across 17 files and some 15,000 lines of program. All of it is
+translated.
+
+**Identifiers stay German** (`ziel_fuer`, `ablage_lernen`, `nachziehen`). They are
+this program's vocabulary; renaming them would be a different change with a
+different risk. The interface and the answers remain in five languages — not a line
+of those was touched. And the owner's **quotations stay in the original**: a quote is
+evidence, not commentary; translated it is no longer his sentence, and the reason a
+bolt exists would lose its source. An English gloss stands next to it where the
+meaning carries weight.
+
+### 🔑 A promise needs a checker, or it creeps back
+`probe_sprachen.py` has a **section 5**: every comment in 15 files is read,
+quotations are removed — and whatever still contains German filler words is **red**.
+Counter-tested: an inserted German comment is found, and after taking it back it is
+green again.
+
+Two sources of false alarms had to be solved, and both are instructive.
+**Identifiers are not prose** — `darf = bool(ziel)` and „`ohne` subtracts …“ were
+reported as German; now everything before a line's `#`, backticks and string
+literals are dropped before the check. And **consecutive comment lines are ONE
+block** — checked line by line, a multi-line quotation is torn apart and the checker
+flagged exactly the lines that are allowed to stay German. A checker that reports
+wrongly gets switched off.
+
+### Tooling instead of hand work
+The translation went by **line ranges**, not by text search: a German opening quote
+with an ASCII closing one, and a rule of dashes of unknown length, brought down the
+first two attempts. The replacer verifies before every write that **every** affected
+line really is a comment — and that once prevented a line of code from being
+overwritten.
+
 ## [4.5.3] – 2026-09-27
 
 ### Adding an address had no effect — because the same list existed twice

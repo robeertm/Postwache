@@ -1,12 +1,12 @@
-"""Offline-Probe fuer den Dokumenten-Teil — ohne Postfach, ohne Pi, ohne DocuSort.
+"""Offline probe for the document part — no mailbox, no Pi, no DocuSort.
 
-Geprueft wird das, was man NICHT am lebenden System sehen kann, ohne zu warten:
-der Bauplan-Leser (BODYSTRUCTURE), das Kriterium „Dokument oder Kram“, die
-Suche und die Regeln der Uebergabe.
+What is checked is what you CANNOT see on the live system without waiting: the
+blueprint reader (BODYSTRUCTURE), the criterion „document or junk“, the search and
+the rules of the handover.
 
-🔴 Die Beispiele sind echte IMAP-Antwortformen, keine erfundenen: mit Literal
-mitten im Satz, mit Klammer im Dateinamen, mit =?UTF-8?Q?…?= und mit
-filename*0*. Genau daran scheitert ein naiv gebauter Leser — und zwar still.
+🔴 The examples are real IMAP response shapes, not invented ones: with a literal
+mid-sentence, with a bracket in the file name, with =?UTF-8?Q?…?= and with
+filename*0*. That is exactly where a naively built reader fails — and silently.
 """
 import os
 import sys
@@ -32,7 +32,7 @@ def pruefe(name, ist, soll):
 
 
 def anhaenge(antwort):
-    """So, wie imaplib es liefert -> Liste der Anhaenge der ersten Mail."""
+    """Exactly as imaplib delivers it -> list of the first mail's attachments."""
     s = W._strukturen_lesen(antwort)
     uid = sorted(s)[0]
     return W.anhaenge_der_mail(s[uid])
@@ -40,12 +40,12 @@ def anhaenge(antwort):
 
 print("\n── Der Bauplan-Leser ───────────────────────────────────────────────")
 
-# 1) Eine gewoehnliche Textmail hat keinen Anhang.
+# 1) An ordinary text mail has no attachment.
 EINFACH = [b'1 (UID 101 BODYSTRUCTURE ("TEXT" "PLAIN" ("CHARSET" "utf-8")'
            b' NIL NIL "7BIT" 231 5))']
 pruefe("Textmail: kein Anhang", anhaenge(EINFACH), [])
 
-# 2) Rechnung als PDF, der Normalfall.
+# 2) An invoice as a PDF, the normal case.
 RECHNUNG = [b'2 (UID 102 BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "utf-8") NIL'
             b' NIL "QUOTED-PRINTABLE" 842 21)("APPLICATION" "PDF" ("NAME"'
             b' "Rechnung_092026.pdf") NIL NIL "BASE64" 154320 NIL'
@@ -58,7 +58,7 @@ pruefe("Teilenummer stimmt", a[0]["t"], "2")
 pruefe("Groesse mitgelesen", a[0]["b"], 154320)
 pruefe("Kodierung mitgelesen", a[0]["k"], "BASE64")
 
-# 3) Text+HTML+Anhang: der Anhang ist Teil 2, nicht Teil 1.2.
+# 3) Text+HTML+attachment: the attachment is part 2, not part 1.2.
 GESCHACHTELT = [b'3 (UID 103 BODYSTRUCTURE ((("TEXT" "PLAIN" ("CHARSET" "utf-8")'
                 b' NIL NIL "7BIT" 10 1)("TEXT" "HTML" ("CHARSET" "utf-8") NIL NIL'
                 b' "7BIT" 40 2) "ALTERNATIVE" ("BOUNDARY" "a") NIL NIL)'
@@ -71,8 +71,8 @@ pruefe("Anhang neben alternative", [(x["n"], x["t"]) for x in a],
 pruefe("docx ist ein Dokument", a[0]["art"], "dokument")
 pruefe("docx kann DocuSort NICHT", W.ds_verdaulich("Vertrag.docx"), False)
 
-# 4) Logo in der Signatur + PDF, das sich als octet-stream ausgibt.
-#    🔴 Genau hier entscheidet die ENDUNG, nicht der MIME-Typ.
+# 4) A logo in the signature + a PDF declaring itself as octet-stream.
+#    🔴 This is exactly where the EXTENSION decides, not the MIME type.
 LOGO = [b'4 (UID 104 BODYSTRUCTURE (("TEXT" "HTML" ("CHARSET" "utf-8") NIL NIL'
         b' "7BIT" 900 9)("IMAGE" "PNG" ("NAME" "logo.png") "<logo>" NIL "BASE64"'
         b' 4322 NIL ("INLINE" ("FILENAME" "logo.png")) NIL NIL)'
@@ -83,7 +83,7 @@ pruefe("Klammer im Dateinamen zerreisst nichts",
        [(x["n"], x["art"]) for x in a],
        [("logo.png", "bild"), ("Rechnung (Kopie).pdf", "dokument")])
 
-# 5) Literal mitten im Satz — so liefert imaplib jeden Umlaut-Dateinamen.
+# 5) A literal mid-sentence — that is how imaplib delivers any umlaut file name.
 LITERAL = [(b'5 (UID 105 BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "utf-8") NIL'
             b' NIL "7BIT" 10 1)("APPLICATION" "PDF" ("NAME" {29}',
             'Rechnung Brücke (2026).pdf'.encode("utf-8")),
@@ -92,14 +92,14 @@ LITERAL = [(b'5 (UID 105 BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "utf-8") NIL'
 pruefe("Literal + Umlaut + Klammer",
        [x["n"] for x in anhaenge(LITERAL)], ["Rechnung Brücke (2026).pdf"])
 
-# 6) RFC 2047 — der Dateiname steht kodiert im Parameter.
+# 6) RFC 2047 — the file name stands encoded in the parameter.
 KODIERT = [b'6 (UID 106 BODYSTRUCTURE ("APPLICATION" "PDF" ("NAME"'
            b' "=?UTF-8?Q?Telekom=5FRechnung=5FM=C3=A4rz=2Epdf?=") NIL NIL'
            b' "BASE64" 5000 NIL NIL NIL NIL))']
 pruefe("=?UTF-8?Q?…?= im Namen",
        [x["n"] for x in anhaenge(KODIERT)], ["Telekom_Rechnung_März.pdf"])
 
-# 7) RFC 2231 — lange Namen kommen in Stuecken und prozentkodiert.
+# 7) RFC 2231 — long names arrive in pieces and percent-encoded.
 GESTUECKELT = [b'7 (UID 107 BODYSTRUCTURE ("APPLICATION" "PDF" NIL NIL NIL'
                b' "BASE64" 5000 NIL ("ATTACHMENT" ("FILENAME*0*"'
                b' "utf-8\'\'Stromabrechnung%20" "FILENAME*1*" "2026%2Epdf"))'
@@ -107,7 +107,7 @@ GESTUECKELT = [b'7 (UID 107 BODYSTRUCTURE ("APPLICATION" "PDF" NIL NIL NIL'
 pruefe("filename*0* zusammengesetzt",
        [x["n"] for x in anhaenge(GESTUECKELT)], ["Stromabrechnung 2026.pdf"])
 
-# 8) Weitergeleitete Mail — die Rechnung haengt INNEN.
+# 8) A forwarded mail — the invoice hangs INSIDE.
 WEITER = [b'8 (UID 108 BODYSTRUCTURE (("TEXT" "PLAIN" ("CHARSET" "utf-8") NIL'
           b' NIL "7BIT" 30 2)("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 40000'
           b' ("Mo, 1 Sep 2026" "Ihre Rechnung" NIL NIL NIL NIL NIL NIL NIL NIL)'
@@ -119,7 +119,7 @@ a = anhaenge(WEITER)
 pruefe("Anhang in weitergeleiteter Mail",
        [(x["n"], x["t"]) for x in a], [("innen.pdf", "2.2")])
 
-# 9) Ein ganzer Block auf einmal — so kommt es beim Nachtragen.
+# 9) A whole block at once — that is how it arrives during the back-fill.
 BLOCK = EINFACH + RECHNUNG + [b'9 (UID 109 BODYSTRUCTURE ("TEXT" "PLAIN"'
                               b' ("CHARSET" "utf-8") NIL NIL "7BIT" 5 1))']
 pruefe("drei Mails in einer Antwort", sorted(W._strukturen_lesen(BLOCK)),
@@ -181,8 +181,8 @@ print("\n── Die Regeln der Uebergabe ─────────────
 
 
 class KeinPostfach:
-    """Ein Postfach, das nichts herausgibt — hier wird geprueft, WAS gar nicht
-    erst geholt wird."""
+    """A mailbox that hands out nothing — here it is checked WHAT is not even
+    fetched."""
 
     def __init__(self):
         self.geholt = []
@@ -245,7 +245,7 @@ pruefe("docx: gesagt statt verschluckt",
        (ds.hoch, e["ds"][0]["stand"]), ([], "kann_docusort_nicht"))
 
 print("\n── Nicht zweimal dasselbe ──────────────────────────────────────────")
-# Dieselbe Rechnung hängt an zwei Mails: im Themenordner UND im Archiv.
+# The same invoice hangs on two mails: in the topic folder AND in the archive.
 DATEI = {"n": "Rechnung_Telekom.pdf", "art": "dokument", "b": 148231,
          "t": "2", "k": "BASE64", "m": "application/pdf"}
 Z = {"stand": {}, "eintraege": {}}
@@ -259,7 +259,7 @@ W.anhang_eintragen(Z, {"message_id": "<2@x>", "adresse": "rechnung@telekom.de",
                        "name": "Telekom", "betreff": "Ihre Rechnung (Kopie)",
                        "datum": "2026-09-03T08:05:00+02:00"},
                    "Archiv Gmail", 99, [dict(DATEI)])
-# Eine gleichnamige, aber ANDERE Datei — die muss weiter angeboten werden.
+# A file with the same name but a DIFFERENT one — that must still be offered.
 W.anhang_eintragen(Z, {"message_id": "<3@x>", "adresse": "rechnung@telekom.de",
                        "name": "Telekom", "betreff": "Rechnung Oktober",
                        "datum": "2026-10-03T08:00:00+02:00"},
@@ -277,7 +277,7 @@ pruefe("gleicher Name, andere Größe = andere Datei",
 pruefe("kein falscher Zwilling",
        t["Rechnung Oktober"]["dateien_gezeigt"][0]["zwilling"], None)
 
-# Ein .docx ist ein Dokument, aber DocuSort nimmt es nicht — sagen, nicht anbieten.
+# A .docx is a document, but DocuSort will not take it — say it, do not offer it.
 W.anhang_eintragen(Z, {"message_id": "<4@x>", "adresse": "chef@firma.de",
                        "name": "Chef", "betreff": "Vertrag",
                        "datum": "2026-09-01T08:00:00+02:00"},
@@ -289,7 +289,7 @@ pruefe("docx wird gar nicht erst angeboten", v["gebbar"], False)
 pruefe("…und der Grund steht dran",
        v["dateien_gezeigt"][0]["stand"], "kann_docusort_nicht")
 
-# Eine Mail ohne bekannten Ort (gerade verschoben) kann man nicht holen.
+# A mail with no known location (just moved) cannot be fetched.
 W.anhang_eintragen(Z, {"message_id": "<5@x>", "adresse": "amt@stadt.de",
                        "name": "Amt", "betreff": "Bescheid",
                        "datum": "2026-09-02T08:00:00+02:00"},
@@ -345,7 +345,7 @@ pruefe("…aber nicht ewig: dann gilt sie als verschollen",
        e["ds"][0]["stand"], "verschollen")
 pruefe("und verschollen darf man wiederholen", W.ds_offen(e["ds"][0]), True)
 pruefe("abgelegt dagegen nicht", W.ds_offen({"stand": "abgelegt"}), False)
-# 🔴 „Fehler" ist zweierlei — die Dokumentnummer unterscheidet sie.
+# 🔴 „Error“ is two different things — the document number tells them apart.
 pruefe("gescheiterte ÜBERGABE: noch einmal",
        W.ds_offen({"stand": "fehler", "doc": ""}), True)
 pruefe("gescheiterte VERARBEITUNG in DocuSort: dort wiederholen, nicht hier",

@@ -1,38 +1,38 @@
 #!/usr/bin/env python3
-"""Postwache — der Waechter ueber einem IMAP-Postfach.
+"""Postwache — the watchman over an IMAP mailbox.
 
-ARCHITEKTUR (der Grund, warum das wenig kostet) — uebernommen von einem Schwesterprojekt:
-Der Waechter hier ist STUMM. Kein Sprachmodell, keine Tokens. Er laeuft jede
-Minute aus dem Cron (der Besitzer, 19.09.2026; vorher alle 5 — ein Lauf ohne neue Mail
-dauert 0,2 s), sieht sich die NEUEN Mails an (nur die seit der letzten
-gemerkten UID) und ordnet sie nach festen, lesbaren Regeln ein. Der AGENT in der
-Werkstatt wird nur geweckt, wenn der Waechter selbst nicht weiterweiss — also bei
-Mails, die in keine Schublade passen. Damit haengen die Kosten an der Zahl der
-UNKLAREN Faelle, nicht an der Zahl der Mails.
+ARCHITECTURE (the reason this costs little) — inherited from the das Schwesterprojekt:
+The watchman here is MUTE. No language model, no tokens. It runs every minute
+from cron (der Besitzer, 2026-09-19; every 5 before that — a run without new mail
+takes 0.2 s), looks at the NEW mails (only those since the last remembered UID)
+and classifies them by fixed, readable rules. The AGENT in the workshop is only
+woken when the watchman itself does not know what to do — that is, for mails that
+fit no drawer. So the cost hangs on the number of UNCLEAR cases, not on the
+number of mails.
 
-🔑 DER WICHTIGSTE GRUNDSATZ: WICHTIGES BLEIBT IM POSTEINGANG.
-Sortiert wird nur der Laerm HINAUS (Newsletter, Werbung, Automatisches). Fristen,
-Amtliches, Sicherheitswarnungen und Mails von echten Menschen bleiben liegen, wo
-Der Besitzer sie sowieso sieht. Ein Sortierer, der Wichtiges wegraeumt, ist gefaehrlicher
-als gar keiner.
+🔑 THE MOST IMPORTANT PRINCIPLE: WHAT MATTERS STAYS IN THE INBOX.
+Only the noise is sorted OUT (newsletters, advertising, automatic mail).
+Deadlines, official post, security warnings and mail from real people stay where
+he sees them anyway. A sorter that clears away what matters is more dangerous
+than none at all.
 
-🔴 GELESEN-STATUS: JEDER Abruf benutzt BODY.PEEK. Ein blankes BODY[] wuerde die
-Mail als gelesen markieren — der Waechter wuerde damit dessen Postfach veraendern,
-ohne dass jemand es angeordnet hat. Im Lernlauf wird die Mailbox zusaetzlich mit
-readonly=True geoeffnet, dann ist auch versehentliches Schreiben ausgeschlossen.
+🔴 READ STATUS: EVERY fetch uses BODY.PEEK. A bare BODY[] would mark the mail as
+read — the watchman would thereby change his mailbox without anyone having
+ordered it. During the learning run the mailbox is additionally opened with
+readonly=True, which rules out accidental writing as well.
 
-🔴 GELOESCHT WIRD NIE. Der Waechter kennt keinen einzigen Aufruf, der eine Mail
-loescht oder das \\Deleted-Flag setzt. Verschoben wird nur in Unterordner des
-Posteingangs, und jede Verschiebung steht mit Quelle und Ziel im Journal, damit
-sie einzeln oder komplett zurueckgeholt werden kann.
+🔴 NOTHING IS EVER DELETED. The watchman knows not a single call that deletes a
+mail or sets the \\Deleted flag. Mail is only moved into subfolders of the inbox,
+and every move is recorded with source and target in the journal, so that it can
+be brought back one at a time or all at once.
 
-NOTAUS: input_boolean.postwache_aktiv (Handy) ODER die Datei DISABLED im
-Zustandsordner. Beides einzeln genuegt. Wird VOR allem anderen geprueft, auch vor
-dem Verbinden mit dem Postfach.
+EMERGENCY STOP: input_boolean.postwache_aktiv (phone) OR the file DISABLED in the
+state folder. Either one on its own is enough. It is checked BEFORE everything
+else, even before connecting to the mailbox.
 
-LERNLAUF: Solange `einstellungen.json` kein "scharf": true traegt, wird NICHTS
-verschoben. Der Waechter schreibt nur auf, was er tun WUERDE. Der Besitzer schaltet auf
-der Seite (Port 8110) scharf, wenn die Einordnung stimmt.
+LEARNING RUN: as long as `einstellungen.json` does not carry "scharf": true,
+NOTHING is moved. The watchman only writes down what it WOULD do. He arms it on
+the page (port 8110) once the classification is right.
 """
 from __future__ import annotations
 
@@ -57,47 +57,47 @@ import urllib.request
 from datetime import datetime, timedelta
 
 HOME = os.path.expanduser("~")
-# Wo die Postwache wohnt. Im Container ist das ein eingehaengtes Verzeichnis,
-# auf einem Rechner der gewachsene Pfad — beides ohne Codeaenderung.
+# Where the Postwache lives. In a container that is a mounted directory, on a
+# machine the path it grew into — both without a code change.
 BASE = os.path.abspath(os.environ.get("POSTWACHE_HOME")
                        or os.path.join(HOME, "scripts", "postwache"))
 STATE = os.path.join(BASE, "state")
 OUT = os.path.join(BASE, "out")
 
-# 🔴 Programm und Zustand sind ZWEI Orte, auch wenn sie bei einer gewachsenen
-# Installation derselbe sind. Im Container liegt der Code in /app und der
-# Zustand in einem eingehaengten /data — wer die Seite oder die Versionsnummer
-# im Zustandsordner sucht, findet dort nichts und meldet „HTTP 500" bzw. „?".
+# 🔴 Program and state are TWO places, even where a grown installation has
+# them in the same one. In a container the code sits in /app and the state in a
+# mounted /data — look for the page or the version number in the state folder
+# and you find nothing there and report "HTTP 500" or "?".
 PROG = os.path.dirname(os.path.abspath(__file__))
 
 
 def neben_dem_programm(name: str) -> str:
-    """Erst neben dem Programm, sonst im Zustandsordner. Die zweite Stelle ist
-    der gewachsene Fall, bei dem beides nebeneinanderliegt."""
+    """Next to the program first, otherwise in the state folder. The second place
+    is the grown case, where both lie side by side."""
     q = os.path.join(PROG, name)
     return q if os.path.isfile(q) else os.path.join(BASE, name)
 
 DISABLED = os.path.join(BASE, "DISABLED")
 PAUSE = os.path.join(BASE, "PAUSE")
-# 🔑 Ab 3.0.0 steht nichts Umgebungsabhaengiges mehr fest im Quelltext. Was
-# frueher hier als Konstante stand, kommt jetzt aus `konfig.json` — und fehlt
-# die Datei, wird die Umgebung ERKANNT. Das ist der Unterschied zwischen einem
-# Programm, das auf genau einem Rechner laeuft, und einem, das man herunterlaedt:
-# auf dessen Pi findet die Erkennung Home Assistant und die Werkstatt und alles
-# bleibt wie es war; auf einem fremden Rechner findet sie nichts und die
-# Postwache laeuft eben ohne beides, statt auf Pfade zu zeigen, die es nicht gibt.
-# Wonach die Erkennung sucht, wenn `konfig.json` nichts sagt. Bewusst
-# allgemeine Orte: ein Pfad aus genau einem Haushalt hat in einem Programm,
-# das andere herunterladen, nichts verloren.
+# 🔑 Since 3.0.0 nothing environment-specific is fixed in the source. What
+# used to stand here as a constant now comes from `konfig.json` — and when that
+# file is absent, the environment is DETECTED. That is the difference between a
+# program that runs on exactly one machine and one you can download: on the
+# owner's Pi the detection finds Home Assistant and the workshop and everything
+# stays as it was; on a stranger's machine it finds neither and the Postwache
+# simply runs without both, rather than pointing at paths that do not exist.
+# What the detection looks for when `konfig.json` says nothing. Deliberately
+# generic places: a path from one single household has no business in a program
+# other people download.
 ENVFILE_STANDARD = os.path.join(BASE, "ha.env")
 HA_STANDARD = "http://127.0.0.1:8123"
 SCHALTER_STANDARD = "input_boolean.postwache_aktiv"
 
 
 def _version() -> str:
-    """Eine Quelle fuer die Versionsnummer: die Datei VERSION neben dem Skript.
-    Waechter UND Seite lesen dieselbe Datei — zwei Konstanten waeren zwei
-    Wahrheiten, und eine davon waere irgendwann die falsche."""
+    """One source for the version number: the file VERSION next to the script.
+    Watchman AND page read the same file — two constants would be two truths, and
+    one of them would eventually be the wrong one."""
     try:
         with open(neben_dem_programm("VERSION"), encoding="utf-8") as fh:
             return fh.read().strip() or "?"
@@ -109,154 +109,155 @@ VERSION = _version()
 
 LOG_ZEILEN = 4000
 CHRONIK_ZEILEN = 1200
-JOURNAL_ZEILEN = 5000        # jede Verschiebung, damit sie umkehrbar bleibt
+JOURNAL_ZEILEN = 5000        # every move, so that it stays reversible
 
-ZUGANG = "zugang.json"       # 0600, bis 2.x: EIN Postfach. Wird migriert.
-POSTFAECHER = "postfaecher.json"  # 0600: seit 3.0.0 die Liste aller Postfaecher
+ZUGANG = "zugang.json"       # 0600, up to 2.x: ONE mailbox. Gets migrated.
+POSTFAECHER = "postfaecher.json"  # 0600: since 3.0.0 the list of all mailboxes
 KONFIG = "konfig.json"       # Umgebung: Seite, Home Assistant, Werkstatt
-KI = "ki.json"               # 0600: Anbieter fuer die Urteilshilfe
+KI = "ki.json"               # 0600: provider for the judgement aid
 EINST = "einstellungen.json"
 LAUF = "lauf.json"
-KOEPFE = "koepfe.json"       # was der Waechter von jeder Mail behalten hat
+KOEPFE = "koepfe.json"       # what the watchman kept from every mail
 ABSENDER = "absender.json"   # Langzeitprofil je Absender
 
-# Wie viele Mails ein Kaltstart anschaut, um die Ausgangslage zu lernen.
+# How many mails a cold start looks at to learn the starting position.
 KALTSTART_MAILS = 300
-# So viele neue Mails werden pro Lauf hoechstens verarbeitet. Ein Postfach, das
-# gerade 4000 Mails nachliefert, darf den Lauf nicht ueber den Cron-Takt ziehen.
+# At most this many new mails are handled per run. A mailbox that is delivering
+# 4000 mails at once must not stretch a run beyond the cron interval.
 MAX_PRO_LAUF = 120
-# So viele Laufzeitpunkte bleiben stehen. 120 × 1 min = 2 Stunden — genug,
-# um den Takt zu messen, zu wenig, um die Datei wachsen zu lassen.
+# This many run timestamps are kept. 120 × 1 min = 2 hours — enough to measure
+# the interval, too little to let the file grow.
 LAUF_HISTORIE = 120
-TAKT_MINDEST = 4                  # weniger Abstaende = keine Aussage ueber den Takt
-# Mehr Sofortmeldungen als das in EINEM Lauf werden zu einer Zeile zusammengefasst.
+TAKT_MINDEST = 4                  # fewer gaps = no statement about the interval
+# More immediate alerts than this in ONE run are folded into a single line.
 MELDE_EINZELN_MAX = 12
 
 TG_API = "https://api.telegram.org/bot%s/sendMessage"
 TG_GRENZE = 3800
-# Die eigene Seitenadresse steht in konfig()["seite"] — siehe _erkenne_umgebung().
+# The page's own address lives in konfig()["seite"] — see _erkenne_umgebung().
 
-# Der Agent in der Werkstatt. Geweckt wird er NUR bei echtem Urteilsbedarf.
-# 🔴 Ein solcher Agent laeuft ueblicherweise isoliert und kann das Verzeichnis
-# des Waechters NICHT lesen. Deshalb legt der Waechter seine unklaren Faelle in
-# einen vereinbarten Ordner: der Waechter schreibt, der Agent liest, sonst
-# niemand. Der Pfad steht in `konfig.json` unter "werkstatt"; ohne Eintrag ist
-# dieser Weg aus.
+# The agent in the workshop. It is only woken when judgement is really needed.
+# 🔴 Such an agent usually runs isolated and can NOT read the watchman's own
+# directory. So the watchman puts its unclear cases into an agreed folder: the
+# watchman writes, the agent reads, nobody else. The path is in `konfig.json`
+# under "werkstatt"; without an entry this route is off.
 
 MAX_WECKRUFE_PRO_TAG = 4
-UNKLAR_SCHWELLE = 8          # so viele unklare Mails, dann lohnt sich ein Urteil
+UNKLAR_SCHWELLE = 8          # this many unclear mails make a judgement worthwhile
 
-# ── dessen eigene Ablage ist der Lehrmeister ────────────────────────────────
-# der Besitzer am 11.09.2026: „soll automatisch den besten weg finden und auch mehr
-# kategorien erstellen, vieleicht auch aus mails kategorien erstellen."
+# ── The owner's own filing is the teacher ────────────────────────────
+# der Besitzer, 2026-09-11 — find the best way by itself and create more categories,
+# maybe even from the mails themselves:
+# „soll automatisch den besten weg finden und auch mehr kategorien erstellen,
+# vieleicht auch aus mails kategorien erstellen."
 #
-# 🔑 Die Kategorien gibt es schon: 35 Themenordner, ueber Jahre von Hand
-# gefuellt. Sie sind seine eigenen Entscheidungen — jede erfundene Schublade
-# waere schlechter. Der Waechter liest die ABSENDER in diesen Ordnern und leitet
-# daraus ab, wohin neue Post gehoert.
+# 🔑 The categories already exist: 35 topic folders, filled by hand over
+# years. They are his own decisions — any drawer we invented would be worse. The
+# watchman reads the SENDERS in those folders and derives from them where new
+# mail belongs.
 #
-# Gemessen am 11.09.2026: 2909 Mails aus 35 Ordnern, 308 Absender. 174 davon
-# schreiben eindeutig immer in denselben Ordner — das deckt 94 % der Post ab.
-ABLAGE = "ablage.json"            # die gelernte Landkarte
-ABLAGE_FRISCH = 24 * 3600         # einmal am Tag neu lernen, nicht in jedem Lauf
-LERN_JE_ORDNER = 400              # mehr aendert das Urteil nicht, kostet nur Zeit
-# 🔑 Je GROEBER die Stufe, desto mehr Beweis. Am 11.09.2026 an 670 zurueck-
-# gehaltenen Mails gemessen (gelernt aus den aelteren, geprueft an den neuesten):
+# Measured 2026-09-11: 2909 mails from 35 folders, 308 senders. 174 of them
+# write unambiguously into the same folder every time — that covers 94 % of the
+# post.
+ABLAGE = "ablage.json"            # the learned map
+ABLAGE_FRISCH = 24 * 3600         # relearn once a day, not on every run
+LERN_JE_ORDNER = 400              # more does not change the verdict, only the time
+# 🔑 The COARSER the level, the more evidence it needs. Measured 2026-09-11
+# against 670 held-back mails (learned from the older ones, checked against the
+# newest):
 #
-#   Staffelung                          richtig  falsch  Quote
-#   0.8 / 0.8 / 0.8  (erster Wurf)          380      40  90.5%
-#   dieselbe, eigene Adressen raus          380      34  91.8%
-#   0.8 / 0.9 / 0.95                        359      17  95.5%
-#   ohne Hauptdomain                        351      10  97.2%   ← gewaehlt
+#   thresholds                          right  wrong  rate
+#   0.8 / 0.8 / 0.8  (first attempt)      380     40  90.5%
+#   same, own addresses excluded          380     34  91.8%
+#   0.8 / 0.9 / 0.95                      359     17  95.5%
+#   without the main domain               351     10  97.2%   ← chosen
 #
-# Die Hauptdomain bringt 8 Treffer und 7 Fehler — ein Muenzwurf. `check24.de`
-# macht Hotels UND Versicherungen, `deutschepost.de` liefert Pakete UND den
-# Steuer-Newsletter. Sie darf deshalb VORSCHLAGEN, aber nicht handeln.
+# The main domain brings 8 hits and 7 misses — a coin toss. `check24.de` does
+# hotels AND insurance, `deutschepost.de` delivers parcels AND the tax
+# newsletter. So it may SUGGEST, but not act.
 LERN_SCHWELLEN = {              # Stufe -> (Mindestanteil, Mindestzahl, darf_handeln)
     "absender": (0.80, 2, True),
     "domain":   (0.90, 5, True),
     "haupt":    (0.90, 5, False),
 }
-# Unterhalb der Handlungsschwelle wird noch VORGESCHLAGEN. Beispiel aus dessen
-# Postfach: `info@account.netflix.com` liegt 5x in Shopping.Netflix und 1x
-# woanders — 83 %, knapp unter der Latte. Selbst entscheiden waere zu forsch,
-# aber schweigen ist unnuetz: die Seite zeigt den Vorschlag, ein Tipp macht
-# daraus eine Dauerregel.
+# Below the acting threshold there is still a SUGGESTION. An example from the
+# real mailbox: `info@account.netflix.com` sits 5× in Shopping.Netflix and once
+# elsewhere — 83 %, just under the bar. Deciding alone would be too bold, but
+# staying silent is useless: the page shows the suggestion and one tap turns it
+# into a standing rule.
 VORSCHLAG_ANTEIL = 0.5
 VORSCHLAG_MINDEST = 2
-# 🔑 DIE NAMENSBRUECKE. Der Besitzer hat eine zweite, voellig unabhaengige Aussage
-# hinterlassen, die der Waechter bis zum 12.09.2026 ignoriert hat: **den Namen
-# des Ordners**. `Synology.NAS01` ist nach `nas01@beispielhaus.example` benannt,
-# `Shopping.Ikea` nach `ikea.de`. Dafuer braucht es keine Statistik — die
-# Zuordnung steht im Namen.
+# 🔑 THE NAME BRIDGE. The owner left a second, completely independent
+# statement that the watchman ignored until 2026-09-12: **the name of the
+# folder**. `Synology.NAS01` is named after `nas01@beispielhaus.example`,
+# `Shopping.Ikea` after `ikea.de`. No statistics needed for that — the mapping
+# is in the name.
 #
-# Das ist der Ausweg aus einer Sackgasse, die das Zaehlen nicht verlassen kann:
-# ein Ordner, in dem noch nichts liegt, kann nichts lehren. Genau so lagen
-# NAS01 bis NAS04 — angelegt, aber leer (0/0/0/1 Mails). Der Waechter kann nur
-# nachahmen, und hier gab es nichts nachzuahmen.
+# This is the way out of a dead end that counting cannot leave: a folder with
+# nothing in it can teach nothing. NAS01 to NAS04 were exactly that — created
+# but empty (0/0/0/1 mails). The watchman can only imitate, and here there was
+# nothing to imitate.
 #
-# Gemessen am 12.09.2026:
-#   an 1814 von Hand einsortierten Mails             99.0 % richtig
-#   als Rueckfall NUR dort, wo das Zaehlen schweigt   24 von 30 richtig
-# Die 6 Abweichungen sind keine Ausrutscher, sondern dessen eigene Uneindeutig-
-# keit: `lidl-connect@vodafone.de` liegt mal in Shopping.Vodafone, mal in
-# Shopping.Diverses; eine Cyberport-Bestellung kam ueber marketplace.amazon.de.
-# Keine davon verlaesst den Shopping-Bereich.
-NAMENSBRUECKE_MINDEST = 3         # „DHL" und „KIA" sollen mitzaehlen duerfen
+# Measured 2026-09-12:
+#   against 1814 hand-filed mails                     99.0 % right
+#   as a fallback ONLY where counting is silent        24 of 30 right
+# The 6 deviations are not slips but the owner's own ambiguity:
+# `lidl-connect@vodafone.de` sits sometimes in Shopping.Vodafone, sometimes in
+# Shopping.Diverses; a Cyberport order arrived via marketplace.amazon.de. None
+# of them leaves the Shopping area.
+NAMENSBRUECKE_MINDEST = 3         # „DHL“ and „KIA“ should be allowed to count
 
-LERN_MINDEST = 2                  # ein einziger Treffer ist kein Muster
+LERN_MINDEST = 2                  # a single hit is not a pattern
 LERN_ANTEIL = 0.8                 # Rueckfallwert
 
-# 🔴 Diese Ordner werden NICHT gelernt. Ein Archiv ist kein Thema: „Archiv
-# Gmail" hat 12396 Mails, davon kamen in der Stichprobe 235 von 400 von der Besitzer
-# SELBST. Wer das mitlernt, schickt kuenftige Post ins Archiv statt in den
-# richtigen Ordner — 16 von 106 Archiv-Absendern liegen auch in echten
-# Themenordnern.
-# ── Statistik ─────────────────────────────────────────────────────────────────
+# 🔴 These folders are NOT learned from. An archive is not a topic: „Archiv
+# Gmail“ holds 12396 mails, and in the sample 235 of 400 came from the owner
+# HIMSELF. Learn from that and you send future post into the archive instead of
+# the right folder — 16 of 106 archive senders also sit in real topic folders.
+# ── Statistics ───────────────────────────────────────────────
 STATISTIK = "statistik.json"
-STAT_FRISCH = 6 * 3600            # sechsmal am Tag reicht; Zahlen aendern sich langsam
+STAT_FRISCH = 6 * 3600            # six times a day is enough; the numbers change slowly
 STAT_JE_ORDNER = 1500             # Deckel je Ordner — siehe „vollstaendig_ab"
-STAT_TAGE = 120                   # so weit zurueck wird der Tagesverlauf gezeigt
-# 🔴 Was NICHT in eine Eingangsstatistik gehoert: Gesendetes (das hat der Besitzer
-# geschrieben), Entwuerfe und Vorlagen (nie angekommen). Der Papierkorb bleibt
-# DRIN — was dort liegt, ist angekommen und dann weggeworfen worden; es
-# wegzulassen wuerde die Frage „wie viel Post bekomme ich?" falsch beantworten.
+STAT_TAGE = 120                   # this far back the daily course is shown
+# 🔴 What does NOT belong in a statistic about INCOMING mail: sent items (he
+# wrote those himself), drafts and templates (never arrived). The trash stays
+# IN — what lies there did arrive and was then thrown away; leaving it out
+# would answer the question „how much post do I get?“ wrongly.
 KEINE_STATISTIK = {"Sent Items", "Sent", "Drafts", "Templates"}
 
 KEIN_LEHRMEISTER = {"INBOX", "Trash", "Spam", "Drafts", "Sent Items",
                     "Archiv Gmail", "Archive", "Junk", "Sent", "Templates",
-                    # 🔴 Seit dem Umbau (4.0.0, 27.09.2026) notwendig: der
-                    # Ausschluss „Archiv Gmail" hing am NAMEN. Dessen 12.396
-                    # Mails liegen jetzt in normalen Ordnern — und zwei davon
-                    # sind als Lehrmeister gefaehrlich:
-                    #   „Unsortiert" wuerde beibringen, ein unbekannter
-                    #   Absender GEHOERE dorthin — danach greift die
-                    #   Inhaltsableitung nie wieder, weil die Ablage ja ein
-                    #   Ziel kennt.
-                    #   „Eigene Post Archiv" enthaelt nur dessen eigene
-                    #   Adressen; daraus laesst sich nichts ueber fremde
-                    #   Absender lernen.
+                    # 🔴 Necessary since the restructuring (4.0.0,
+                    # 2026-09-27): the exclusion of „Archiv Gmail“ hung on the
+                    # NAME. Its 12,396 mails now sit in ordinary folders — and
+                    # two of those are dangerous as teachers:
+                    #   „Unsortiert“ would teach that an unknown sender
+                    #   BELONGS there — after which the content rules never fire
+                    #   again, because the filing map already knows a target.
+                    #   „Eigene Post Archiv“ contains only the owner's own
+                    #   addresses; nothing about other senders can be learned
+                    #   from it.
                     "Unsortiert", "Eigene Post Archiv"}
 
-# ── Die Schubladen ────────────────────────────────────────────────────────────
-# Reihenfolge = Vorrang. Die ersten vier sind dessen Alarmklassen (11.09.2026:
-# „Echte Menschen, Sicherheitswarnungen, Behoerden/Versicherung/Bank,
-# Fristen & Rechnungen"), die restlichen sind der Laerm.
-# „stoerung" ist die fuenfte Alarmklasse. Sie ERHOEHT die Weckrufe nicht,
-# sie senkt sie: vorher schlug JEDE Geraetemeldung als „mensch" Alarm,
-# jetzt nur noch die, in der etwas schiefging.
+# ── The drawers ────────────────────────────────────────────────
+# Order = precedence. The first four are the owner's alarm classes (2026-09-11:
+# real people, security warnings, authorities/insurance/bank, deadlines &
+# invoices), the rest is noise.
+# „Stoerung“ (fault) is the fifth alarm class. It does not RAISE the number of
+# wake-ups, it lowers it: before, EVERY device report raised an alarm as
+# „human“; now only the one where something went wrong.
 ALARM = ("sicherheit", "frist", "amt", "mensch", "stoerung")
 LAERM = ("werbung", "newsletter", "automatisch")
 
-# Die Schubladen beantworten seit dem Umbau vom 11.09.2026 nur noch EINE Frage:
-# muss der Besitzer das sofort wissen? Wohin eine Mail wandert, steht in seiner
-# eigenen Ablage — siehe `ablage_lernen()`.
-# 🔑 Der Name steht hier als deutscher Text und ist zugleich der Rueckfall:
-# `schublade.<schluessel>` in den Sprachdateien schlaegt ihn. So bleibt der
-# Quelltext lesbar, auch wenn keine Sprachdatei zur Hand ist.
+# Since the restructuring of 2026-09-11 the drawers answer only ONE question:
+# does he need to know this immediately? Where a mail travels to is decided by
+# his own filing — see `ablage_lernen()`.
+# 🔑 The name stands here as German text and is at the same time the fallback:
+# `schublade.<key>` in the language files beats it. That keeps the source
+# readable even when no language file is at hand.
 def schubladen_namen(sprachcode: str = "") -> dict:
-    """Die Schubladen mit uebersetztem Namen — EINE Stelle, an der uebersetzt
-    wird, statt an jeder Anzeige."""
+    """The drawers with a translated name — ONE place that translates,
+    instead of every display doing it."""
     raus = {}
     for k, v in SCHUBLADEN.items():
         name = _texte(sprachcode or sprache()).get("schublade." + k)
@@ -269,9 +270,9 @@ SCHUBLADEN = {
     "frist":       {"name": "Fristen",      "icon": "\u23F3"},
     "amt":         {"name": "Amtliches",    "icon": "\U0001F3DB\uFE0F"},
     "mensch":      {"name": "Menschen",     "icon": "\U0001F4AC"},
-    # Am 12.09.2026 dazugekommen. Vorher hatte eine fehlgeschlagene Sicherung
-    # keine eigene Schublade und rutschte als „Person schreibt direkt (NAS02)"
-    # in die Menschen — eine Begruendung, die schlicht nicht stimmte.
+    # Added on 2026-09-12. Before that a FAILED backup had no drawer of its own
+    # and slipped in among the humans as „a person writes directly (NAS02)“ — a
+    # reason that was simply untrue.
     "stoerung":    {"name": "St\u00f6rungen",   "icon": "\U0001F6A8"},
     "werbung":     {"name": "Werbung",      "icon": "\U0001F3F7\uFE0F"},
     "newsletter":  {"name": "Newsletter",   "icon": "\U0001F4F0"},
@@ -283,15 +284,14 @@ _RX = re.IGNORECASE
 
 
 def normal(t: str) -> str:
-    """Kleinschreibung UND Umlaute in die Umschrift (ae/oe/ue/ss).
+    """Lower case AND umlauts into their transcription (ae/oe/ue/ss).
 
-    🔴 Das ist kein Schoenheitspflaster, sondern die Lehre aus der ersten
-    Messung: das Muster `ger[aeae]t` traf zwar „Gerät", aber NICHT „Geraet" —
-    und Absender schreiben beides. Eine Sicherheitswarnung waere dadurch als
-    „Automatisch" aussortiert worden. Statt jedes Muster zweimal zu schreiben
-    (und beim naechsten zu vergessen), wird EINMAL normalisiert; danach sind
-    alle Muster reines ASCII und koennen die Frage gar nicht mehr falsch
-    beantworten.
+    🔴 This is not cosmetic, it is the lesson from the first measurement: the
+    pattern `ger[aeae]t` did match „Gerät“ but NOT „Geraet“ — and senders write
+    both. A security warning would have been filed away as „automatic“ because
+    of it. Instead of writing every pattern twice (and forgetting it on the
+    next one), normalisation happens ONCE; after that every pattern is plain
+    ASCII and can no longer get the question wrong.
     """
     t = (t or "").lower()
     for a, b in (("\u00e4", "ae"), ("\u00f6", "oe"), ("\u00fc", "ue"),
@@ -300,11 +300,11 @@ def normal(t: str) -> str:
     return t
 
 
-# Ab hier ist jedes Muster ASCII — es laeuft immer gegen `normal(...)`.
+# From here on every pattern is ASCII — it always runs against `normal(...)`.
 
-# Sicherheit: alles, was auf einen Zugriff auf ein Konto hindeutet. Diese Klasse
-# wird NIE verschoben und meldet auch dann, wenn die Mail wie ein Rundschreiben
-# aussieht — eine echte Warnung kommt oft genau so daher.
+# Security: anything that hints at access to an account. This class is NEVER
+# moved and reports even when the mail looks like a circular — a genuine warning
+# often arrives looking exactly like one.
 W_SICHER = re.compile(
     r"(sicherheitswarnung|security alert|sicherheitshinweis zu ihrem konto|"
     r"neue[rs]? anmeldung|angemeldet von|anmeldung von einem|login from|"
@@ -317,10 +317,11 @@ W_SICHER = re.compile(
     r"passwort zuruecksetzen|zuruecksetzen des passworts|password reset|"
     r"ungewoehnliche anmeldung|unusual sign)", _RX)
 
-# Frist: irgendetwas mit einem Datum oder Betrag, das verstreichen kann.
-# 🔴 `\brechnung` mit Wortgrenze: ohne sie traf das Muster auch in
-# „NebenkostenabRECHNUNG" und schob eine Abrechnung der Hausverwaltung in die
-# Fristen statt zum Amtlichen (in der ersten Messung passiert).
+# Deadline: anything with a date or an amount that can pass.
+# 🔴 `\brechnung` with a word boundary: without it the pattern also matched
+# inside „NebenkostenabRECHNUNG“ and pushed a service-charge statement from the
+# property manager into the deadlines instead of the official post (which
+# happened in the first measurement).
 W_FRIST = re.compile(
     r"(\brechnung(en|s)?\b|\bmahnung(en)?\b|zahlungserinnerung|"
     r"zahlungsaufforderung|letzte mahnung|inkasso|faellig|zahlbar bis|"
@@ -330,7 +331,7 @@ W_FRIST = re.compile(
     r"mahngebuehr|vertrag laeuft aus|termin am \d|"
     r"rueckmeldung bis|antwort bis|zahlungsziel)", _RX)
 
-# Amt / Bank / Versicherung — am Absender ODER am Text erkannt.
+# Authority / bank / insurance — recognised by the sender OR by the text.
 W_AMT_TEXT = re.compile(
     r"(finanzamt|steuerbescheid|steuererklaerung|elster|umsatzsteuer|"
     r"bundesagentur|jobcenter|agentur fuer arbeit|"
@@ -350,7 +351,7 @@ W_AMT_DOMAIN = re.compile(
     r"\baok\.|barmer|\btk\.de|dak\.de|\bikk|knappschaft|"
     r"deutsche-rentenversicherung|arbeitsagentur)", _RX)
 
-# Werbung — Rundschreiben MIT Verkaufsabsicht.
+# Advertising — a circular WITH intent to sell.
 W_WERBUNG = re.compile(
     r"(rabatt|gutschein|\bsale\b|angebot|nur heute|nur noch heute|jetzt sichern|"
     r"jetzt kaufen|schnaeppchen|\bdeal\b|prozent sparen|% ?(rabatt|off)|"
@@ -358,15 +359,15 @@ W_WERBUNG = re.compile(
     r"exklusiv fuer sie|\bgratis\b|kostenlos testen|neukunden|"
     r"letzte chance|nicht verpassen|unschlagbar|bestpreis)", _RX)
 
-# Automat: Absender, hinter dem kein Mensch sitzt.
+# Machine: a sender with no human behind it.
 W_NOREPLY = re.compile(
     r"^(no[-_.]?reply|do[-_.]?not[-_.]?reply|noreply|nicht[-_.]?antworten|"
     r"mailer[-_.]?daemon|postmaster|bounce|automat|automailer|"
     r"notification[s]?|benachrichtigung|system|robot|\bbot)\b", _RX)
 
-# 🔴 Rollen-Postfach: dahinter steckt zwar ein Mensch, aber keiner, der der Besitzer
-# PERSOENLICH schreibt. Ohne diese Liste landete jede Ticket-Antwort bei
-# „Mensch" und haette ihn geweckt.
+# 🔴 Role mailbox: there is a human behind it, but not one writing to him
+# PERSONALLY. Without this list every ticket reply ended up as „human“ and would
+# have woken him.
 W_ROLLE = re.compile(
     r"^(info|kontakt|contact|service|support|hilfe|help|team|office|buero|"
     r"mail|email|admin|webmaster|hello|hallo|moin|shop|bestellung|order|"
@@ -374,14 +375,14 @@ W_ROLLE = re.compile(
     r"newsletter|news|abo|billing|rechnungen|buchhaltung|zentrale)"
     r"([-_.]?\d+)?$", _RX)
 
-# Firmen-Anzeigenamen sehen nicht aus wie Menschen.
+# Company display names do not look like people.
 W_FIRMA = re.compile(
     r"(gmbh|\bag\b|\bkg\b|\be\.?v\.?\b|ltd|inc\b|team|service|support|"
     r"shop|\binfo\b|kundenservice|kundendienst|newsletter|redaktion|"
     r"vertrieb|zentrale|hotline|noreply|no-reply)", _RX)
 
-# Marken, deren Namen Phishing gern im Anzeigenamen traegt. Der Wert ist das
-# Stueck, das in der ECHTEN Absenderdomain vorkommen muss.
+# Brands whose names phishing likes to carry in the display name. The value is
+# the piece that has to occur in the REAL sender domain.
 MARKEN = {
     "paypal": "paypal.", "amazon": "amazon.", "apple": "apple.",
     "microsoft": "microsoft.", "netflix": "netflix.", "hoster": "hoster.",
@@ -393,48 +394,47 @@ MARKEN = {
     "google": "google.", "whatsapp": "whatsapp.", "disney": "disney",
 }
 
-# 🔑 Maschinenpost. Am 12.09.2026 gemessen: dessen vier NAS melden als
-# `"NAS02" <nas02@beispielhaus.example>` mit dem Betreff
-# `[beispielhaus02.synology.me]Network backup - ... erfolgreich`. Die
-# Menschen-Regel griff, weil „NAS02" kein Firmenname ist — und damit landete
-# JEDER Sicherungslauf in einer ALARMKLASSE. Der Besitzer wurde fuer eine geglueckte
-# Sicherung geweckt.
+# 🔑 Machine post. Measured on 2026-09-12: the four NAS boxes report as
+# `"NAS02" <nas02@beispielhaus.example>` with the subject
+# `[beispielhaus02.synology.me]Network backup - ... erfolgreich`. The
+# human rule fired, because „NAS02“ is not a company name — and so EVERY backup
+# run landed in an ALARM CLASS. He was woken for a backup that had succeeded.
 #
-# 🔴 Die Erkennung braucht ZWEI Merkmale, nicht eines. „Anzeigename gleich
-# Postfachname" allein wuerde `"anna" <anna@beispiel.example>` zur Maschine erklaeren
-# — genau der Fehler, der die Menschen-Regel schon einmal zerlegt hat (sie
-# verlangte ein Leerzeichen im Namen und verwarf damit einen Vornamen allein).
-# 🔴 Die Klammer muss einen HOSTNAMEN enthalten, nicht irgendetwas. Erste
-# Fassung pruefte nur auf „[…]" — die Gegenprobe erklaerte damit prompt
-# `"Mike" <mike@example.de>` mit dem Betreff „[Wichtig] Kannst du mal schauen?"
-# zur Maschine und haette einen Freund stummgeschaltet. Ein Hostname hat einen
-# Punkt und kein Leerzeichen; „Wichtig" hat beides nicht.
+# 🔴 The detection needs TWO features, not one. „display name equals mailbox
+# name“ alone would declare `"anna" <anna@beispiel.example>` a machine — exactly
+# the mistake that once broke the human rule (it demanded a space in the name
+# and thereby discarded a first name on its own).
+# 🔴 The bracket must contain a HOSTNAME, not just anything. The first version
+# only checked for „[…]“ — and the counter-check promptly declared
+# `"Mike" <mike@example.de>` with the subject „[Wichtig] Kannst du mal schauen?“
+# a machine, which would have muted a friend. A hostname has a dot and no
+# space; „Wichtig“ has neither.
 BETREFF_HOST = re.compile(r"^\s*\[[^\]\s]*\.[^\]\s]*\]")  # „[host.synology.me] …"
 
-# 🔴 Eine Stoerungsmeldung ist KEIN Laerm. Wer Maschinenpost pauschal
-# stummschaltet, nimmt der Besitzer die Nachricht, dass eine Sicherung FEHLSCHLUG —
-# und das waere schlimmer als die Weckrufe, die dieser Riegel abstellt.
-# 🔴 ZWEI Muster, nicht eines. Die erste Fassung suchte ALLE Stoerungsworte im
-# ganzen Text — und erklaerte prompt eine geglueckte Synology-Aufgabe zur
-# Stoerung, weil im Bericht die Zeile „Standardausgabe/Fehler:" steht, waehrend
-# zwei Zeilen darueber „Aktueller Status: 0 (normal)" zu lesen ist. Das Wort war
-# eine FELDBESCHRIFTUNG, kein Ergebnis.
+# 🔴 A fault report is NOT noise. Mute machine post wholesale and you take
+# away the message that a backup FAILED — which would be worse than the wake-ups
+# this bolt prevents.
+# 🔴 TWO patterns, not one. The first version looked for ALL fault words in the
+# whole text — and promptly declared a successful Synology task a fault, because
+# the report contains the line „Standardausgabe/Fehler:“ while two lines above it
+# reads „Aktueller Status: 0 (normal)“. The word was a FIELD LABEL, not a
+# result.
 #
-# Ergebnisworte sagen, wie es ausging — die duerfen ueberall zaehlen.
+# Result words say how it ended — those may count anywhere.
 W_STOERUNG_HART = re.compile(
     r"(fehlgeschlagen|fehlschlag|gescheitert|abgebrochen|nicht\s+erfolgreich|"
     r"ausgefallen|\bdefekt\b|degraded|\bfailed\b|\bfailure\b|"
     r"\baborted\b|\bunsuccessful\b|\boffline\b)", _RX)
-# Beschriftungsworte stehen in jedem Bericht, auch im geglueckten. Sie zaehlen
-# NUR im Betreff — dort schreibt ein Geraet sein Ergebnis hin, keine Legende.
+# Label words appear in every report, including a successful one. They count
+# ONLY in the subject — that is where a device writes its result, not a legend.
 W_STOERUNG_WEICH = re.compile(
     r"(fehler|warnung|kritisch|\berror\b|\bwarning\b|\bcritical\b)", _RX)
 
 BETRAG = re.compile(r"\d{1,3}(?:[.\s]\d{3})*,\d{2}\s*(?:€|EUR\b)", _RX)
 DATUM = re.compile(r"\b\d{1,2}\.\s?\d{1,2}\.\s?\d{2,4}\b")
 
-# Sammelt die Chronikeintraege DIESES Laufs (wie bei der das Schwesterprojekt haengt der
-# Bericht am Protokoll, nicht an einer Liste von Aufrufstellen).
+# Collects the history entries of THIS run (as in the das Schwesterprojekt, the report
+# hangs off the log, not off a list of call sites).
 _ZU_MELDEN: list = []
 
 
@@ -464,8 +464,8 @@ def log(msg: str) -> None:
 
 
 def token(key: str = "HA_TOKEN") -> str:
-    """Aus der 0600-Datei lesen. Cron uebergibt keine Umgebung, und ein Token
-    gehoert nicht in den Quelltext einer lesbaren Datei."""
+    """Read from the 0600 file. Cron passes no environment, and a token does not
+    belong in the source of a readable file."""
     v = os.environ.get(key)
     if v:
         return v.strip()
@@ -480,23 +480,22 @@ def token(key: str = "HA_TOKEN") -> str:
     return ""
 
 
-# 🔑 DER GANZE MEHR-POSTFACH-UMBAU HAENGT AN DIESEN DREI ZEILEN.
-# Der Waechter hat rund hundert Stellen, die Zustand lesen und schreiben — sie
-# alle umzuschreiben waere hundert Gelegenheiten fuer einen Fehler gewesen.
-# Stattdessen wird die EINZIGE Engstelle umgebaut: `load`/`save` legen eine
-# Datei, die zu einem bestimmten Postfach gehoert, unter `state/pf/<id>/` ab.
-# Der Rest des Programms merkt davon nichts.
+# 🔑 THE WHOLE MULTI-MAILBOX REBUILD HANGS ON THESE THREE LINES.
+# The watchman has about a hundred places that read and write state — rewriting
+# them all would have been a hundred chances to make a mistake. Instead the ONE
+# bottleneck is rebuilt: `load`/`save` put a file that belongs to a particular
+# mailbox under `state/pf/<id>/`. The rest of the program notices nothing.
 PRO_POSTFACH = frozenset({
     "lauf.json", "koepfe.json", "absender.json", "ablage.json",
     "statistik.json", "anhaenge.json", "zaehler.json",
 })
-# Welches Postfach gerade bearbeitet wird. Leer = die globalen Dateien.
+# Which mailbox is being worked on. Empty = the global files.
 _PF_ID = ""
 
 
 def pf_waehlen(pf_id: str) -> None:
-    """Ab hier gehoert jeder Zustand diesem Postfach. Global bleibt, was fuer
-    alle gilt: Einstellungen, Zugaenge, Chronik, Journal, Protokoll."""
+    """From here on every piece of state belongs to this mailbox. Global are the
+    things that apply to all: settings, credentials, journal, log, history."""
     global _PF_ID
     _PF_ID = str(pf_id or "").strip()
 
@@ -519,8 +518,8 @@ def save(name: str, data, modus: int = 0o644) -> None:
     ziel = state_pfad(name)
     os.makedirs(os.path.dirname(ziel), exist_ok=True)
     tmp = ziel + ".tmp"
-    # 🔴 Zugangsdaten duerfen nie kurz mit 0644 auf der Platte liegen. Deshalb
-    # bekommt schon die TEMPORAERE Datei die richtigen Rechte, nicht erst das Ziel.
+    # 🔴 Credentials must never sit on disk with 0644, not even briefly. So
+    # the TEMPORARY file already gets the right mode, not just the target.
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, modus)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=1)
@@ -528,8 +527,8 @@ def save(name: str, data, modus: int = 0o644) -> None:
 
 
 def anhaengen(datei: str, satz: dict, grenze: int) -> None:
-    """Eine Zeile an eine JSONL-Datei, mit hartem Deckel. Ohne Deckel waere das
-    ein Leck: der Waechter laeuft 288 Mal am Tag."""
+    """One line into a JSONL file, with a hard cap. Without a cap this would be a
+    leak: the watchman runs 288 times a day."""
     os.makedirs(OUT, exist_ok=True)
     pfad = os.path.join(OUT, datei)
     try:
@@ -547,9 +546,9 @@ def anhaengen(datei: str, satz: dict, grenze: int) -> None:
 
 
 def chronik(art: str, **felder) -> None:
-    """Verlauf: was der Waechter WANN getan hat. Wie bei der das Schwesterprojekt haengt der
-    Telegram-Bericht hier dran — alles, was ins Protokoll geht, kann gemeldet
-    werden. Eine unmittelbare Wiederholung wird zusammengefasst statt angehaengt."""
+    """History: what the watchman did WHEN. As in the das Schwesterprojekt, the Telegram
+    report hangs off this — anything that goes into the log can be reported. An
+    immediate repetition is folded together instead of appended."""
     os.makedirs(OUT, exist_ok=True)
     z = dict(felder)
     z["zeit"] = datetime.now().isoformat(timespec="seconds")
@@ -586,15 +585,15 @@ def chronik(art: str, **felder) -> None:
 
 # ── Einstellungen ─────────────────────────────────────────────────────────────
 def _postfach_migrieren() -> list:
-    """Bis 2.x gab es genau EIN Postfach, und sein Zustand lag flach in
-    `state/`. Ab 3.0.0 gibt es eine Liste, und jeder Zustand gehoert einem
-    Postfach.
+    """Up to 2.x there was exactly ONE mailbox, and its state lay flat in
+    `state/`. From 3.0.0 there is a list, and every piece of state belongs to a
+    mailbox.
 
-    🔴 Die Migration VERSCHIEBT die vorhandenen Dateien nach
-    `state/pf/standard/`, sie kopiert sie nicht. Zwei Staende derselben
-    Ablage waeren schlimmer als gar keine Migration: der Waechter laese den
-    einen und schriebe den anderen, und niemand saehe es. `zugang.json`
-    bleibt unberuehrt liegen — das ist die Sicherung, falls doch etwas fehlt.
+    🔴 The migration MOVES the existing files to `state/pf/standard/`, it does
+    not copy them. Two copies of the same filing map would be worse than no
+    migration at all: the watchman would read one and write the other, and
+    nobody would see it. `zugang.json` is left untouched — that is the safety
+    net in case something is missing after all.
     """
     z = load(ZUGANG, None)
     if not isinstance(z, dict) or not str(z.get("adresse") or "").strip():
@@ -629,11 +628,11 @@ def _postfach_migrieren() -> list:
 
 
 def postfaecher() -> list:
-    """Alle eingerichteten Postfaecher, immer vollstaendig und plausibel.
+    """All configured mailboxes, always complete and plausible.
 
-    Ein Postfach ohne Adresse oder ohne Kennung wird uebergangen statt geraten —
-    ein geratener Bezeichner waere ein zweiter Zustandsordner, und der faellt
-    erst auf, wenn die Zahlen nicht mehr stimmen.
+    A mailbox without an address or without an id is skipped rather than guessed —
+    a guessed id would be a second state folder, and that only shows up once the
+    numbers stop adding up.
     """
     v = load(POSTFAECHER, None)
     if isinstance(v, dict) and isinstance(v.get("liste"), list):
@@ -665,29 +664,28 @@ def postfaecher() -> list:
 
 
 def _server_raten(adresse: str) -> str:
-    """Nur ein Vorschlag fuer das Formular, nie eine stille Annahme im Lauf:
-    wer nichts eintraegt, bekommt `imap.<domaene>` — das stimmt bei sehr vielen
-    Anbietern und ist an einer Fehlermeldung sofort erkennbar, wenn nicht."""
+    """Only a suggestion for the form, never a silent assumption during a run:
+    enter nothing and you get `imap.<domain>` — which is right at a great many
+    providers and, where it is not, immediately visible in an error message."""
     dom = adresse.rsplit("@", 1)[-1].strip().lower()
     return ("imap." + dom) if dom and "." in dom else ""
 
 
-# ═══ Sprachen ════════════════════════════════════════════════════════════════
-# Die Texte liegen als flache Schluessel/Wert-Dateien in `locales/<code>.json`
-# NEBEN dem Programm — nicht im Zustandsordner: sie gehoeren zum Code und
-# werden mit ihm ausgeliefert.
+# ═══ Languages ════════════════════════════════════════════════
+# The texts live as flat key/value files in `locales/<code>.json` NEXT TO the
+# program — not in the state folder: they belong to the code and ship with it.
 #
-# 🔴 Die Sprache ist eine Einstellung der INSTALLATION, kein Merkmal des
-# Browsers. Der Waechter schreibt Chronik und Telegram-Nachrichten, wenn
-# niemand hinsieht — ein Cookie kann ihm nicht sagen, in welcher Sprache. Wer
-# zwei Sprachen im Haus braucht, braucht zwei Postwachen.
+# 🔴 The language is a setting of the INSTALLATION, not a property of the
+# browser. The watchman writes history and Telegram messages when nobody is
+# looking — a cookie cannot tell it which language to use. Anyone who needs two
+# languages in one house needs two Postwachen.
 SPRACHEN = ("de", "en", "es", "fr", "it")
-# 🔴 Die Namen in ihrer EIGENEN Schreibweise. „Francais" statt „Français" ist
-# der erste Eindruck, den ein franzoesischer Leser von der Sorgfalt des
-# Programms bekommt — und er ist zutreffend.
+# The names in their OWN spelling. „Francais“ instead of „Français“ is the first
+# impression a French reader gets of this program's care — and it would be an
+# accurate one.
 SPRACHNAMEN = {"de": "Deutsch", "en": "English", "es": "Espa\u00f1ol",
                "fr": "Fran\u00e7ais", "it": "Italiano"}
-RUECKFALL = "de"          # in dieser Sprache ist die Postwache gewachsen
+RUECKFALL = "de"          # the language the Postwache grew up in
 _TEXTE: dict = {}
 
 
@@ -709,12 +707,12 @@ def sprache() -> str:
 
 
 def txt(schluessel: str, **werte) -> str:
-    """Einen Text holen. Fehlt er in der gewaehlten Sprache, gilt die
-    Rueckfallsprache; fehlt er auch dort, kommt der SCHLUESSEL zurueck.
+    """Fetch a text. If it is missing in the chosen language the fallback
+    language applies; if it is missing there too, the KEY comes back.
 
-    🔴 Der Schluessel als letzter Rueckfall ist Absicht: ein fehlender Text
-    faellt dann sofort auf („kopf.titel" mitten auf der Seite), statt still eine
-    leere Stelle zu hinterlassen, die niemand bemerkt.
+    🔴 The key as the last fallback is deliberate: a missing text then stands
+    out at once („kopf.titel“ in the middle of the page) instead of silently
+    leaving an empty spot that nobody notices.
     """
     wert = _texte(sprache()).get(schluessel)
     if wert is None and sprache() != RUECKFALL:
@@ -730,9 +728,9 @@ def txt(schluessel: str, **werte) -> str:
 
 
 def alle_texte(code: str = "") -> dict:
-    """Rueckfallsprache und gewaehlte Sprache uebereinandergelegt — damit ein
-    Nachschlagen im Browser IMMER etwas findet und die Seite nie einen
-    Schluessel anzeigt, nur weil eine Uebersetzung fehlt."""
+    """Fallback language and chosen language laid on top of each other — so that
+    a lookup in the browser ALWAYS finds something and the page never shows a
+    key just because one translation is missing."""
     code = code or sprache()
     zusammen = dict(_texte(RUECKFALL))
     zusammen.update(_texte(code))
@@ -740,19 +738,19 @@ def alle_texte(code: str = "") -> dict:
 
 
 def _erkenne_umgebung() -> dict:
-    """Was findet sich auf DIESEM Rechner? Wird nur gefragt, wenn `konfig.json`
-    nichts sagt.
+    """What can be found on THIS machine? Only asked when `konfig.json` says
+    nothing.
 
-    🔴 Der Grund fuer die Erkennung statt leerer Vorgaben: auf dem Rechner, auf
-    dem die Postwache gewachsen ist, haengt der Notaus an einem Home-Assistant-
-    Schalter und die Urteilshilfe an der Werkstatt. Haette 3.0.0 einfach „nichts
-    voreingestellt" gesagt, waere mit dem Update beides stumm ausgefallen — der
-    Notaus zuerst. Erkennung bewahrt das Gewachsene, ohne es einzubetonieren.
+    🔴 The reason for detection instead of empty defaults: on the machine where
+    the Postwache grew, the emergency stop hangs on a Home Assistant switch and
+    the judgement aid on the workshop. Had 3.0.0 simply said „nothing preset“,
+    the update would have silenced both — the emergency stop first. Detection
+    preserves what has grown without casting it in concrete.
     """
     ha_datei = ENVFILE_STANDARD if os.path.isfile(ENVFILE_STANDARD) else ""
-    # Die Werkstatt ist ein Eigenbau dieses Hauses und wird NICHT gesucht —
-    # wer sie hat, traegt ihren Pfad ein. Erraten wuerde hier nur heissen, auf
-    # einem fremden Rechner nach etwas zu suchen, das es dort nie gibt.
+    # The workshop is this household's own build and is NOT searched for —
+    # whoever has one enters its path. Guessing here would only mean looking on
+    # a stranger's machine for something that never exists there.
     werkstatt = ""
     try:
         rechner = socket.gethostname() or "localhost"
@@ -771,9 +769,9 @@ _KONFIG_ZWISCHEN = None
 
 
 def konfig() -> dict:
-    """Die Umgebung, in der diese Postwache steht. Reihenfolge: was in
-    `konfig.json` steht, sonst was erkannt wurde. Jeder Teil einzeln — wer nur
-    die Seitenadresse eintraegt, verliert nicht die Home-Assistant-Anbindung."""
+    """The environment this Postwache stands in. Order: whatever `konfig.json`
+    says, otherwise whatever was detected. Each part on its own — enter just the
+    page address and you do not lose the Home Assistant connection."""
     global _KONFIG_ZWISCHEN
     if _KONFIG_ZWISCHEN is not None:
         return _KONFIG_ZWISCHEN
@@ -788,8 +786,8 @@ def konfig() -> dict:
             "token_datei": str(ha.get("token_datei", erkannt["ha_token_datei"]) or ""),
             "schalter": str(ha.get("schalter", erkannt["ha_schalter"]) or "").strip(),
         },
-        # Leer = keine Urteilshilfe ueber die Werkstatt. Fuer alle ausserhalb
-        # dieses Hauses ist das der Normalfall; dort uebernimmt `ki.json`.
+        # Empty = no judgement aid through the workshop. For everyone outside
+        # this house that is the normal case; there `ki.json` takes over.
         "werkstatt": str(k.get("werkstatt", erkannt["werkstatt"]) or ""),
         "imap_server": str(k.get("imap_server") or "").strip(),
         "sprache": sprache(),
@@ -798,22 +796,22 @@ def konfig() -> dict:
 
 
 def ha_an() -> bool:
-    """Home Assistant ist angebunden, wenn eine Token-Datei benannt ist. Ohne
-    sie gibt es keinen Schalter, keinen Sensor — und keine Fehlermeldungen
-    darueber, dass etwas fehlt, das hier gar nicht hingehoert."""
+    """Home Assistant is connected when a token file is named. Without it there
+    is no switch, no sensor — and no error messages about something missing that
+    does not belong here in the first place."""
     k = konfig()["ha"]
     return bool(k["url"] and k["token_datei"])
 
 
 def einstellungen() -> dict:
-    """Immer vollstaendig und plausibel. Fehlt etwas, gilt der VORSICHTIGE Fall:
-    nicht scharf. Eine fehlende Datei darf niemals dazu fuehren, dass ungefragt
-    im Postfach umgeraeumt wird.
+    """Always complete and plausible. If something is missing, the CAUTIOUS case
+    applies: not armed. A missing file must never lead to the mailbox being
+    rearranged unasked.
 
-    🔑 Seit dem Umbau vom 11.09.2026 tragen die Regeln nur noch die Frage
-    „meldet sofort?". WOHIN eine Mail geht, steht nicht mehr hier, sondern in
-    dessen eigener Ablage (`ablage.json`) — eine Einstellung kann das nicht
-    mehr verstellen, weil es keine Einstellung mehr ist.
+    🔑 Since the restructuring of 2026-09-11 the rules carry only the question
+    „report immediately?“. WHERE a mail goes is no longer here but in the owner's
+    own filing (`ablage.json`) — a setting can no longer move it, because it is
+    no longer a setting.
     """
     e = load(EINST, None)
     if not isinstance(e, dict):
@@ -827,16 +825,18 @@ def einstellungen() -> dict:
         "scharf": bool(e.get("scharf", False)),
         "telegram": bool(e.get("telegram", True)),
         "bericht_stunde": int(e.get("bericht_stunde", 7)),
-        # Wenn der Besitzer das einschaltet, bleibt alles aus den vier Alarmklassen
-        # liegen, auch wenn die Ablage ein Ziel kennt.
+        # With this switched on, everything from the four alarm classes stays
+        # put, even when the filing map knows a target.
         "wichtiges_bleibt": bool(e.get("wichtiges_bleibt", False)),
-        # der Besitzer, 27.09.2026: „wenn neue mails kommen muessen die immer
-        # analysiert werden und einsortiert werden und wenn es neue ordner
-        # braucht dann soll es die selbstaendig erstellen."
-        # 🔴 Das hebt den Riegel von 2.0 auf („nur dorthin, wo der Besitzer schon
-        # selbst hingelegt hat"). Deshalb bleibt es ein SCHALTER: wer den
-        # Grundsatz zurueckwill, stellt ihn aus. Phishing bleibt immer liegen,
-        # und die Meldung kommt unabhaengig davon, wohin die Mail wandert.
+        # der Besitzer, 2026-09-27 — new mail must always be analysed and filed, and
+        # where new folders are needed it should create them on its own:
+        # „wenn neue mails kommen muessen die immer analysiert werden und
+        # einsortiert werden und wenn es neue ordner braucht dann soll es die
+        # selbstaendig erstellen.“
+        # 🔴 That lifts the bolt from 2.0 („only where he has already filed
+        # something himself“). So it stays a SWITCH: whoever wants the old
+        # principle back turns it off. Phishing always stays put, and the alert
+        # goes out regardless of where the mail travels.
         "selbst_sortieren": bool(e.get("selbst_sortieren", True)),
         "regeln": fertig,
         "absender_regeln": (e.get("absender_regeln")
@@ -845,12 +845,13 @@ def einstellungen() -> dict:
 
 
 def zugang(pf_id: str = "") -> dict:
-    """EIN Postfach — ohne Angabe das gerade bearbeitete, sonst das erste.
+    """ONE mailbox — without an argument the one being worked on, otherwise the
+    first.
 
-    Bleibt nach dem Umbau auf mehrere Postfaecher bestehen, weil die Seite an
-    einem Dutzend Stellen genau ein Postfach braucht (Ordner anlegen, Zugang
-    pruefen, Anhaenge nachtragen). Steht nichts bereit, kommt ein leeres
-    Woerterbuch zurueck — der Waechter raet nicht und fragt niemanden.
+    It survives the rebuild for several mailboxes, because the page needs
+    exactly one mailbox in a dozen places (create a folder, check credentials,
+    add attachments). If none is available an empty dictionary comes back — the
+    watchman does not guess and does not ask anyone.
     """
     faecher = postfaecher()
     if not faecher:
@@ -877,8 +878,8 @@ def _tg_md(t: str) -> str:
 
 
 def telegram(text: str) -> bool:
-    """Eine Nachricht an der Besitzer. Schlaegt NIE durch: ein Botenweg darf den
-    Waechter nicht anhalten."""
+    """A message to the owner. NEVER raises: a messenger must not stop the
+    watchman."""
     tok, chat = tg_zugang("TELEGRAM_BOT_TOKEN"), tg_zugang("TELEGRAM_CHAT_ID")
     if not tok or not chat:
         return False
@@ -903,7 +904,7 @@ def telegram(text: str) -> bool:
             if modus and "can't parse entities" in grund.lower():
                 text = text.replace("*", "").replace("_", "").replace("`", "")
                 continue
-            # 🔴 Der Grund darf ins Protokoll, der Token NIE — er steht in der URL.
+            # 🔴 The reason may go into the log, the token NEVER — it is in the URL.
             log("Telegram HTTP %s: %s" % (e.code, grund))
             return False
         except Exception as e:
@@ -914,11 +915,11 @@ def telegram(text: str) -> bool:
 
 # ── Home Assistant ────────────────────────────────────────────────────────────
 def api(path: str, tok: str, timeout: int = 20, data=None):
-    """Ohne `data` ein GET, mit `data` ein POST.
+    """Without `data` a GET, with `data` a POST.
 
-    🔴 Genau diese Unterscheidung hat in der das Schwesterprojekt gefehlt: `service()` gab
-    `data=` mit, `api()` kannte den Namen nicht, und JEDE Massnahme scheiterte
-    still mit einem TypeError — 506 Mal in vier Tagen. Hier von Anfang an drin.
+    🔴 Exactly this distinction was missing in the das Schwesterprojekt: `service()` passed
+    `data=`, `api()` did not know the name, and EVERY measure failed silently
+    with a TypeError — 506 times in four days. Built in here from the start.
     """
     kopf = {"Authorization": "Bearer " + tok}
     roh = None
@@ -935,9 +936,9 @@ def api(path: str, tok: str, timeout: int = 20, data=None):
 
 
 def stopped(tok: str) -> str:
-    """Notaus und Pause — als ALLERERSTES geprueft, noch vor dem Postfach.
-    Die Datei wirkt auch dann, wenn HA nicht antwortet (dann ist der Schalter
-    unerreichbar); der Schalter wirkt vom Handy aus."""
+    """Emergency stop and pause — checked FIRST OF ALL, before the mailbox. The
+    file works even when HA does not answer (the switch is then unreachable);
+    the switch works from a phone."""
     if os.path.exists(DISABLED):
         try:
             grund = open(DISABLED, encoding="utf-8").read().strip()
@@ -965,8 +966,8 @@ def stopped(tok: str) -> str:
         if isinstance(st, dict) and st.get("state") == "off":
             return txt("w.aus.schalter", was=konfig()["ha"]["schalter"])
     except urllib.error.HTTPError as e:
-        # 404 = der Schalter existiert (noch) nicht. Das ist KEIN Notaus — sonst
-        # koennte ein vergessener Helfer den Waechter stumm stilllegen.
+        # 404 = the switch does not exist (yet). That is NOT an emergency stop —
+        # otherwise a forgotten helper could silently shut the watchman up.
         if e.code != 404:
             log("Schalter nicht lesbar: HTTP %s" % e.code)
     except Exception as e:
@@ -976,7 +977,7 @@ def stopped(tok: str) -> str:
 
 def push_status(tok: str, zustand: str, attrs: dict) -> None:
     if _PF_ID:
-        return          # der Sensor gilt fuer die ganze Postwache, nicht je Postfach
+        return          # the sensor covers the whole Postwache, not one mailbox
     """Den eigenen Zustand als sensor.postwache nach HA schreiben.
 
     🔴 Ein per API gesetzter Zustand ueberlebt keinen HA-Neustart — nach einem
@@ -1014,22 +1015,22 @@ def dekodieren(roh) -> str:
 
 
 def absender_teile(von: str):
-    """(Anzeigename, Adresse) — beide klein geschrieben ausser dem Namen.
+    """(display name, address) — both lower-cased except the name.
 
-    🔴 27.09.2026, gemessen an 11 Booking.com-Mails in „Unsortiert":
-    `parseaddr` kommt mit einem MIME-kodierten Anzeigenamen nicht zurecht, der
-    in Anfuehrungszeichen steht UND ueber zwei Zeilen umbricht:
+    🔴 2026-09-27, measured against 11 Booking.com mails in „Unsortiert“:
+    `parseaddr` cannot cope with a MIME-encoded display name that is in quotes
+    AND folded across two lines:
 
         From: "=?UTF-8?B?UHl0bG91bi4uLg==?=
           =?UTF-8?B?b20=?=" <noreply@booking.com>
 
-    Es gab `adr='=?UTF-8?B?UHl0bG91bi4uLg==?='` zurueck — den halben NAMEN als
-    Adresse. Damit hatte die Mail keine erkennbare Absenderdomain, keine Regel
-    konnte greifen, und 11 offensichtliche Reise-Mails lagen im Auffang.
+    It returned `adr='=?UTF-8?B?UHl0bG91bi4uLg==?='` — half the NAME as the
+    address. The mail therefore had no recognisable sender domain, no rule could
+    fire, and 11 obvious travel mails sat in the catch folder.
 
-    🔑 Erst dekodieren, dann zerlegen — aber NUR als Rueckfall. Der normale Weg
-    bleibt unveraendert; gedreht wird erst, wenn das Ergebnis kein „@" enthaelt.
-    So kann die Reparatur nichts kaputt machen, was heute funktioniert.
+    🔑 Decode first, then split — but ONLY as a fallback. The normal path stays
+    untouched; the other way round is tried only when the result contains no
+    "@". That way the repair cannot break anything that works today.
     """
     roh = von or ""
     name, adresse = email.utils.parseaddr(roh)
@@ -1040,13 +1041,13 @@ def absender_teile(von: str):
     return dekodieren(name).strip(), (adresse or "").strip().lower()
 
 
-# ── Die Einordnung (das Herzstueck — fest, lesbar, ohne Sprachmodell) ─────────
+# ── The classification (the core — fixed, readable, no language model) ─────
 def phishing_verdacht(name: str, adresse: str) -> str:
-    """Der Anzeigename nennt eine Marke, die Absenderdomain gehoert ihr nicht.
+    """The display name names a brand, the sender domain does not belong to it.
 
-    Das ist bewusst eng gefasst: gemeldet wird nur, wenn eine BEKANNTE Marke im
-    Namen steht. Ein breiter Verdacht waere ein Fehlalarm-Generator, und ein
-    Warnhinweis, der staendig faelschlich kommt, wird nicht mehr gelesen.
+    Deliberately narrow: a warning is raised only when a KNOWN brand appears in
+    the name. A broad suspicion would be a false-alarm generator, and a warning
+    that keeps crying wolf stops being read.
     """
     n = (name or "").lower()
     dom = adresse.split("@")[-1] if "@" in adresse else ""
@@ -1057,18 +1058,18 @@ def phishing_verdacht(name: str, adresse: str) -> str:
 
 
 def einordnen(kopf: dict, text: str) -> dict:
-    """Eine Mail in genau eine Schublade legen und begruenden, warum.
+    """Put a mail into exactly one drawer and give the reason why.
 
-    Die Begruendung ist kein Beiwerk: sie steht auf der Seite neben jeder Mail.
-    Eine Einordnung, die man nicht nachvollziehen kann, kann man auch nicht
-    korrigieren — und korrigieren koennen ist der ganze Sinn des Lernlaufs.
+    The reason is not decoration: it stands next to every mail on the page. A
+    classification you cannot follow is one you cannot correct either — and
+    being able to correct it is the whole point of the learning run.
 
-    Die Reihenfolge ist der Vorrang. Die vier Alarmklassen stehen vorn: lieber
-    einmal zu viel im Posteingang als einmal zu wenig.
+    The order is the precedence. The four alarm classes come first: better once
+    too often in the inbox than once too rarely.
     """
     name = kopf.get("name") or ""
     adresse = (kopf.get("adresse") or "").lower()
-    # ALLES laeuft gegen die normalisierte Fassung — siehe `normal()`.
+    # EVERYTHING runs against the normalised form — see `normal()`.
     heu = normal((kopf.get("betreff") or "") + " " + (text or ""))
     n_name = normal(name)
     bulk = bool(kopf.get("bulk"))
@@ -1078,39 +1079,39 @@ def einordnen(kopf: dict, text: str) -> dict:
 
     verdacht = phishing_verdacht(name, adresse)
 
-    # 1) Sicherheit — schlaegt alles andere, auch ein Rundschreiben und auch
-    #    einen no-reply-Absender: echte Warnungen kommen fast immer von einem.
+    # 1) Security — beats everything else, a circular and a no-reply sender
+    #    included: genuine warnings almost always come from one.
     if W_SICHER.search(heu):
         g = txt("w.grund.sicherheit")
         if verdacht:
             g += " · \u26a0\ufe0f " + verdacht
         return {"klasse": "sicherheit", "grund": g, "phishing": verdacht}
 
-    # 2) Frist — etwas, das verstreichen kann. Bei einem Rundschreiben nur mit
-    #    echtem Betrag oder Datum; sonst landet jede Shop-Werbung mit dem Wort
-    #    „Angebot" in den Fristen.
+    # 2) Deadline — something that can pass. For a circular only with a real
+    #    amount or date; otherwise every shop advert containing the word
+    #    „Angebot“ (offer) lands among the deadlines.
     if W_FRIST.search(heu):
         hat_zahl = bool(BETRAG.search(heu) or DATUM.search(heu))
         if not bulk or hat_zahl:
             g = txt("w.grund.frist_zahl") if hat_zahl else txt("w.grund.frist")
             return {"klasse": "frist", "grund": g, "phishing": verdacht}
 
-    # 3) Amt, Bank, Versicherung — am Absender ODER am Text.
+    # 3) Authority, bank, insurance — by the sender OR by the text.
     if W_AMT_DOMAIN.search(adresse) or W_AMT_TEXT.search(heu):
         woran = (txt("w.grund.woran_domain") if W_AMT_DOMAIN.search(adresse)
                  else txt("w.grund.woran_text"))
         return {"klasse": "amt", "grund": txt("w.grund.amt", woran=woran),
                 "phishing": verdacht}
 
-    # 3b) Maschinenpost. ZWEI Merkmale muessen zusammenkommen, nie eines
-    #     allein: der Anzeigename ist derselbe wie der Postfachname UND der
-    #     Betreff beginnt mit einem HOSTNAMEN in eckigen Klammern.
+    # 3b) Machine post. TWO features must come together, never one alone: the
+    #     display name is the same as the mailbox name AND the subject starts
+    #     with a HOSTNAME in square brackets.
     #
-    #     🔴 Die erste Fassung liess auch „Name sieht aus wie eine Geraete-
-    #     kennung" (nas02) als zweites Merkmal gelten. Die Gegenprobe erledigte
-    #     das sofort: `"anna2" <anna2@example.de>` mit „Servus" waere eine
-    #     Maschine gewesen. Ein Riegel, der nur in EINE Richtung geprueft wird,
-    #     ist kein Beweis — dieselbe Lehre wie beim Tippriegel der Seite.
+    #     🔴 The first version also accepted „name looks like a device id“
+    #     (nas02) as the second feature. The counter-check settled that at once:
+    #     `"anna2" <anna2@example.de>` with „Servus“ would have been a machine.
+    #     A bolt that is only checked in ONE direction is no proof — the same
+    #     lesson as with the page's typing bolt.
     maschine = bool(n_name and n_name == normal(lokal)
                     and BETREFF_HOST.search(kopf.get("betreff") or ""))
     if maschine:
@@ -1123,22 +1124,22 @@ def einordnen(kopf: dict, text: str) -> dict:
                 "grund": txt("w.grund.vollzug", wer=name.strip()),
                 "phishing": verdacht}
 
-    # 4) Mensch — VOR dem Laerm, damit ein Bekannter mit Newsletter-Signatur
-    #    nicht im Werbeordner landet. Ein Mensch ist: kein Rundschreiben, kein
-    #    Automat, kein Rollen-Postfach und kein Firmenname im Absender.
+    # 4) Human — BEFORE the noise, so an acquaintance with a newsletter
+    #    signature does not end up in the advertising folder. A human is: no
+    #    circular, no machine, no role mailbox and no company name in the sender.
     if not bulk and not noreply and not rolle and not W_FIRMA.search(n_name):
         if name.strip():
             return {"klasse": "mensch",
                     "grund": txt("w.grund.person", wer=name.strip()),
                     "phishing": verdacht}
-        # Kein Anzeigename, aber eine persoenlich aussehende Adresse
-        # (vorname.nachname@...) ist immer noch ein Mensch.
+        # No display name, but a personal-looking address
+        # (firstname.lastname@...) is still a human.
         if re.fullmatch(r"[a-z]{2,}[._-][a-z]{2,}\d{0,3}", lokal):
             return {"klasse": "mensch",
                     "grund": txt("w.grund.person_adresse", wer=lokal),
                     "phishing": verdacht}
 
-    # 5) Laerm — nur was sich selbst als Rundschreiben ausweist.
+    # 5) Noise — only what identifies itself as a circular.
     if bulk:
         grund_kopf = kopf.get("bulk_grund") or txt("w.grund.listenkopf")
         if W_WERBUNG.search(heu):
@@ -1149,15 +1150,15 @@ def einordnen(kopf: dict, text: str) -> dict:
                 "grund": txt("w.grund.newsletter", woran=grund_kopf),
                 "phishing": verdacht}
 
-    # 6) Automat ohne Listenkopf (Bestellbestaetigung, Systemmeldung).
+    # 6) A machine with no list header (order confirmation, system message).
     if noreply:
         return {"klasse": "automatisch",
                 "grund": txt("w.grund.automat", wer=lokal),
                 "phishing": verdacht}
 
-    # 7) Rollen-Postfach ohne weiteres Merkmal: dahinter sitzt ein Mensch, aber
-    #    der Waechter kann nicht sagen, ob es der Besitzer betrifft. Genau das sind die
-    #    Faelle, fuer die es den Agenten gibt.
+    # 7) Role mailbox with no further feature: there is a human behind it, but
+    #    the watchman cannot say whether it concerns him. These are exactly the
+    #    cases the agent exists for.
     return {"klasse": "unklar",
             "grund": (txt("w.grund.rolle", wer=lokal) if rolle
                       else txt("w.grund.unklar")),
@@ -1166,8 +1167,8 @@ def einordnen(kopf: dict, text: str) -> dict:
 
 # ── IMAP ──────────────────────────────────────────────────────────────────────
 class Postfach:
-    """Duenne Huelle um imaplib. Jeder Abruf benutzt BODY.PEEK, jede Mailbox
-    wird im Lernlauf readonly geoeffnet."""
+    """A thin shell around imaplib. Every fetch uses BODY.PEEK, every mailbox is
+    opened read-only during the learning run."""
 
     def __init__(self, zug: dict, schreiben: bool):
         self.zug = zug
@@ -1179,9 +1180,9 @@ class Postfach:
         socket.setdefaulttimeout(45)
         self.m = imaplib.IMAP4_SSL(self.zug["server"], self.zug["port"])
         self.m.login(self.zug["adresse"], self.zug["passwort"])
-        # Den Hierarchie-Trenner beim Server ERFRAGEN statt ihn zu raten:
-        # Mancher Anbieter benutzt „.", andere „/" — wer raet, legt Ordner mit Punkt im
-        # Namen an statt Unterordner.
+        # ASK the server for the hierarchy separator instead of guessing it:
+        # some providers use „.“, others „/“ — guess, and you create a folder with
+        # a dot in its name instead of a subfolder.
         try:
             typ, zeilen = self.m.list()
             if typ == "OK" and zeilen:
@@ -1204,15 +1205,15 @@ class Postfach:
             pass
 
     def neue_uids(self, ab: int) -> list:
-        """Alle UIDs groesser als `ab`. Ein UID-Bereich ist der einzige Weg, der
-        ohne vollstaendigen Postfach-Durchlauf auskommt."""
+        """All UIDs greater than `ab`. A UID range is the only way that does not
+        need a full walk through the mailbox."""
         typ, daten = self.m.uid("search", None, "UID %d:*" % (ab + 1))
         if typ != "OK" or not daten or not daten[0]:
             return []
-        # 🔴 „UID n:*" liefert bei leerem Rest die hoechste vorhandene UID mit
-        # zurueck — der Server kann den Bereich nicht leer beantworten. Deshalb
-        # wird hier zusaetzlich gegen `ab` gefiltert, sonst gilt dieselbe Mail
-        # bei jedem Lauf erneut als neu.
+        # 🔴 With an empty remainder, „UID n:*“ returns the highest existing
+        # UID as well — the server cannot answer the range with nothing. So the
+        # result is filtered against `ab` here too, otherwise the same mail
+        # counts as new on every run.
         return sorted(u for u in (int(x) for x in daten[0].split()) if u > ab)
 
     def letzte_uids(self, anzahl: int) -> list:
@@ -1223,8 +1224,8 @@ class Postfach:
         return alle[-anzahl:]
 
     def kopf_und_text(self, uid: int):
-        """Kopfzeilen und Textanfang — IMMER mit PEEK, damit die Mail nicht als
-        gelesen markiert wird."""
+        """Headers and the start of the body — ALWAYS with PEEK, so the mail is
+        not marked as read."""
         typ, daten = self.m.uid(
             "fetch", str(uid),
             "(BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.4000>)")
@@ -1254,8 +1255,8 @@ class Postfach:
 
 
     def uidvalidity(self, name: str) -> int:
-        """Der Nummernkreis eines Ordners. Aendert er sich, sind alle gemerkten
-        UIDs wertlos."""
+        """A folder's number space. When it changes, every remembered UID is
+        worthless."""
         try:
             typ, dat = self.m.status(self._zitat(name), "(UIDVALIDITY)")
             if typ == "OK" and dat:
@@ -1268,9 +1269,9 @@ class Postfach:
         return 0
 
     def strukturen(self, uids: list) -> dict:
-        """Der BAUPLAN mehrerer Mails (BODYSTRUCTURE) — ohne ein einziges Byte
-        Anhang zu holen. Das ist der ganze Trick am Dokumenten-Index: er kostet
-        so wenig, dass er auch rueckwirkend ueber Jahre laufen kann."""
+        """The BLUEPRINT of several mails (BODYSTRUCTURE) — without fetching a
+        single byte of attachment. That is the whole trick of the document
+        index: it costs so little that it can run backwards over years."""
         raus = {}
         for i in range(0, len(uids or []), 100):
             teil = ",".join(str(u) for u in uids[i:i + 100])
@@ -1284,7 +1285,7 @@ class Postfach:
         return raus
 
     def teil_holen(self, uid: int, nr: str, kodierung: str) -> bytes:
-        """EINEN Anhang holen — mit PEEK, damit die Mail ungelesen bleibt."""
+        """Fetch ONE attachment — with PEEK, so the mail stays unread."""
         typ, daten = self.m.uid("fetch", str(uid), "(BODY.PEEK[%s])" % nr)
         if typ != "OK" or not daten:
             return b""
@@ -1295,9 +1296,9 @@ class Postfach:
         return teil_entpacken(roh, kodierung)
 
     def teil_aus_ordner(self, ordner: str, uid: int, nr: str, kodierung: str) -> bytes:
-        """Dasselbe fuer eine Mail, die schon einsortiert ist. Mit demselben
-        `finally`, das auf INBOX zurueckstellt — ein Wechsel muss dahin zurueck,
-        wo er herkam (gemessen am 11.09.2026)."""
+        """The same for a mail that has already been filed. With the same
+        `finally` that returns to INBOX — a change of folder has to return to
+        where it came from (measured 2026-09-11)."""
         if not ordner or ordner == "INBOX":
             return self.teil_holen(uid, nr, kodierung)
         try:
@@ -1310,10 +1311,10 @@ class Postfach:
                 pass
 
     def ordner_anhaenge(self, name: str, ab_uid: int, deckel: int, ende: float):
-        """(Kopf, UID, Bauplan) der Mails eines Ordners ab einer UID.
+        """(header, UID, blueprint) of a folder's mails from a given UID on.
 
-        Liest in Bloecken und hoert auf, wenn die Zeit um ist — der Rest kommt
-        beim naechsten Lauf. readonly und BODY.PEEK, wie ueberall sonst."""
+        Reads in blocks and stops when the time is up — the rest follows on the
+        next run. Read-only and BODY.PEEK, as everywhere else."""
         saetze, hoechste, fertig = [], int(ab_uid or 0), True
         try:
             self.m.select(self._zitat(name), readonly=True)
@@ -1359,7 +1360,7 @@ class Postfach:
                     saetze.append((kopf_lesen(msg, ""), u, struct))
                     hoechste = max(hoechste, u)
         finally:
-            # 🔴 ZURUECK AUF INBOX — sonst greift jeder folgende Abruf ins Leere.
+            # 🔴 BACK TO INBOX — otherwise every following fetch grasps at nothing.
             try:
                 self.m.select("INBOX", readonly=not self.schreiben)
             except Exception:
@@ -1367,7 +1368,7 @@ class Postfach:
         return saetze, hoechste, fertig
 
     def ordner_liste(self) -> list:
-        """Alle Ordner des Postfachs, so wie der Server sie nennt."""
+        """All folders of the mailbox, exactly as the server names them."""
         try:
             typ, zeilen = self.m.list()
         except Exception:
@@ -1383,9 +1384,9 @@ class Postfach:
         return raus
 
     def absender_im_ordner(self, name: str, grenze: int) -> dict:
-        """Wer hat in diesen Ordner geschrieben? NUR die Absender-Kopfzeile —
-        kein Betreff, kein Text. Und readonly, damit das Lernen im Postfach
-        garantiert nichts veraendert."""
+        """Who has written into this folder? ONLY the sender header — no subject,
+        no body. And read-only, so that learning is guaranteed to change nothing
+        in the mailbox."""
         zaehler = {}
         try:
             self.m.select(self._zitat(name), readonly=True)
@@ -1404,9 +1405,10 @@ class Postfach:
                 for st in antw:
                     if not isinstance(st, tuple) or len(st) < 2:
                         continue
-                    # 🔴 Ueber `absender_teile()`, nicht selbst zerlegen —
-                    # sonst faellt genau hier der kodierte Anzeigename wieder
-                    # durch (zwei Fassungen derselben Frage sind eine zu viel).
+                    # 🔴 Through `absender_teile()`, not taken apart here —
+                    # otherwise the encoded display name falls through at
+                    # exactly this spot again (two versions of the same question
+                    # are one too many).
                     _, adr = absender_teile(
                         email.message_from_bytes(st[1]).get("From", ""))
                     if adr and "@" in adr:
@@ -1414,12 +1416,12 @@ class Postfach:
         except Exception as e:
             log("Ordner %s nicht lesbar: %s" % (name, str(e)[:100]))
         finally:
-            # 🔴 ZURUECK AUF INBOX. Ohne das bleibt der Server auf dem zuletzt
-            # gelesenen Ordner stehen, und jeder folgende `uid fetch` greift
-            # ins Leere — die UIDs stammen aus dem Posteingang, gelten dort
-            # aber nicht. Gemessen am 11.09.2026: nach dem Lernen wurden 14
-            # Mails abgerufen und KEINE einzige gefunden, der Lauf meldete
-            # trotzdem Erfolg. Ein Wechsel muss dahin zurueck, wo er herkam.
+            # 🔴 BACK TO INBOX. Without it the server stays on the folder last
+            # read, and every following `uid fetch` grasps at nothing — the UIDs
+            # come from the inbox but do not apply there. Measured 2026-09-11:
+            # after learning, 14 mails were fetched and NOT ONE was found, and
+            # the run still reported success. A change of folder has to return
+            # to where it came from.
             try:
                 self.m.select("INBOX", readonly=not self.schreiben)
             except Exception:
@@ -1427,16 +1429,16 @@ class Postfach:
         return zaehler
 
     def koepfe_im_ordner(self, name: str, grenze: int):
-        """(Absender, Datum) der neuesten `grenze` Mails eines Ordners.
+        """(sender, date) of the newest `grenze` mails of a folder.
 
-        Gleiche Bauart wie `absender_im_ordner`: readonly, BODY.PEEK, in
-        Bloecken — und dasselbe `finally`, das auf INBOX zurueckstellt. Ohne das
-        bleibt der Server auf dem zuletzt gelesenen Ordner stehen und jeder
-        folgende Abruf greift ins Leere (gemessen am 11.09.2026).
+        Built like `absender_im_ordner`: read-only, BODY.PEEK, in blocks — and
+        the same `finally` that returns to INBOX. Without it the server stays on
+        the folder last read and every following fetch grasps at nothing
+        (measured 2026-09-11).
 
-        Gibt zusaetzlich zurueck, ob der Deckel gegriffen hat — daraus entsteht
-        die Grenze, ab der der Tagesverlauf VOLLSTAENDIG ist. Ein Diagramm, das
-        an seinem linken Rand still abfaellt, weil dort Daten fehlen, luegt.
+        Also returns whether the cap took effect — from that comes the boundary
+        beyond which the daily course is COMPLETE. A chart that quietly droops
+        at its left edge because data is missing there is lying.
         """
         raus, gedeckelt = [], False
         try:
@@ -1476,16 +1478,16 @@ class Postfach:
         return raus, gedeckelt
 
     def voller_name(self, name: str) -> str:
-        """Die Ordnernamen kommen aus `ordner_liste()` und sind damit bereits
-        so geschrieben, wie der Server sie kennt (etwa „Shopping.Paypal").
-        Hier wird deshalb NICHTS zusammengebaut — wer den Trenner selbst
-        einsetzt, legt bei der naechsten Server-Eigenart einen Ordner mit einem
-        Punkt im Namen an, statt in den vorhandenen zu schreiben."""
+        """The folder names come from `ordner_liste()` and are therefore already
+        written the way the server knows them (e.g. „Shopping.Paypal“). So
+        NOTHING is assembled here — insert the separator yourself and the next
+        server quirk has you creating a folder with a dot in its name instead of
+        writing into the existing one."""
         return name
 
     def ordner_sicherstellen(self, pfad: str) -> str:
-        """Unterordner unterhalb von INBOX anlegen, falls noetig. Gibt den
-        serverrichtigen vollen Namen zurueck."""
+        """Create a subfolder below INBOX if needed. Returns the server-correct
+        full name."""
         voll = "INBOX" + self.trenner + pfad.replace("/", self.trenner)
         try:
             typ, _ = self.m.create(self._zitat(voll))
@@ -1502,9 +1504,9 @@ class Postfach:
         return '"%s"' % name.replace('"', '')
 
     def verschieben(self, uid: int, ziel_voll: str) -> bool:
-        """Kopieren, dann im Quellordner abhaken. 🔴 Es wird NIE EXPUNGE
-        aufgerufen und nie ein \\Deleted ohne vorherige erfolgreiche Kopie
-        gesetzt — schlaegt die Kopie fehl, bleibt die Mail unberuehrt liegen."""
+        """Copy, then tick off in the source folder. 🔴 EXPUNGE is NEVER called
+        and a \\Deleted is never set without a successful copy beforehand — if
+        the copy fails, the mail is left untouched."""
         try:
             typ, _ = self.m.uid("copy", str(uid), self._zitat(ziel_voll))
             if typ != "OK":
@@ -1517,8 +1519,8 @@ class Postfach:
             return False
 
     def zurueck(self, uid: int, quell_voll: str) -> bool:
-        """Eine Verschiebung rueckgaengig machen: aus dem Zielordner zurueck in
-        den Posteingang. Wird von der Seite aufgerufen."""
+        """Undo a move: from the target folder back into the inbox. Called by the
+        page."""
         try:
             self.m.select(self._zitat(quell_voll), readonly=False)
             typ, _ = self.m.uid("copy", str(uid), "INBOX")
@@ -1537,57 +1539,55 @@ class Postfach:
                 pass
 
 
-# ── Dokumente in der Post ─────────────────────────────────────────────────────
-# der Besitzer, 25.09.2026: „wenn emails mit anhaengen kommen die aus einer pdf
-# bestehen oder aehnlichen dokumenten wo infos drin sind, keine fotos oder png
-# oder so ein kram, dann sollen diese anhaenge nach docusort gegeben werden
-# damit sie dort einsortiert werden. ich moechte auch gezielt in einsortierten
-# mails suchen koennen nach eben solchen dokumenten, als auch im nachgang."
+# ── Documents in the post ────────────────────────────────────────
+# der Besitzer, 2026-09-25 — mails carrying PDFs or similar documents with
+# information in them (no photos, no PNGs and the like) should be handed over to
+# DocuSort for filing; and he wants to search filed mails for such documents,
+# also retroactively.
 #
-# 🔑 DAS SIND ZWEI DINGE, und sie werden getrennt gehalten — genauso wie
-# „meldet sofort?" und „wohin gehoert es?" seit dem Umbau 2.0 getrennt sind:
+# 🔑 THESE ARE TWO THINGS, and they are kept apart — exactly as „does it report
+# immediately?“ and „where does it belong?“ have been kept apart since the 2.0
+# rebuild:
 #
-#   1. WAS HAENGT DRAN?  -> der INDEX. Er entsteht fuer jede Mail aus dem
-#      BODYSTRUCTURE, also aus dem BAUPLAN der Mail. Dafuer wird kein einziges
-#      Byte Anhang geholt. Deshalb kann er auch rueckwirkend ueber Jahre
-#      gezogen werden, und deshalb ist er vollstaendig, selbst wenn DocuSort
-#      gar nicht eingerichtet ist.
+#   1. WHAT IS ATTACHED?  -> the INDEX. It is built for every mail from the
+#      BODYSTRUCTURE, that is from the mail's BLUEPRINT. Not one byte of
+#      attachment is fetched for it. That is why it can be pulled backwards over
+#      years, and why it is complete even when DocuSort is not set up at all.
 #
-#   2. WAS GEHT WEITER?  -> die UEBERGABE an DocuSort. Nur Dokumente, nur was
-#      DocuSort auch verdauen kann, nie bei Phishing-Verdacht, und nur solange
-#      der Zugang eingerichtet und eingeschaltet ist.
+#   2. WHAT GOES ON?      -> the HANDOVER to DocuSort. Only documents, only what
+#      DocuSort can actually digest, never on a phishing suspicion, and only
+#      while the connection is configured and switched on.
 #
-# Wer beides zusammenwirft, hat einen Index, der von einer Einstellung abhaengt
-# — und findet spaeter genau die Mails nicht, bei denen die Uebergabe gerade aus
-# war.
-ANHAENGE = "anhaenge.json"          # der Index: was haengt an welcher Mail
+# Throw the two together and you have an index that depends on a setting — and
+# later you will fail to find exactly those mails for which the handover
+# happened to be off.
+ANHAENGE = "anhaenge.json"          # the index: what hangs on which mail
 ANHANG_INDEX_MAX = 20000            # Deckel; aeltestes fliegt zuerst raus
-# 🔴 KEIN Arbeitsdeckel, sondern eine Notbremse. Der erste Nachtrag am
-# 25.09.2026 lief mit 4000 je Ordner — „Archiv Gmail" hat 12 396 Mails, also
-# wurden die aeltesten 8400 uebersprungen. Und weil der Nachtrag sich die
-# HOECHSTE gelesene UID merkt, waeren sie nie wieder angesehen worden: eine
-# Luecke, die sich selbst zudeckt. Getaktet wird ueber die ZEIT (`frist`), und
-# die kann beim naechsten Lauf weitermachen. Greift der Deckel doch, sagt er es.
+# 🔴 NOT a work cap but an emergency brake. The first back-fill on
+# 2026-09-25 ran with 4000 per folder — „Archiv Gmail“ has 12,396 mails, so the
+# oldest 8400 were skipped. And because the back-fill remembers the HIGHEST UID
+# it has read, they would never have been looked at again: a gap that covers
+# itself up. The pace is set by TIME (`frist`), and time can continue on the
+# next run. If the cap does take effect, it says so.
 NACHTRAG_JE_ORDNER = 50000
-NACHTRAG_FRIST = 45                 # Sekunden je Lauf — der Cron kommt jede Minute
-NACHTRAG_FRISCH = 12 * 3600         # zweimal am Tag reicht fuer den Nachtrag
+NACHTRAG_FRIST = 45                 # seconds per run — cron comes every minute
+NACHTRAG_FRISCH = 12 * 3600         # twice a day is enough for the back-fill
 
-# 🔴 Diese Ordner bleiben beim Nachtragen draussen. Die Liste ist ABSICHTLICH
-# eine andere als `KEIN_LEHRMEISTER`: dort geht es ums LERNEN (ein Archiv ist
-# kein Thema, es verdirbt die Zuordnung), hier ums FINDEN. Eine Telekom-Rechnung
-# von 2019 liegt im Archiv — sie dort nicht zu indizieren hiesse, genau die
-# Frage nicht beantworten zu koennen, die der Besitzer gestellt hat.
+# 🔴 These folders stay out of the back-fill. The list is DELIBERATELY not the
+# same as `KEIN_LEHRMEISTER`: that one is about LEARNING (an archive is not a
+# topic, it spoils the mapping), this one is about FINDING. A 2019 phone bill
+# sits in the archive — not indexing it there would mean being unable to answer
+# exactly the question that was asked.
 KEIN_NACHTRAG = {"Trash", "Spam", "Junk", "Papierkorb"}
 
-# 🔑 DIE ENDUNG ENTSCHEIDET, NICHT DER MIME-TYP. Sehr viele Absender deklarieren
-# ihre PDF-Rechnung als `application/octet-stream` — wer nach dem Typ geht,
-# uebersieht sie. Der Typ wird nur befragt, wenn es keinen brauchbaren
-# Dateinamen gibt.
+# 🔑 THE EXTENSION DECIDES, NOT THE MIME TYPE. A great many senders declare
+# their PDF invoice as `application/octet-stream` — go by the type and you miss
+# them. The type is only consulted when there is no usable file name.
 DOK_ENDUNGEN = {".pdf", ".csv", ".doc", ".docx", ".odt", ".rtf",
                 ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp"}
-# „keine fotos oder png oder so ein kram" — dessen Wort, und es ist die
-# richtige Grenze: ein Bild kann ein Dokument sein (ein Scan), aber es ist
-# NICHT zu unterscheiden von dem Firmenlogo unter der Signatur.
+# „no photos or PNGs or that kind of stuff“ — his words, and the right
+# boundary: an image can be a document (a scan), but it is NOT distinguishable
+# from the company logo under a signature.
 BILD_ENDUNGEN = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff",
                  ".webp", ".heic", ".heif", ".svg", ".ico", ".avif"}
 DOK_MIME = {"application/pdf", "text/csv", "application/csv",
@@ -1599,11 +1599,11 @@ DOK_MIME = {"application/pdf", "text/csv", "application/csv",
             "application/vnd.oasis.opendocument.text",
             "application/vnd.oasis.opendocument.spreadsheet",
             "application/vnd.oasis.opendocument.presentation"}
-# 🔴 Was DocuSort WIRKLICH annimmt (gemessen am lebenden Dienst 0.58.1:
-# `ALLOWED_SUFFIXES` in web/app.py plus der CSV-Weg in die Finanzen). Ein
-# .docx wuerde dort als `rejected` zurueckkommen — es gilt hier deshalb als
-# Dokument (und ist findbar), wird aber nicht uebergeben, und das steht am
-# Eintrag. Stilles Verwerfen waere der schlimmere Fehler.
+# 🔴 What DocuSort REALLY accepts (measured against the running service 0.58.1:
+# `ALLOWED_SUFFIXES` in web/app.py plus the CSV route into the finances). A
+# .docx would come back from there as `rejected` — so it counts as a document
+# here (and is findable), but is not handed over, and that is noted on the
+# entry. Discarding it silently would be the worse mistake.
 DS_ENDUNGEN = {".pdf", ".csv"}
 
 
@@ -1614,7 +1614,7 @@ def endung(name: str) -> str:
 
 
 def anhang_art(typ: str, subtyp: str, name: str) -> str:
-    """„dokument" | „bild" | „kram". Ein Wort, an dem der Rest haengt."""
+    """„dokument“ | „bild“ | „kram“. One word the rest hangs on."""
     e = endung(name)
     if e in DOK_ENDUNGEN:
         return "dokument"
@@ -1634,18 +1634,18 @@ def ds_verdaulich(name: str) -> bool:
     return endung(name) in DS_ENDUNGEN
 
 
-# ── BODYSTRUCTURE lesen ──────────────────────────────────────────────────────
-# Der Bauplan einer Mail kommt als verschachtelte IMAP-Liste. Die muss man
-# zerlegen, und zwar richtig: ein Dateiname darf Klammern enthalten
-# („Rechnung (Kopie).pdf"), und lange oder umlauthaltige Namen kommen als
-# LITERAL — imaplib reicht die als eigenes Stueck durch, mitten im Satz.
+# ── Reading BODYSTRUCTURE ──────────────────────────────────────
+# A mail's blueprint arrives as a nested IMAP list. That has to be taken apart,
+# and taken apart properly: a file name may contain brackets
+# („Rechnung (Kopie).pdf“), and long names or names with umlauts arrive as a
+# LITERAL — imaplib passes those through as a piece of their own, mid-sentence.
 def _imap_stuecke(roh: bytes):
-    """Zerlegt eine IMAP-Antwort in (art, wert): „(", „)", „s" (Zeichenkette in
-    Anfuehrungszeichen) oder „a" (blankes Wort, z. B. NIL oder eine Zahl).
+    """Splits an IMAP response into (kind, value): „(“, „)“, „s“ (a quoted
+    string) or „a“ (a bare word, e.g. NIL or a number).
 
-    🔴 Die Unterscheidung s/a ist kein Zierrat: eine Klammer INNERHALB von
-    Anfuehrungszeichen ist Text, keine Klammer. Wer beides gleich behandelt,
-    zerreisst jeden Dateinamen mit Klammer und damit den ganzen Bauplan."""
+    🔴 The s/a distinction is not decoration: a bracket INSIDE quotes is text,
+    not a bracket. Treat both the same and you tear apart every file name with a
+    bracket, and with it the whole blueprint."""
     i, n = 0, len(roh)
     while i < n:
         c = roh[i:i + 1]
@@ -1679,7 +1679,7 @@ def _imap_stuecke(roh: bytes):
 
 
 def _imap_baum(roh: bytes) -> list:
-    """Die Antwortzeile als verschachtelte Liste. NIL wird zu None."""
+    """The response line as a nested list. NIL becomes None."""
     stapel = [[]]
     for art, wert in _imap_stuecke(roh):
         if art == "(":
@@ -1697,7 +1697,7 @@ def _imap_baum(roh: bytes) -> list:
 
 
 def _klammerstand(roh: bytes, stand: int) -> int:
-    """Klammerstand fortschreiben. Klammern in Anfuehrungszeichen zaehlen nicht."""
+    """Carry the bracket count forward. Brackets inside quotes do not count."""
     i, n, drin = 0, len(roh), False
     while i < n:
         c = roh[i:i + 1]
@@ -1718,13 +1718,13 @@ def _klammerstand(roh: bytes, stand: int) -> int:
 
 
 def _fetch_zeilen(daten) -> list:
-    """Aus imaplibs Antwortliste je Mail EINE vollstaendige Zeile bauen.
+    """Build ONE complete line per mail out of imaplib's response list.
 
-    🔴 Wo ein Stueck aufhoert und das naechste anfaengt, entscheidet NICHT das
-    Aussehen der Zeile, sondern die KLAMMERBILANZ. Eine Antwort mit Literal
-    kommt als Tupel, der Rest derselben Zeile als eigenes Stueck danach — wer
-    auf „faengt mit einer Zahl an" prueft, zerschneidet genau die Mails mit
-    umlauthaltigem Dateinamen, also die interessanten."""
+    🔴 Where one piece ends and the next begins is decided NOT by how the line
+    looks but by the BRACKET BALANCE. A response with a literal arrives as a
+    tuple, the rest of the same line as a separate piece after it — check for
+    „starts with a number“ and you cut apart exactly the mails with an umlaut in
+    the file name, which are the interesting ones."""
     zeilen, akt, stand = [], b"", 0
     for el in daten:
         if isinstance(el, tuple) and len(el) >= 2:
@@ -1746,7 +1746,7 @@ def _fetch_zeilen(daten) -> list:
 
 
 def _strukturen_lesen(daten) -> dict:
-    """{uid: Bauplan} aus einer FETCH-Antwort."""
+    """{uid: blueprint} out of a FETCH response."""
     raus = {}
     for zeile in _fetch_zeilen(daten):
         try:
@@ -1773,10 +1773,9 @@ def _strukturen_lesen(daten) -> dict:
 
 
 def _param(paare, schluessel: str) -> str:
-    """Einen Parameter aus der flachen Paarliste holen — RFC 2047 (=?utf-8?B?…?=)
-    und RFC 2231 (filename*0*, in Stuecken, prozentkodiert) inbegriffen. Beide
-    Formen kommen in echter Post vor, und zwar genau bei den langen deutschen
-    Rechnungsnamen."""
+    """Fetch one parameter from the flat pair list — RFC 2047 (=?utf-8?B?…?=) and
+    RFC 2231 (filename*0*, in pieces, percent-encoded) included. Both forms occur
+    in real post, and precisely with the long German invoice names."""
     if not isinstance(paare, list):
         return ""
     d = {}
@@ -1805,11 +1804,12 @@ def _param(paare, schluessel: str) -> str:
 
 
 def _teile(struct, praefix: str = "") -> list:
-    """Alle einfachen Teile einer Mail mit ihrer IMAP-Teilenummer.
+    """All simple parts of a mail with their IMAP part number.
 
-    Die Nummern sind das, womit man den Anhang spaeter einzeln holt. Bei einer
-    eingebetteten Mail (weitergeleitete Post!) zaehlen die inneren Teile unter
-    der Nummer der aeusseren weiter — genau dort haengt oft die Rechnung."""
+    The numbers are what you later use to fetch a single attachment. With an
+    embedded mail (forwarded post!) the inner parts continue counting under the
+    number of the outer one — and that is often exactly where the invoice
+    hangs."""
     if not isinstance(struct, list) or not struct:
         return []
     if isinstance(struct[0], list):
@@ -1829,10 +1829,10 @@ def _teile(struct, praefix: str = "") -> list:
         groesse = int(str(struct[6])) if len(struct) > 6 else 0
     except (TypeError, ValueError):
         groesse = 0
-    # Die Verfuegung (attachment/inline) steht in den Erweiterungen, und deren
-    # Platz haengt vom Typ ab. Statt drei Sonderfaelle zu zaehlen wird die
-    # FORM gesucht: eine Liste, deren erstes Wort „attachment" oder „inline"
-    # ist. Das haelt auch, wenn ein Server ein Feld weglaesst.
+    # The disposition (attachment/inline) sits among the extensions, and where
+    # they sit depends on the type. Instead of counting three special cases, the
+    # SHAPE is searched for: a list whose first word is „attachment“ or
+    # „inline“. That holds even when a server leaves a field out.
     verfuegung, dparams = "", []
     for el in struct[7:]:
         if (isinstance(el, list) and el and isinstance(el[0], str)
@@ -1856,14 +1856,14 @@ def _teile(struct, praefix: str = "") -> list:
 
 
 def anhaenge_der_mail(struct) -> list:
-    """Nur echte Anhaenge: alles mit Dateinamen. Der Fliesstext hat keinen."""
+    """Only real attachments: everything with a file name. Body text has none."""
     raus = []
     for t in _teile(struct):
         name = (t.get("name") or "").strip()
         if not name:
             continue
         if t["typ"].upper() == "MESSAGE" and t["subtyp"].upper() == "RFC822":
-            continue            # die Huelle selbst nicht, nur was drin haengt
+            continue            # not the envelope itself, only what hangs inside it
         raus.append({
             "n": name[:200],
             "art": anhang_art(t["typ"], t["subtyp"], name),
@@ -1887,12 +1887,12 @@ def teil_entpacken(roh: bytes, kodierung: str) -> bytes:
         return b""
     return roh or b""
 
-# ── Der Index ────────────────────────────────────────────────────────────────
+# ── The index ────────────────────────────────────────────────
 def anhang_schluessel(kopf: dict, ordner: str, uid: int) -> str:
-    """🔴 Der Schluessel ist die Message-Id, NICHT (Ordner, UID). Eine UID gilt
-    nur in ihrem Ordner, und der Waechter verschiebt Post — dieselbe Mail
-    bekommt beim Verschieben eine neue UID. Wer darueber schluesselt, hat jede
-    einsortierte Mail zweimal im Index und keine davon auffindbar."""
+    """🔴 The key is the Message-Id, NOT (folder, UID). A UID only applies inside
+    its folder, and the watchman moves post — the same mail gets a new UID when
+    it moves. Key on that and every filed mail is in the index twice and none of
+    them findable."""
     mid = str(kopf.get("message_id") or "").strip()
     if mid:
         return "m" + hashlib.sha1(mid.encode("utf-8", "replace")).hexdigest()[:18]
@@ -1913,9 +1913,9 @@ def anhang_index() -> dict:
 def anhang_index_sichern(idx: dict) -> None:
     e = idx.get("eintraege") or {}
     if len(e) > ANHANG_INDEX_MAX:
-        # Aeltestes zuerst raus — nach dem Datum der Mail, nicht nach dem
-        # Zeitpunkt des Eintragens: sonst wirft ein Nachtrag alter Ordner
-        # genau das weg, was er gerade gefunden hat.
+        # Oldest out first — by the DATE OF THE MAIL, not by when it was
+        # indexed: otherwise a back-fill of old folders throws away exactly what
+        # it has just found.
         nach_alter = sorted(e.items(), key=lambda kv: str(kv[1].get("datum") or ""))
         for k, _ in nach_alter[:len(e) - ANHANG_INDEX_MAX]:
             e.pop(k, None)
@@ -1927,16 +1927,16 @@ def anhang_index_sichern(idx: dict) -> None:
 
 
 def dokument_kurz_schreiben(idx: dict) -> dict:
-    """Die Kurzfassung neben den Index legen.
+    """Put the short version next to the index.
 
-    🔑 Sie liegt SEPARAT, weil die Seite alle 30 s auffrischt und dafuer nicht
-    eine Datei mit Zehntausenden Eintraegen einlesen soll.
+    🔑 It lies SEPARATELY, because the page refreshes every 30 s and should not
+    have to read a file with tens of thousands of entries for that.
 
-    🔴 Sie muss aber IMMER nachgezogen werden, wenn sich der Index geaendert
-    haben KANN — nicht nur beim Sichern. Die Seite sieht ausschliesslich diese
-    Datei: hinkt sie hinterher, zeigt die Seite einen Zustand, den es nicht mehr
-    gibt, und die Nachfrage-Wache springt gar nicht erst an (gemessen am
-    25.09.2026 mit einem kuenstlichen Eintrag)."""
+    🔴 But it MUST always be brought up to date whenever the index CAN have
+    changed — not only when saving. The page sees this file and nothing else: if
+    it lags behind, the page shows a state that no longer exists, and the
+    follow-up watch never even starts (measured 2026-09-25 with an artificial
+    entry)."""
     kurz = dict(idx.get("zahlen") or dokument_zaehlung(idx))
     kurz["nachtrag"] = idx.get("nachtrag") or {}
     kurz["ordner_offen"] = sum(1 for s in (idx.get("stand") or {}).values()
@@ -1956,11 +1956,10 @@ def dokument_kurz_schreiben(idx: dict) -> dict:
 
 def anhang_eintragen(idx: dict, kopf: dict, ordner: str, uid: int,
                      dateien: list) -> dict:
-    """Eine Mail in den Index. Gibt den Eintrag zurueck (neu oder aufgefrischt).
+    """One mail into the index. Returns the entry (new or refreshed).
 
-    Ein vorhandener Eintrag behaelt seine Uebergabe-Ergebnisse — ein zweiter
-    Blick auf dieselbe Mail darf nicht vergessen, dass ihr PDF laengst in
-    DocuSort liegt."""
+    An existing entry keeps its handover results — a second look at the same mail
+    must not forget that its PDF has long been in DocuSort."""
     s = anhang_schluessel(kopf, ordner, uid)
     alt = idx["eintraege"].get(s) if isinstance(idx["eintraege"].get(s), dict) else {}
     neu = {
@@ -1979,7 +1978,7 @@ def anhang_eintragen(idx: dict, kopf: dict, ordner: str, uid: int,
 
 
 def dokument_zaehlung(idx: dict) -> dict:
-    """Die drei Zahlen, die auf die Seite gehoeren."""
+    """The three numbers that belong on the page."""
     mails, dok, uebergeben, offen = 0, 0, 0, 0
     for e in (idx.get("eintraege") or {}).values():
         mails += 1
@@ -1996,16 +1995,16 @@ def dokument_zaehlung(idx: dict) -> dict:
 
 def dokumente_suchen(idx: dict, frage: str = "", art: str = "dokument",
                      von: str = "", bis: str = "", grenze: int = 200) -> dict:
-    """„zeige mir alle mails die eine pdf dran haben von der telekom".
+    """„show me all mails with a pdf attached from the phone company“.
 
-    Gesucht wird ueber `normal()` — dieselbe Funktion, die schon die Einordnung
-    von „Gerät"/„Geraet" befreit hat. Ein Wort muss irgendwo vorkommen: im
-    Absender, im Namen, im Betreff, im Dateinamen oder im Ordner. Mehrere
-    Woerter muessen ALLE vorkommen, aber nicht nebeneinander — „telekom pdf"
-    und „pdf telekom" finden dasselbe."""
+    The search runs through `normal()` — the same function that already freed the
+    classification from „Gerät“/„Geraet“. One word has to occur somewhere: in the
+    sender, the name, the subject, the file name or the folder. Several words
+    must ALL occur, but not next to each other — „telekom pdf“ and „pdf telekom“
+    find the same thing."""
     worte = [normal(w) for w in re.split(r"\s+", frage or "") if w.strip()]
-    # Einmal fuer die ganze Suche: welche Datei liegt — an WELCHER Mail auch
-    # immer — schon in DocuSort?
+    # Once for the whole search: which file — attached to WHICHEVER mail — is
+    # already in DocuSort?
     zwillinge = ds_zwillinge(idx)
     treffer = []
     for schluessel, e in (idx.get("eintraege") or {}).items():
@@ -2028,11 +2027,11 @@ def dokumente_suchen(idx: dict, frage: str = "", art: str = "dokument",
         ]))
         if worte and not all(w in heuhaufen for w in worte):
             continue
-        # 🔑 Ob eine Datei noch uebergeben werden kann, entscheidet der SERVER —
-        # an derselben Stelle, an der es auch die Uebergabe entscheidet. Die
-        # Seite zeichnet nur noch, was hier steht. Vorher lag dieselbe Regel
-        # zusaetzlich im Browser, und zwei Meinungen darueber sind zwei
-        # Gelegenheiten, dasselbe Dokument ein zweites Mal hochzuladen.
+        # 🔑 Whether a file can still be handed over is decided by the SERVER —
+        # at the same place that also decides the handover itself. The page only
+        # draws what it finds here. Previously the same rule lived in the browser
+        # as well, and two opinions about it are two chances to upload the same
+        # document a second time.
         eigen = ds_eintraege(e)
         hat_ort = bool(int(e.get("uid") or 0))
         gezeigt = []
@@ -2043,7 +2042,7 @@ def dokumente_suchen(idx: dict, frage: str = "", art: str = "dokument",
             zwilling = None
             if f.get("art") == "dokument" and ds_offen(satz):
                 if not ds_verdaulich(name):
-                    stand = "kann_docusort_nicht"      # sagen, nicht anbieten
+                    stand = "kann_docusort_nicht"      # say it, do not offer it
                 else:
                     zwilling = zwillinge.get((name.lower(), int(f.get("b") or 0)))
             gezeigt.append(dict(
@@ -2051,33 +2050,32 @@ def dokumente_suchen(idx: dict, frage: str = "", art: str = "dokument",
                 text=str(satz.get("text") or ""), zwilling=zwilling,
                 gebbar=bool(f.get("art") == "dokument" and ds_verdaulich(name)
                             and ds_offen(satz) and not zwilling and hat_ort)))
-        # 🔴 Der Schluessel MUSS mit heraus: er ist die einzige Handhabe, mit
-        # der die Seite spaeter „gib das an DocuSort" sagen kann.
+        # 🔴 The key MUST come out with it: it is the only handle the page has
+        # later for saying „hand this to DocuSort“.
         treffer.append(dict(e, schluessel=schluessel, dateien_gezeigt=gezeigt,
                             gebbar=any(f["gebbar"] for f in gezeigt)))
     treffer.sort(key=lambda e: str(e.get("datum") or ""), reverse=True)
     return {"gesamt": len(treffer), "treffer": treffer[:grenze]}
 
 
-# ── Uebergabe an DocuSort ────────────────────────────────────────────────────
-# 🔑 Der Weg ist DocuSorts VORDERTUER: `POST /upload`, dieselbe, die auch der
-# Browser benutzt. Der Besitzer am 20.09.2026 zu DocuSort: „es gibt nur den upload
-# button mehr nicht, zentrale anlaufstelle, dort alles reinkippen und docusort
-# macht den rest, keine unterschiedlichen stellen." Ein zweiter Weg (SSH in den
-# Eingangsordner der VM) waere schneller gebaut und haette genau diese Regel
-# gebrochen — und einen Schluessel gebraucht, den niemand mehr zurueckziehen
-# kann, ohne es zu wissen.
+# ── Handover to DocuSort ──────────────────────────────────────
+# 🔑 The route is DocuSort's FRONT DOOR: `POST /upload`, the same one the
+# browser uses. Der Besitzer on DocuSort, 2026-09-20 — there is only the upload button
+# and nothing else, one central place to tip everything into, DocuSort does the
+# rest, no different entry points. A second route (SSH into the VM's inbox
+# folder) would have been quicker to build and would have broken exactly that
+# rule — and would have needed a key nobody can withdraw again without knowing.
 #
-# 🔴 Was dieser Zugang KANN: hochladen, den Stand abfragen — und, weil DocuSort
-# nur zwei Rollen kennt, auch die Bibliothek und die Finanzen LESEN. Ein
-# eigener, engerer Rang („darf nur hereinlegen") waere sauberer; das ist eine
-# Aenderung an DocuSort und steht als naechster Schritt in der Notiz. Bis dahin
-# gilt: der Zugang ist ein eigener Benutzer, kein Admin, und der Besitzer kann ihn in
-# DocuSort mit einem Klick deaktivieren — dann ist die Sitzung im selben
-# Moment tot (DocuSort loescht beim Deaktivieren die Sitzungen).
+# 🔴 What this account CAN do: upload, ask for status — and, because DocuSort
+# knows only two roles, also READ the library and the finances. A narrower rank
+# of its own („may only put things in“) would be cleaner; that is a change to
+# DocuSort and stands as the next step in the note. Until then: the account is a
+# user of its own, not an admin, and it can be deactivated in DocuSort with one
+# click — the session is then dead in the same moment (DocuSort deletes sessions
+# when deactivating).
 DS_ZUGANG = "docusort.json"          # 0600: URL + Benutzer + Passwort
-DS_SITZUNG = "docusort_sitzung.json"  # 0600: das Sitzungsmerkmal
-DS_MAX_MB = 25.0                     # groesseres wird nicht hochgeladen
+DS_SITZUNG = "docusort_sitzung.json"  # 0600: the session marker
+DS_MAX_MB = 25.0                     # anything bigger is not uploaded
 DS_JE_LAUF = 12                      # so viele Uebergaben hoechstens pro Lauf
 
 
@@ -2095,14 +2093,14 @@ def ds_zugang() -> dict:
 
 
 class _OhneUmleitung(urllib.request.HTTPRedirectHandler):
-    """🔴 Umleitungen werden NICHT verfolgt, und das ist beides Mal der Kern:
+    """🔴 Redirects are NOT followed, and both times that is the whole point:
 
-    Die Anmeldung antwortet mit 303 und legt das Sitzungsmerkmal in GENAU diese
-    Antwort — wer folgt, bekommt die Startseite und hat das Merkmal verloren.
+    The login answers with a 303 and puts the session marker into EXACTLY that
+    response — follow it and you get the start page and have lost the marker.
 
-    Und eine abgelaufene Sitzung schickt den Upload auf die Anmeldeseite. Wer
-    folgt, bekommt HTTP 200 mit einem HTML-Formular zurueck: ein „Erfolg", bei
-    dem nichts hochgeladen wurde. Ein 303 ist hier eine ANTWORT, keine Panne."""
+    And an expired session sends the upload to the login page. Follow it and you
+    get HTTP 200 back with an HTML form: a „success“ in which nothing was
+    uploaded. A 303 is an ANSWER here, not a mishap."""
 
     def redirect_request(self, *a, **k):
         return None
@@ -2143,7 +2141,7 @@ class DocuSort:
             kopfzeilen = antw.headers
         except urllib.error.HTTPError as e:
             if e.code in (301, 302, 303, 307, 308):
-                kopfzeilen = e.headers          # DAS ist der Erfolgsfall
+                kopfzeilen = e.headers          # THIS is the success case
             elif e.code == 429:
                 return "DocuSort bremst die Anmeldung (zu viele Versuche)."
             elif e.code == 401:
@@ -2156,7 +2154,7 @@ class DocuSort:
             t = re.match(r"\s*ds_session=([^;]+)", roh)
             if t:
                 self.sitzung = t.group(1)
-                # 🔴 0600. Das Merkmal IST der Zugang, solange es gilt.
+                # 🔴 0600. The marker IS the access, as long as it is valid.
                 save(DS_SITZUNG, {"cookie": self.sitzung,
                                   "zeit": datetime.now().isoformat(timespec="seconds")},
                      0o600)
@@ -2164,8 +2162,8 @@ class DocuSort:
         return "Anmeldung ohne Sitzungsmerkmal — DocuSort hat sie abgelehnt."
 
     def _mit_sitzung(self, weg, daten=None, typ=""):
-        """Einmal versuchen, bei abgelaufener Sitzung neu anmelden, einmal
-        wiederholen. Mehr nicht — wer endlos wiederholt, sperrt sich aus."""
+        """Try once, log in again if the session has expired, retry once. No
+        more — retry endlessly and you lock yourself out."""
         for versuch in (1, 2):
             if not self.sitzung:
                 fehl = self.anmelden()
@@ -2175,7 +2173,7 @@ class DocuSort:
                 return self._anfrage(weg, daten, typ), ""
             except urllib.error.HTTPError as e:
                 if e.code in (301, 302, 303, 307, 308, 401, 403) and versuch == 1:
-                    self.sitzung = ""           # Sitzung ist tot
+                    self.sitzung = ""           # the session is dead
                     continue
                 return None, "HTTP %d" % e.code
             except Exception as e:
@@ -2184,8 +2182,8 @@ class DocuSort:
 
     # -- Was Postwache braucht ----------------------------------------------
     def hochladen(self, dateiname: str, inhalt: bytes) -> dict:
-        """Eine Datei durch die Vordertuer. Gibt den Stand zurueck, wie er in
-        den Index geschrieben wird."""
+        """One file through the front door. Returns the status as it is written
+        into the index."""
         grenze = "----postwache%s" % hashlib.sha1(
             (dateiname + str(len(inhalt))).encode("utf-8", "replace")).hexdigest()[:20]
         sicher = re.sub(r'[\r\n"\\]', "_", dateiname)[:120] or "anhang"
@@ -2203,7 +2201,7 @@ class DocuSort:
         try:
             d = json.loads(antw.read().decode("utf-8", "replace"))
         except Exception:
-            # 🔴 Kein JSON heisst: das war nicht der Upload, sondern eine Seite.
+            # 🔴 No JSON means: that was not the upload but a page.
             return {"stand": "fehler", "text": txt("a.ds.kein_ergebnis")}
         if d.get("saved"):
             return {"stand": "uebergeben", "inbox": d["saved"][0].get("inbox_name") or "",
@@ -2239,9 +2237,9 @@ class DocuSort:
 
 
 def ds_bereit():
-    """(Verbindung, Grund). Ist DocuSort nicht eingerichtet oder ausgeschaltet,
-    ist das KEIN Fehler — der Index entsteht trotzdem vollstaendig, und die
-    Uebergabe laesst sich jederzeit nachholen."""
+    """(connection, reason). If DocuSort is not configured or switched off, that
+    is NOT an error — the index is still built completely, and the handover can be
+    made up at any time."""
     z = ds_zugang()
     if not (z["url"] and z["benutzer"] and z["passwort"]):
         return None, "nicht eingerichtet"
@@ -2250,20 +2248,20 @@ def ds_bereit():
     return DocuSort(z), ""
 
 
-# 🔑 EINE Regel, wer noch einmal darf — und nur diese eine. Alles, was einen
-# Stand hat, ist durch; ausgenommen das, was ausdruecklich wiederholbar ist.
-# Der Knopf auf der Seite, das Kaestchen und die Uebergabe selbst fragen
-# dieselbe Funktion. Drei Meinungen darueber waeren drei Gelegenheiten, dasselbe
-# Dokument ein zweites Mal hochzuladen.
-# (Welche Staende wiederholbar sind, steht in `ds_offen` — die EINE Stelle.)
-# Wie aussagekraeftig ein Stand ist — „abgelegt" schlaegt „unterwegs", wenn
-# dieselbe Datei an mehreren Mails haengt.
+# 🔑 ONE rule about who may go again — and only this one. Everything that has
+# a status is through; except what is explicitly repeatable. The button on the
+# page, the checkbox and the handover itself all ask the same function. Three
+# opinions about it would be three chances to upload the same document a second
+# time.
+# (Which states are repeatable is written in `ds_offen` — the ONE place.)
+# How much a status says — „filed“ beats „in transit“ when the same file hangs
+# on several mails.
 DS_RANG = {"uebergeben": 1, "doppelt": 2, "finanzen": 3, "pruefen": 3,
            "abgelegt": 4}
-# So lange darf DocuSort „die Datei kenne ich nicht" sagen, bevor die Uebergabe
-# als verschollen gilt. 🔴 Direkt nach dem Hochladen ist „unknown" NORMAL: die
-# Datei ist aus dem Eingang verschwunden, der Datenbankeintrag noch nicht da.
-# Wer daraus sofort einen Fehler macht, meldet jede gesunde Uebergabe als kaputt.
+# This long DocuSort may say „I do not know that file“ before the handover counts
+# as lost. 🔴 Right after an upload, „unknown“ is NORMAL: the file has left the
+# inbox, the database entry is not there yet. Turn that into an error at once and
+# you report every healthy handover as broken.
 DS_VERSCHOLLEN_S = 15 * 60
 
 DS_UEBERSETZT = {"filed": "abgelegt", "review": "pruefen", "duplicate": "doppelt",
@@ -2272,15 +2270,15 @@ DS_UEBERSETZT = {"filed": "abgelegt", "review": "pruefen", "duplicate": "doppelt
 
 
 def ds_offen(satz) -> bool:
-    """Darf diese Datei (noch) an DocuSort gegeben werden?
+    """May this file (still) be given to DocuSort?
 
-    🔴 „Fehler" ist ZWEIERLEI, und der Unterschied entscheidet:
-      · die **Uebergabe** ist gescheitert — dann liegt drueben nichts, und ein
-        zweiter Versuch ist genau richtig;
-      · DocuSort hat die Datei, ist aber beim Verarbeiten gescheitert (es nennt
-        dann eine Dokumentnummer) — dann liegt sie dort schon. Ein zweiter
-        Upload macht nur ein Duplikat; wiederholt wird DORT, am Dokument.
-    An der Dokumentnummer sind die beiden auseinanderzuhalten."""
+    🔴 „Error“ is TWO different things, and the difference decides:
+      · the **handover** failed — then nothing is over there, and a second attempt
+        is exactly right;
+      · DocuSort has the file but failed while processing it (it then names a
+        document number) — then it is already there. A second upload only makes a
+        duplicate; the retry belongs THERE, on the document.
+    The document number is what tells the two apart."""
     satz = satz or {}
     st = str(satz.get("stand") or "")
     if not st or st == "verschollen":
@@ -2297,11 +2295,11 @@ def ds_eintraege(eintrag: dict) -> dict:
 
 def ds_uebergeben(ds, pf, eintrag: dict, ordner: str, uid: int,
                   phishing: str = "", offen: int = DS_JE_LAUF) -> int:
-    """Die Dokumente EINER Mail an DocuSort geben. Gibt zurueck, wie viele
-    wirklich hochgeladen wurden.
+    """Give the documents of ONE mail to DocuSort. Returns how many were really
+    uploaded.
 
-    🔴 Das muss VOR dem Verschieben passieren. Nach dem Verschieben gibt es die
-    UID im Posteingang nicht mehr, und die neue kennt niemand."""
+    🔴 This has to happen BEFORE the move. After the move the UID in the inbox
+    no longer exists, and nobody knows the new one."""
     schon = ds_eintraege(eintrag)
     getan = 0
     for f in (eintrag.get("dateien") or []):
@@ -2310,7 +2308,7 @@ def ds_uebergeben(ds, pf, eintrag: dict, ordner: str, uid: int,
         name = str(f.get("n") or "")
         alt = schon.get(name) or {}
         if not ds_offen(alt):
-            continue                       # schon durch, nicht zweimal
+            continue                       # already through, not twice
         satz = {"n": name, "stand": "", "inbox": "", "doc": "", "text": "",
                 "zeit": datetime.now().isoformat(timespec="seconds")}
         if phishing:
@@ -2348,22 +2346,21 @@ def ds_uebergeben(ds, pf, eintrag: dict, ordner: str, uid: int,
 
 
 def ds_stand_nachtragen(ds, idx: dict, grenze: int = 60) -> int:
-    """Was aus den Uebergaben geworden ist — abgehakt wird erst, wenn DocuSort
-    es BESTAETIGT.
+    """What became of the handovers — nothing is ticked off until DocuSort
+    CONFIRMS it.
 
-    🔑 „Hochgeladen" ist nicht „angekommen". DocuSort braucht fuer Texterkennung
-    und Einordnung Sekunden bis Minuten; bis dahin steht die Datei auf
-    „unterwegs" und wird bei jedem Lauf (und von der Seite aus) nachgefragt.
+    🔑 „uploaded“ is not „arrived“. DocuSort needs seconds to minutes for text
+    recognition and filing; until then the file stands at „in transit“ and is
+    asked about on every run (and from the page).
 
-    🔴 Und es gibt ein Ende: sagt DocuSort laenger als `DS_VERSCHOLLEN_S`
-    (15 Minuten) „die Datei kenne ich nicht", gilt die Uebergabe als
-    **verschollen** und darf wiederholt werden. Ohne diese Frist stuende so eine
-    Datei fuer immer auf „unterwegs" — ein Zustand, der nie endet, ist keine
-    Auskunft.
+    🔴 And there is an end to it: if DocuSort says „I do not know that file“ for
+    longer than `DS_VERSCHOLLEN_S` (15 minutes), the handover counts as **lost**
+    and may be repeated. Without that deadline such a file would stand at „in
+    transit“ for ever — a state that never ends is not information.
 
-    (Die Minutenzahl steht hier ausgeschrieben: eine Zeichenkette mit `%`
-    dahinter ist KEIN Dokumentationstext mehr, sondern ein Ausdruck — die
-    Funktion haette danach gar keine Beschreibung.)
+    (The number of minutes is spelled out here: a string with a `%` after it is
+    no longer a documentation text but an expression — the function would then
+    have no description at all.)
     """
     geaendert, jetzt = 0, datetime.now()
     for e in (idx.get("eintraege") or {}).values():
@@ -2393,7 +2390,7 @@ def ds_stand_nachtragen(ds, idx: dict, grenze: int = 60) -> int:
             d.pop("unbekannt_seit", None)
             neu = DS_UEBERSETZT.get(roh, "")
             if not neu or neu == "uebergeben":
-                continue               # queued/processing: DocuSort arbeitet noch
+                continue               # queued/processing: DocuSort is still working
             d["stand"] = neu
             d["doc"] = str(antw.get("doc_id") or "")
             d["text"] = str(antw.get("category") or "")
@@ -2402,25 +2399,25 @@ def ds_stand_nachtragen(ds, idx: dict, grenze: int = 60) -> int:
 
 
 def ds_zwillinge(idx: dict) -> dict:
-    """(Dateiname, Groesse) -> der beste bekannte DocuSort-Stand DIESER Datei,
-    gleich an welcher Mail sie hing.
+    """(file name, size) -> the best known DocuSort status of THIS file, no
+    matter which mail it hung on.
 
-    🔑 Dieselbe Rechnung haengt oft an mehreren Mails: einmal im Themenordner,
-    einmal im Archiv, einmal weitergeleitet. Ohne diesen Abgleich saehe man beim
-    zweiten Suchen wieder einen leeren Knopf — und gaebe sie ein zweites Mal.
+    🔑 The same invoice often hangs on several mails: once in the topic folder,
+    once in the archive, once forwarded. Without this reconciliation the second
+    search would show an empty button again — and hand it over a second time.
 
-    🔴 Verglichen wird Name UND Groesse. Der Name allein waere zu grob:
-    „Rechnung.pdf" heisst bei zwanzig Absendern so. Die Groesse ist die des
-    kodierten Teils aus dem Bauplan — fuer dieselbe Datei in derselben Mailform
-    stabil. Das ist ein starkes Indiz, kein Beweis; DocuSort selbst entscheidet
-    am Inhalt (SHA256) und meldet „hatte ich schon"."""
+    🔴 Name AND size are compared. The name alone would be too coarse:
+    „Rechnung.pdf“ is what twenty senders call it. The size is that of the
+    encoded part from the blueprint — stable for the same file in the same mail
+    form. That is strong evidence, not proof; DocuSort itself decides on the
+    content (SHA256) and reports „already had that one“."""
     raus = {}
     for e in (idx.get("eintraege") or {}).values():
         groessen = {str(f.get("n") or ""): int(f.get("b") or 0)
                     for f in (e.get("dateien") or [])}
         for d in (e.get("ds") or []):
             if ds_offen(d):
-                continue          # was noch offen ist, taugt nicht als Beleg
+                continue          # what is still open is no evidence
             st = str(d.get("stand") or "")
             name = str(d.get("n") or "")
             k = (name.lower(), groessen.get(name, -1))
@@ -2431,20 +2428,20 @@ def ds_zwillinge(idx: dict) -> dict:
                            "datum": str(e.get("datum") or "")}
     return raus
 
-# ── Rueckwirkend: was haengt an der Post, die laengst einsortiert ist? ────────
+# ── Retroactively: what hangs on post that was filed long ago? ──────────
 def anhaenge_nachtragen(pf, idx: dict, frist: int = NACHTRAG_FRIST,
                         nur: str = "") -> dict:
-    """Ordner fuer Ordner durchsehen — mit ZEITBUDGET.
+    """Work through folder by folder — with a TIME BUDGET.
 
-    🔑 Der Nachtrag laeuft im selben Minutentakt wie alles andere und darf ihn
-    nicht sprengen. Deshalb merkt sich der Index je Ordner, bis zu welcher UID
-    er gelesen hat: der naechste Lauf macht dort weiter. Nach ein paar Laeufen
-    ist alles drin, danach kostet es nichts mehr.
+    🔑 The back-fill runs in the same one-minute rhythm as everything else and
+    must not burst it. So the index remembers per folder up to which UID it has
+    read: the next run continues there. After a few runs everything is in, and
+    after that it costs nothing.
 
-    🔴 Die UID gilt nur bei gleicher UIDVALIDITY. Aendert der Server sie (der
-    Ordner wurde neu angelegt), ist jede gemerkte Nummer wertlos und der Ordner
-    wird von vorn gelesen. Ohne diese Pruefung fehlen genau die Mails, die nach
-    einem Serverumbau kamen — und niemand merkt es."""
+    🔴 The UID only applies with the same UIDVALIDITY. If the server changes it
+    (the folder was recreated), every remembered number is worthless and the
+    folder is read from the start. Without that check exactly the mails that
+    arrived after a server rebuild are missing — and nobody notices."""
     t0 = time.time()
     ende = t0 + max(5.0, float(frist))
     alle = [o for o in pf.ordner_liste()
@@ -2452,8 +2449,8 @@ def anhaenge_nachtragen(pf, idx: dict, frist: int = NACHTRAG_FRIST,
     if nur:
         wunsch = {nur} if isinstance(nur, str) else set(nur)
         alle = [o for o in alle if o in wunsch]
-    # INBOX zuerst, danach die noch nicht fertigen — wer zuletzt abgebrochen
-    # hat, kommt als Naechster dran.
+    # INBOX first, then the ones not yet finished — whoever was interrupted
+    # last is next in line.
     def rang(o):
         st = (idx.get("stand") or {}).get(o) or {}
         return (0 if o == "INBOX" else 1, 0 if not st.get("fertig") else 1,
@@ -2472,7 +2469,7 @@ def anhaenge_nachtragen(pf, idx: dict, frist: int = NACHTRAG_FRIST,
             uidv = 0
         ab = int(st.get("bis") or 0)
         if uidv and int(st.get("uidvalidity") or 0) != uidv:
-            ab = 0                      # Nummernkreis gewechselt: alles neu
+            ab = 0                      # number space changed: everything anew
         try:
             saetze, hoechste, fertig = pf.ordner_anhaenge(
                 o, ab, NACHTRAG_JE_ORDNER, ende)
@@ -2509,11 +2506,11 @@ def anhaenge_nachtragen(pf, idx: dict, frist: int = NACHTRAG_FRIST,
 
 
 def dokumente_faellig() -> bool:
-    """Steht ueberhaupt etwas an — OHNE den grossen Index zu lesen?
+    """Is anything pending at all — WITHOUT reading the big index?
 
-    🔴 Der Waechter laeuft jede Minute. Wer bei jedem Lauf eine Datei mit
-    Zehntausenden Eintraegen liest und wieder schreibt, hat ein Leck gebaut,
-    das man erst an der Platte merkt. Die Kurzfassung reicht fuer die Frage."""
+    🔴 The watchman runs every minute. Read and rewrite a file with tens of
+    thousands of entries on every run and you have built a leak you only notice
+    on the disk. The short version answers the question."""
     try:
         with open(os.path.join(OUT, "dokumente.json"), encoding="utf-8") as fh:
             k = json.load(fh)
@@ -2530,14 +2527,14 @@ def dokumente_faellig() -> bool:
 
 
 def dokumente_pflegen(pf, idx=None, ds=None, ds_bekannt: bool = False) -> None:
-    """Der Dokumenten-Teil eines Laufs — Stand nachfragen, Rueckstand nachtragen,
-    Index sichern.
+    """The document part of a run — ask for status, catch up on the backlog, save
+    the index.
 
-    🔴 Das haengt ABSICHTLICH nicht am Zweig „es gibt neue Post". Der Lauf ohne
-    neue Mail kehrt frueh um, und das ist der Normalfall: an einem ruhigen Tag
-    kommen 5 Mails, aber 1440 Laeufe. Haenge den Nachtrag dort hinein, und die
-    rueckwirkende Suche bleibt tagelang leer — gemessen am 25.09.2026 gleich
-    beim ersten Ausliefern."""
+    🔴 This DELIBERATELY does not hang off the „there is new post“ branch. A run
+    without new mail turns back early, and that is the normal case: on a quiet
+    day 5 mails arrive but 1440 runs happen. Hang the back-fill in there and the
+    retroactive search stays empty for days — measured 2026-09-25, right on the
+    first delivery."""
     if idx is None:
         if not dokumente_faellig():
             return
@@ -2559,8 +2556,8 @@ def dokumente_pflegen(pf, idx=None, ds=None, ds_bekannt: bool = False) -> None:
 
 
 def anhaenge_frisch(pf, idx: dict) -> bool:
-    """Nachtragen, wenn es noetig ist: solange noch ein Ordner offen ist, in
-    jedem Lauf ein Stueck — danach nur noch zweimal am Tag."""
+    """Catch up when needed: while a folder is still open, a piece on every run —
+    after that only twice a day."""
     n = idx.get("nachtrag") if isinstance(idx.get("nachtrag"), dict) else {}
     if int(n.get("offen") or 0) <= 0 and n.get("zeit"):
         try:
@@ -2578,16 +2575,16 @@ def anhaenge_frisch(pf, idx: dict) -> bool:
 
 # ── Aus dessen eigener Ablage lernen ────────────────────────────────────────
 def haupt_domain(adresse: str) -> str:
-    """netflix.com aus members.netflix.com.
+    """netflix.com out of members.netflix.com.
 
-    🔴 Genau daran ist die erste Messung gescheitert: im Ordner
-    `Shopping.Netflix` liegt `info@account.netflix.com`, im Posteingang kam
-    `info@members.netflix.com`. Gleiche Firma, andere Unterdomain — ohne diese
-    Stufe faellt so etwas durch.
+    🔴 This is exactly where the first measurement failed: the folder
+    `Shopping.Netflix` holds `info@account.netflix.com`, while the inbox received
+    `info@members.netflix.com`. Same company, different subdomain — without this
+    step something like that falls through.
 
-    Bewusst einfach gehalten: die letzten zwei Teile, bei den bekannten
-    zweistufigen Endungen (co.uk, com.au …) die letzten drei. Eine vollstaendige
-    Liste oeffentlicher Endungen waere hier mehr Pflege als Nutzen.
+    Deliberately kept simple: the last two parts, and for the known two-level
+    endings (co.uk, com.au …) the last three. A complete list of public suffixes
+    would be more upkeep here than use.
     """
     dom = (adresse.split("@")[-1] if "@" in adresse else adresse).lower().strip(".")
     teile = dom.split(".")
@@ -2601,21 +2598,22 @@ def haupt_domain(adresse: str) -> str:
 
 
 def lauf_buchen(felder: dict) -> dict:
-    """Jeden Lauf festhalten — und den Takt aus der BEOBACHTUNG ableiten.
+    """Record every run — and derive the interval from OBSERVATION.
 
-    🔑 der Besitzer am 12.09.2026: „kann nirgends sehen wann und wie oft die läuft."
-    Ein Cron-Eintrag ist eine ABSICHT. Was hier entsteht, ist die Wirklichkeit:
-    die letzten Laufzeitpunkte, daraus der Median-Abstand. Genau der Unterschied,
-    an dem an diesem Tag schon die Zeitauftrags-Überwachung des Homelab-Tabs
-    hing — ein eingetragener Takt beweist keine Ausführung.
+    🔑 der Besitzer, 2026-09-12: „kann nirgends sehen wann und wie oft die läuft.“ (I
+    cannot see anywhere when and how often it runs.) A cron entry is an
+    INTENTION. What is built here is the reality: the last run timestamps, and
+    from them the median gap. Exactly the difference that the homelab tab's
+    scheduled-task monitoring hung on the very same day — a configured interval
+    proves no execution.
 
-    🔴 UND DER EIGENTLICHE GRUND, warum das ein Trichter sein muss: bis heute
-    schrieb der Stillgelegt-Zweig `lauf.json` KOMPLETT NEU und verlor dabei die
-    `uid`. Beim nächsten Start wäre `letzte_uid = 0` gewesen — also `kaltstart`,
-    also „lernen und schweigen". Jede Mail, die während des Stillstands ankam,
-    wäre stumm übersprungen worden: kein Alarm, kein Sortieren, kein Hinweis.
-    Hier wird deshalb IMMER auf den vorherigen Stand aufgesetzt; ein Feld kann
-    nur verschwinden, wenn es jemand ausdrücklich überschreibt.
+    🔴 AND THE REAL REASON this has to be a funnel: until today the
+    shut-down branch rewrote `lauf.json` COMPLETELY and lost the `uid` doing so.
+    On the next start `letzte_uid = 0` would have meant a cold start, that is
+    „learn and stay silent“. Every mail that arrived during the standstill would
+    have been skipped mutely: no alarm, no sorting, no hint. So this ALWAYS
+    builds on the previous state; a field can only disappear when somebody
+    overwrites it deliberately.
     """
     alt = load(LAUF, {})
     if not isinstance(alt, dict):
@@ -2625,8 +2623,8 @@ def lauf_buchen(felder: dict) -> dict:
     hist.append(jetzt.isoformat(timespec="seconds"))
     hist = hist[-LAUF_HISTORIE:]
 
-    # Median, nicht Mittelwert: ein einzelner Ausfall oder ein Handstart soll
-    # den Takt nicht verbiegen.
+    # Median, not mean: a single outage or a manual start should not bend the
+    # interval.
     abstaende = []
     for a, b in zip(hist, hist[1:]):
         try:
@@ -2635,17 +2633,17 @@ def lauf_buchen(felder: dict) -> dict:
             continue
         if 0 < d < 86400:
             abstaende.append(d)
-    # 🔴 Aus zwei Laeufen folgt kein Takt. Direkt nach dem Einbau standen dort
-    # „21 Sekunden", weil beide Messpunkte Handstarts waren — die Seite haette
-    # „alle 21 Sek" behauptet. Dieselbe Lehre wie beim Cron-Waechter am selben
-    # Tag: wer kurz hinsieht, darf ueber den Rhythmus nichts sagen.
+    # 🔴 Two runs make no interval. Right after this was built it said
+    # „21 seconds“ there, because both data points were manual starts — the page
+    # would have claimed „every 21 sec“. The same lesson as with the cron watch
+    # on the same day: a short look says nothing about a rhythm.
     takt = (int(sorted(abstaende)[len(abstaende) // 2])
             if len(abstaende) >= TAKT_MINDEST else 0)
 
     tag = jetzt.strftime("%Y-%m-%d")
     heute = (int(alt.get("heute") or 0) + 1) if alt.get("tag") == tag else 1
 
-    neu = dict(alt)                      # 🔴 aufsetzen, nicht ersetzen
+    neu = dict(alt)                      # 🔴 build ON it, do not replace it
     neu.update(felder)
     neu.update({"zeit": jetzt.isoformat(timespec="seconds"),
                 "historie": hist, "takt_s": takt, "tag": tag, "heute": heute})
@@ -2654,25 +2652,25 @@ def lauf_buchen(felder: dict) -> dict:
 
 
 def ablage_lernen(pf, melden=None) -> dict:
-    """Die Landkarte bauen: wer schreibt in welchen Ordner.
+    """Build the map: who writes into which folder.
 
-    Drei Stufen, von genau nach grob — beim Zuordnen gewinnt immer die
-    genaueste, die zutrifft:
-      1. die volle Absenderadresse
-      2. die volle Domain
-      3. die Hauptdomain
+    Three levels, from precise to coarse — when matching, the most precise one
+    that applies always wins:
+      1. the full sender address
+      2. the full domain
+      3. the main domain
 
-    Nebenbei werden die SCHWAECHEN der Ablage mitgeschrieben: Absender, die
-    der Besitzer mal hierhin, mal dorthin gelegt hat, und Ordner, die fast leer sind.
-    Das ist das Rohmaterial fuer den spaeteren Umbau der Struktur — er sagte am
-    11.09.2026 selbst: „meine ordner sind auch nicht perfekt, aber das soll ja
-    der agent spaeter fuer mich neu sortieren."
+    Along the way the WEAKNESSES of the filing are written down too: senders he
+    has put sometimes here and sometimes there, and folders that are nearly
+    empty. That is the raw material for the later restructuring of the
+    structure — he said so himself on 2026-09-11: „meine ordner sind auch nicht
+    perfekt, aber das soll ja der agent spaeter fuer mich neu sortieren.“
     """
     t0 = time.time()
-    # 🔴 27.09.2026: hier standen ZWEI private Mailadressen fest im Quelltext —
-    #    an zwei Stellen. Die eigenen Adressen kommen jetzt aus dem Zugang
-    #    selbst und aus `state/regeln_eigen.json`: derselbe Ort wie der
-    #    persoenliche Regelkatalog, 0600, in keiner Ausrollliste.
+    # 🔴 2026-09-27: TWO private mail addresses stood here in the source — in
+    #    two places. The own addresses now come from the credentials themselves
+    #    and from `state/regeln_eigen.json`: the same place as the personal rule
+    #    catalogue, 0600, on no rollout list.
     eigene = {(pf.zug.get("adresse") or "").lower()}
     try:
         import umbau as _U
@@ -2683,10 +2681,10 @@ def ablage_lernen(pf, melden=None) -> dict:
     ordner = [o for o in pf.ordner_liste() if o not in KEIN_LEHRMEISTER]
     je_absender, groessen = {}, {}
     for i, name in enumerate(ordner, 1):
-        # 🔴 `melden` ist der einzige Weg nach draussen, waehrend das hier
-        # laeuft. Seit dem Umbau dauert ein Lernlauf ueber 4 Minuten (124
-        # Ordner statt 37) — ohne Rueckmeldung sieht das aus wie ein haengender
-        # Dienst, und der Besitzer drueckt ein zweites Mal.
+        # 🔴 `melden` is the only way out while this is running. Since the
+        # restructuring a learning run takes over 4 minutes (124 folders instead
+        # of 37) — without feedback that looks like a hanging service, and the
+        # button gets pressed a second time.
         if melden is not None:
             try:
                 melden(i, len(ordner), name)
@@ -2695,9 +2693,9 @@ def ablage_lernen(pf, melden=None) -> dict:
         c = pf.absender_im_ordner(name, LERN_JE_ORDNER)
         groessen[name] = sum(c.values())
         for adr, n in c.items():
-            # 🔴 dessen EIGENE Adressen taugen nicht als Regel: er hat sich
-            # ueber Jahre Mails selbst weitergeleitet, quer durch alle Themen.
-            # Im Gmail-Archiv kamen 235 von 400 Stichproben von ihm selbst.
+            # 🔴 His OWN addresses are no good as a rule: over the years he
+            # forwarded mail to himself across every topic. In the Gmail archive
+            # 235 of 400 samples came from himself.
             if adr in eigene:
                 continue
             je_absender.setdefault(adr, {})
@@ -2738,17 +2736,17 @@ def ablage_lernen(pf, melden=None) -> dict:
         "v_domain": locker(je_domain),
         "v_haupt": locker(je_haupt),
         "ordner": groessen,
-        # 🔑 Die Namensbruecke wird hier MITGEBAUT und nicht erst beim Zuordnen
-        # berechnet — sie haengt nur an den Ordnernamen, nicht am Inhalt, und
-        # gilt deshalb auch fuer ORDNER, IN DENEN NOCH NICHTS LIEGT. Genau die
-        # waren der blinde Fleck: Synology.NAS01 bis NAS04 sind angelegt, aber
-        # leer, und konnten dem Zaehlen nie etwas beibringen.
+        # 🔑 The name bridge is built HERE and not computed at matching time —
+        # it hangs only on the folder names, not on the content, and therefore
+        # also applies to FOLDERS WITH NOTHING IN THEM YET. Those were exactly
+        # the blind spot: Synology.NAS01 to NAS04 exist but are empty, and could
+        # never teach the counting anything.
         "namen": namens_marken(groessen),
         "gelernt": datetime.now().isoformat(timespec="seconds"),
         "dauer": round(time.time() - t0, 1),
         "mails": sum(groessen.values()),
     }
-    # Die Schwaechen — fuer den spaeteren Umbau, nicht fuer das Sortieren.
+    # The weaknesses — for the later restructuring, not for the sorting.
     uneindeutig = []
     for adr, wo in je_absender.items():
         gesamt = sum(wo.values())
@@ -2773,7 +2771,7 @@ def ablage_lernen(pf, melden=None) -> dict:
 
 
 def _tagesreihe(tage: dict, ab: str) -> list:
-    """Jeden Kalendertag von `ab` bis heute, auch die ohne Post."""
+    """Every calendar day from `ab` until today, including the ones without post."""
     try:
         d = datetime.strptime(ab, "%Y-%m-%d").date()
     except (ValueError, TypeError):
@@ -2788,27 +2786,29 @@ def _tagesreihe(tage: dict, ab: str) -> list:
 
 
 def statistik_lernen(pf) -> dict:
-    """Die Zahlen hinter dem Postfach — aus den ECHTEN Kopfzeilen.
+    """The numbers behind the mailbox — from the REAL headers.
 
-    Der Besitzer, 12.09.2026: „bau mal in die postwache eine kleine statistik ein,
-    wieviel mails pro tag kommen, zu welcher zeit wer am haeufigsten schreibt".
+    Der Besitzer, 2026-09-12: „bau mal in die postwache eine kleine statistik ein,
+    wieviel mails pro tag kommen, zu welcher zeit wer am haeufigsten schreibt“
+    (build a small statistic into the Postwache: how many mails per day, at what
+    time, who writes most often).
 
-    🔑 Gelesen wird `Date:` und `From:` jeder Mail in allen Eingangsordnern —
-    nicht das, was die Postwache seit ihrer Einrichtung gesehen hat. Sonst
-    haette der Besitzer erst in Wochen etwas zu sehen, und die Antwort auf „wie viel
-    kommt pro Tag" waere eine Hochrechnung aus zwei Tagen.
+    🔑 `Date:` and `From:` of every mail in all incoming folders are read — not
+    what the Postwache has seen since it was set up. Otherwise he would have had
+    something to look at only weeks later, and the answer to „how much arrives
+    per day“ would be an extrapolation from two days.
 
-    🔴 Der Deckel je Ordner macht den linken Rand des Tagesverlaufs unvollstaendig:
-    wo abgeschnitten wurde, fehlen die AELTESTEN Mails. Deshalb wird
-    `vollstaendig_ab` mitgeliefert — der spaeteste Anfang aller gedeckelten
-    Ordner. Davor darf kein Tagesbalken gezeigt werden, sonst faellt die Kurve
-    am Rand ab, ohne dass dort weniger Post kam.
+    🔴 The cap per folder makes the left edge of the daily course incomplete:
+    where it was cut off, the OLDEST mails are missing. So `vollstaendig_ab` is
+    supplied as well — the latest start of all capped folders. No daily bar may
+    be shown before that, otherwise the curve drops at the edge without less post
+    having arrived there.
     """
     t0 = time.time()
-    # 🔴 27.09.2026: hier standen ZWEI private Mailadressen fest im Quelltext —
-    #    an zwei Stellen. Die eigenen Adressen kommen jetzt aus dem Zugang
-    #    selbst und aus `state/regeln_eigen.json`: derselbe Ort wie der
-    #    persoenliche Regelkatalog, 0600, in keiner Ausrollliste.
+    # 🔴 2026-09-27: TWO private mail addresses stood here in the source — in
+    #    two places. The own addresses now come from the credentials themselves
+    #    and from `state/regeln_eigen.json`: the same place as the personal rule
+    #    catalogue, 0600, on no rollout list.
     eigene = {(pf.zug.get("adresse") or "").lower()}
     try:
         import umbau as _U
@@ -2834,8 +2834,8 @@ def statistik_lernen(pf) -> dict:
         if gedeckelt and (gedeckelt_ab is None or aeltest > gedeckelt_ab):
             gedeckelt_ab = aeltest
         for adr, ts, anzeige in koepfe:
-            # 🔴 dessen eigene Adressen zaehlen nicht als eingegangene Post —
-            # im Gmail-Archiv kam jede zweite Stichprobe von ihm selbst.
+            # 🔴 His own addresses do not count as incoming post — in the Gmail
+            # archive every second sample came from himself.
             if adr in eigene:
                 eigene_n += 1
                 continue
@@ -2847,9 +2847,9 @@ def statistik_lernen(pf) -> dict:
             e = absender.setdefault(adr, {"n": 0, "name": "", "zuletzt": ""})
             e["n"] += 1
             nm = absender_teile(anzeige)[0]
-            # 🔴 `absender_teile` gibt bei fehlendem Anzeigenamen die ADRESSE
-            # zurueck. Die dann als „Name" zu fuehren sieht auf der Seite aus
-            # wie ein Fehler (`service@paypal.de  service@paypal.de`).
+            # 🔴 With no display name, `absender_teile` returns the ADDRESS.
+            # Carrying that as a „name“ looks like a bug on the page
+            # (`service@paypal.de  service@paypal.de`).
             if nm and nm.lower() != adr and not e["name"]:
                 e["name"] = nm[:60]
             iso = ts.isoformat(timespec="seconds")
@@ -2864,11 +2864,11 @@ def statistik_lernen(pf) -> dict:
     voll_ab = gedeckelt_ab.strftime("%Y-%m-%d") if gedeckelt_ab else (
         frueheste.strftime("%Y-%m-%d") if frueheste else "")
 
-    # Nur der vollstaendige Teil geht in den Tagesverlauf und in den Schnitt.
+    # Only the complete part goes into the daily course and the average.
     grenze = (datetime.now() - timedelta(days=STAT_TAGE)).strftime("%Y-%m-%d")
     ab = max(voll_ab, grenze) if voll_ab else grenze
     tage_voll = {t: n for t, n in je_tag.items() if t >= ab}
-    # Der HEUTIGE Tag ist noch nicht zu Ende — er wuerde jeden Schnitt druecken.
+    # TODAY is not over yet — it would drag every average down.
     heute = datetime.now().strftime("%Y-%m-%d")
     fuer_schnitt = {t: n for t, n in tage_voll.items() if t != heute}
     spanne = len(fuer_schnitt) or 1
@@ -2886,9 +2886,9 @@ def statistik_lernen(pf) -> dict:
         "vollstaendig_ab": ab,
         "schnitt_pro_tag": schnitt,
         "tage_gemessen": len(fuer_schnitt),
-        # 🔴 Luecken auffuellen. Ein Balkendiagramm, das Null-Tage einfach
-        # weglaesst, staucht die Zeitachse und laesst eine ruhige Woche wie eine
-        # dichte aussehen. Gemessen: der 06.09. fehlte komplett.
+        # 🔴 Fill the gaps. A bar chart that simply leaves out zero days
+        # squeezes the time axis and makes a quiet week look like a busy one.
+        # Measured: 2026-09-06 was missing entirely.
         "je_tag": _tagesreihe(tage_voll, ab),
         "je_stunde": je_stunde,
         "je_wochentag": je_wochentag,
@@ -2904,7 +2904,7 @@ def statistik_lernen(pf) -> dict:
 
 
 def statistik_frisch(pf) -> dict:
-    """Hoechstens sechs Stunden alt — Zahlen dieser Art aendern sich langsam."""
+    """At most six hours old — numbers of this kind change slowly."""
     k = load(STATISTIK, None)
     if isinstance(k, dict) and k.get("gebaut"):
         try:
@@ -2919,8 +2919,8 @@ def statistik_frisch(pf) -> dict:
 
 
 def ablage_frisch(pf) -> dict:
-    """Die Landkarte, hoechstens einen Tag alt. Lernen dauert Sekunden bis
-    Minuten — das gehoert nicht in einen Lauf, der jede Minute kommt."""
+    """The map, at most a day old. Learning takes seconds to minutes — that does
+    not belong in a run that comes every minute."""
     k = load(ABLAGE, None)
     if isinstance(k, dict) and k.get("gelernt"):
         try:
@@ -2941,20 +2941,20 @@ def ablage_frisch(pf) -> dict:
 
 
 def marke(text: str) -> str:
-    """Ein Ordnername oder ein Adressteil, auf seinen Kern eingedampft.
+    """A folder name or a piece of an address, boiled down to its core.
 
-    Laeuft ueber `normal()`, damit „Bücher" und „Buecher" dasselbe ergeben, und
-    wirft dann alles weg, was kein Buchstabe und keine Ziffer ist.
+    Runs through `normal()`, so that „Bücher“ and „Buecher“ come out the same,
+    and then throws away everything that is not a letter or a digit.
     """
     return re.sub(r"[^a-z0-9]", "", normal(text))
 
 
 def namens_marken(ordner: dict) -> dict:
-    """Ordnername -> Marke. Nur die LETZTE Stufe zaehlt: `Shopping.Ikea` ist
-    der Ikea-Ordner, nicht der Shopping-Ordner.
+    """Folder name -> mark. Only the LAST level counts: `Shopping.Ikea` is the
+    Ikea folder, not the Shopping folder.
 
-    Doppelte Marken fliegen raus. Haetten zwei Ordner dieselbe Marke, waere
-    jeder Treffer ein Muenzwurf — dann schweigt die Bruecke lieber.
+    Duplicate marks are dropped. If two folders had the same mark, every hit
+    would be a coin toss — then the bridge would rather stay silent.
     """
     gezaehlt = {}
     for o in ordner:
@@ -2965,12 +2965,12 @@ def namens_marken(ordner: dict) -> dict:
 
 
 def adress_marken(adresse: str) -> set:
-    """Die Bestandteile einer Adresse, gegen die ein Ordnername stehen darf:
-    der GANZE lokale Teil und JEDE Domainstufe.
+    """The parts of an address a folder name may be matched against: the WHOLE
+    local part and EVERY domain level.
 
-    Ganze Teile, keine Teilzeichenketten — sonst faende „Haus" den Absender
-    `haushalt@...` und „KIA" das Wort `kiabi`. Ein Beweis, der auf einem
-    zufaelligen Zeichenschnipsel beruht, ist keiner.
+    Whole parts, not substrings — otherwise „Haus“ would find the sender
+    `haushalt@...` and „KIA“ the word `kiabi`. Evidence resting on an accidental
+    snippet of characters is no evidence.
     """
     lokal, _, dom = (adresse or "").lower().partition("@")
     teile = [marke(lokal)] + [marke(x) for x in dom.split(".")]
@@ -2978,9 +2978,9 @@ def adress_marken(adresse: str) -> set:
 
 
 def namens_ziel(karte: dict, adresse: str):
-    """Traegt der Ordnername selbst die Antwort? Gibt (ordner, grund) zurueck.
+    """Does the folder name itself carry the answer? Returns (folder, reason).
 
-    Passen ZWEI Ordner, schweigt die Bruecke. Sie raet nicht.
+    If TWO folders fit, the bridge stays silent. It does not guess.
     """
     marken = karte.get("namen") or {}
     if not marken:
@@ -2993,27 +2993,26 @@ def namens_ziel(karte: dict, adresse: str):
 
 
 def ziel_finden(karte: dict, adresse: str):
-    """Wohin gehoert diese Mail — nach dessen eigener Gewohnheit?
+    """Where does this mail belong — going by the owner's own habit?
 
-    Gibt (ordner, grund, sicherheit, darf_handeln) zurueck. Die genaueste Stufe
-    gewinnt. Die groebste (Hauptdomain) liefert einen VORSCHLAG, aber
-    `darf_handeln=False` — gemessen kostet sie mehr Fehler als sie Treffer
-    bringt (siehe LERN_SCHWELLEN).
+    Returns (folder, reason, confidence, may_act). The most precise level wins.
+    The coarsest one (main domain) delivers a SUGGESTION but `may_act=False` —
+    measured, it costs more mistakes than it brings hits (see LERN_SCHWELLEN).
 
-    Die Reihenfolge ist gemessen, nicht geraten:
-      1. Absender      — wo der Besitzer diese Adresse wirklich ablegt
-      2. Domain        — dasselbe eine Stufe groeber
-      3. Namensbruecke — wo der ORDNERNAME den Absender nennt
-      4. Hauptdomain und die Vorschlagsstufen — nur vorschlagen, nicht handeln
+    The order is measured, not guessed:
+      1. sender       — where he really files this address
+      2. domain       — the same one level coarser
+      3. name bridge  — where the FOLDER NAME names the sender
+      4. main domain and the suggestion levels — suggest only, do not act
     """
     adresse = (adresse or "").lower()
     if not adresse or "@" not in adresse:
         return None, txt("w.ziel.keine_adresse"), 0, False
-    # Gezaehlt wird zuerst: wo der Besitzer wirklich abgelegt hat, schlaegt jeden
-    # Namensvergleich. Erst wenn das Zaehlen schweigt, kommt die Bruecke.
-    # 🔴 Der GANZE Satz gehoert in EINEN Schluessel. Wer „Post von X legst du
-    #    immer nach" und „ %s (%d von %d)" getrennt uebersetzt, zwingt jede
-    #    Sprache in die deutsche Wortstellung.
+    # Counting comes first: where he really filed things beats any name
+    # comparison. Only when the counting is silent does the bridge get a turn.
+    # 🔴 The WHOLE sentence belongs in ONE key. Translate „post from X you always
+    #    file under“ and „ %s (%d of %d)“ separately and you force every language
+    #    into German word order.
     for stufe, wert, schluessel in (
             ("absender", adresse, "w.ziel.immer"),
             ("domain", adresse.split("@")[-1], "w.ziel.immer")):
@@ -3025,9 +3024,9 @@ def ziel_finden(karte: dict, adresse: str):
                     treffer=e["treffer"], gesamt=e["gesamt"])
         return e["ordner"], grund, sicher, LERN_SCHWELLEN[stufe][2]
 
-    # 🔑 Die Namensbruecke. Sie steht GENAU hier — gemessen am 12.09.2026:
-    # vor das Zaehlen gestellt kostet sie Genauigkeit (97.1 statt 97.6 %), als
-    # Rueckfall dahinter bringt sie 30 zusaetzliche Mails, 24 davon richtig.
+    # 🔑 The name bridge. It stands EXACTLY here — measured 2026-09-12: put in
+    # front of the counting it costs accuracy (97.1 instead of 97.6 %), as a
+    # fallback behind it, it brings 30 extra mails, 24 of them right.
     n_ziel, n_grund = namens_ziel(karte, adresse)
     if n_ziel:
         return n_ziel, n_grund, 90, True
@@ -3052,8 +3051,8 @@ def ziel_finden(karte: dict, adresse: str):
 
 # ── Ein Lauf ──────────────────────────────────────────────────────────────────
 def kopf_lesen(msg, text: str) -> dict:
-    """Aus einer Mail genau das behalten, was fuer Einordnung und Anzeige noetig
-    ist — und nichts weiter. Der Nachrichtentext wird NICHT gespeichert."""
+    """Keep from a mail exactly what is needed for classification and display —
+    and nothing more. The message body is NOT stored."""
     von = msg.get("From", "")
     name, adresse = absender_teile(von)
     listen = [k for k in ("List-Id", "List-Unsubscribe", "List-Post")
@@ -3089,9 +3088,9 @@ def zaehlen(topf: dict, schluessel: str) -> None:
 
 
 def absender_pflegen(prof: dict, kopf: dict, klasse: str) -> None:
-    """Langzeitgedaechtnis je Absender: wie oft, welche Schublade, wann zuletzt.
-    Daraus wird die Zusammenfassung gespeist — und spaeter die Frage, ob ein
-    Absender immer dasselbe schickt."""
+    """Long-term memory per sender: how often, which drawer, when last. The
+    summary is fed from this — and later the question whether a sender always
+    sends the same kind of thing."""
     a = kopf.get("adresse") or "?"
     e = prof.get(a) if isinstance(prof.get(a), dict) else {}
     e["n"] = int(e.get("n") or 0) + 1
@@ -3104,29 +3103,28 @@ def absender_pflegen(prof: dict, kopf: dict, klasse: str) -> None:
 
 
 def absender_regel(einst: dict, adresse: str) -> str:
-    """dessen eigene Zuordnung schlaegt alles. Sie entsteht auf der Seite mit
-    einem Klick neben der Mail und nennt seit dem Umbau einen ORDNER, keine
-    Schublade — die Schubladen entscheiden nur noch ueber das Melden."""
+    """His own assignment beats everything. It is created on the page with one
+    click next to the mail and, since the restructuring, names a FOLDER, not a
+    drawer — the drawers only decide about reporting now."""
     return str((einst.get("absender_regeln") or {}).get((adresse or "").lower()) or "")
 
 
-# ═══ Urteilshilfe: ein Sprachmodell, wenn eines eingerichtet ist ═════════════
-# Der Waechter selbst bleibt stumm — er ordnet nach festen Regeln ein und kostet
-# nichts. Gefragt wird ein Modell nur bei dem, was er selbst NICHT entscheiden
-# kann: Mails, die in keine Schublade passen. Es schlaegt eine Regel vor,
-# scharfschalten tut sie ein Mensch.
+# ═══ Judgement aid: a language model, when one is configured ════════════════
+# The watchman itself stays mute — it classifies by fixed rules and costs
+# nothing. A model is only asked about what it cannot decide itself: mails that
+# fit no drawer. It suggests a rule; a human arms it.
 #
-# 🔴 WAS DAS HAUS VERLAESST, WENN EIN DIENST EINGESTELLT IST: Absender, Name,
-# Betreff und die Begruendung der Einordnung. Niemals der Nachrichtentext,
-# niemals ein Anhang. Genau dieselbe Auswahl, die schon an den Werkstatt-Agenten
-# ging. Wem das zu viel ist, nimmt ein lokales Modell (Ollama) — dann verlaesst
-# gar nichts den Rechner — oder laesst die Urteilshilfe aus, was die Voreinstellung
-# ist.
+# 🔴 WHAT LEAVES THE HOUSE WHEN A SERVICE IS CONFIGURED: sender, name, subject
+# and the reason for the classification. Never the message body, never an
+# attachment. Exactly the same selection that already went to the workshop agent.
+# Anyone for whom that is too much takes a local model (Ollama) — then nothing
+# leaves the machine at all — or leaves the judgement aid off, which is the
+# default.
 KI_ANBIETER = ("aus", "ollama", "openai", "anthropic", "werkstatt")
-KI_ZEIT = 90               # Sekunden; ein lokales Modell auf schwacher Hardware
+KI_ZEIT = 90               # seconds; a local model on weak hardware
                            # braucht laenger als ein Dienst
-KI_MAX_FAELLE = 25         # mehr Beispiele machen den Vorschlag nicht besser,
-                           # nur die Anfrage teurer
+KI_MAX_FAELLE = 25         # more examples do not make the suggestion better,
+                           # only the request more expensive
 VORSCHLAEGE = "vorschlaege.json"   # in out/: was zuletzt vorgeschlagen wurde
 
 KI_STANDARD_MODELL = {
@@ -3142,8 +3140,8 @@ KI_STANDARD_URL = {
 
 
 def ki_konfig() -> dict:
-    """Der eingestellte Anbieter. Unbekannte Namen gelten als `aus` — eine
-    vertippte Einstellung darf nicht dazu fuehren, dass irgendwohin gefragt wird."""
+    """The configured provider. Unknown names count as `aus` (off) — a mistyped
+    setting must not lead to something being asked somewhere."""
     k = load(KI, None)
     k = k if isinstance(k, dict) else {}
     anbieter = str(k.get("anbieter") or "aus").strip().lower()
@@ -3158,8 +3156,8 @@ def ki_konfig() -> dict:
 
 
 def ki_bereit() -> tuple:
-    """(ja/nein, Grund). Der Grund ist fuer die Seite, nicht fuer das Protokoll —
-    er soll sagen, was FEHLT, nicht dass etwas kaputt ist."""
+    """(yes/no, reason). The reason is for the page, not for the log — it should
+    say what is MISSING, not that something is broken."""
     k = ki_konfig()
     if k["anbieter"] == "aus":
         return False, txt("ki.grund.aus")
@@ -3177,24 +3175,24 @@ def ki_bereit() -> tuple:
     return True, ""
 
 
-# ── Ein lokales Modell finden, statt eine Adresse abzutippen ─────────────────
-# 🔴 Gesucht wird VOM WAECHTER AUS, nie aus dem Browser. Der Browser laeuft auf
-# dem Rechner, auf dem Ollama steht — er wuerde „erreichbar" melden, waehrend
-# der Waechter auf seinem kleinen Rechner gar nicht hinkommt. Die Frage ist
-# aber nicht, ob DU hinkommst, sondern ob ER fragen kann.
+# ── Find a local model instead of typing in an address ──────────────────
+# 🔴 The search runs FROM THE WATCHMAN, never from the browser. The browser runs
+# on the machine Ollama sits on — it would report „reachable“ while the watchman
+# on its small machine cannot get there at all. The question is not whether YOU
+# can reach it, but whether IT can ask.
 OLLAMA_PORT = 11434
-# Reihenfolge = Vorliebe. Ein Modell, das der Waechter nicht brauchen kann
-# (Einbettungen), waere die schlechteste Vorauswahl, die man treffen kann.
+# Order = preference. A model the watchman cannot use (embeddings) would be the
+# worst possible preselection.
 OLLAMA_WUNSCH = ("llama3.1:8b", "llama3.2:3b", "qwen2.5:7b-instruct",
                  "qwen2.5:14b-instruct", "mistral:7b", "gemma2:9b")
 OLLAMA_UNTAUGLICH = ("embed", "bge-", "minilm", "clip", "rerank", "nomic-")
 
 
 def ollama_modelle(url: str, zeit: float = 2.0) -> list:
-    """Die Modellliste einer Ollama unter `url` — oder eine leere Liste.
+    """The model list of an Ollama at `url` — or an empty list.
 
-    Wirft nie: eine Suche ueber mehrere Adressen darf nicht an der ersten
-    enden, die niemand bedient."""
+    Never raises: a search across several addresses must not end at the first one
+    nobody is serving."""
     try:
         req = urllib.request.Request(url.rstrip("/") + "/api/tags")
         with urllib.request.urlopen(req, timeout=zeit) as r:
@@ -3206,7 +3204,7 @@ def ollama_modelle(url: str, zeit: float = 2.0) -> list:
 
 
 def ollama_taugliches(modelle: list) -> str:
-    """Das Modell, mit dem der Waechter am ehesten zurechtkommt."""
+    """The model the watchman is most likely to get along with."""
     brauchbar = [m for m in modelle
                  if not any(s in m.lower() for s in OLLAMA_UNTAUGLICH)]
     for w in OLLAMA_WUNSCH:
@@ -3217,13 +3215,13 @@ def ollama_taugliches(modelle: list) -> str:
 
 
 def ollama_suchen(zusatz=()) -> list:
-    """Alle Adressen, unter denen der Waechter eine Ollama findet.
+    """All addresses at which the watchman finds an Ollama.
 
-    Gefragt werden nur Adressen, die ohnehin feststehen: die eingetragene, der
-    eigene Rechner, der Wirt des Containers — und der Rechner, der gerade die
-    Seite geoeffnet hat (`zusatz`). Der letzte ist der haeufigste Fall: die
-    Postwache laeuft auf einem kleinen Rechner, das Modell auf dem Arbeitsplatz
-    davor. Keine Netzsuche, kein Abklappern von Adressbereichen.
+    Only addresses that are known anyway are asked: the configured one, the
+    machine itself, the container's host — and the machine that has just opened
+    the page (`zusatz`). The last one is the most common case: the Postwache runs
+    on a small machine, the model on the workstation in front of it. No network
+    scan, no walking through address ranges.
     """
     kandidaten = []
 
@@ -3252,8 +3250,8 @@ def ollama_suchen(zusatz=()) -> list:
             with sperre:
                 gefunden.append({"url": u, "modelle": m})
 
-    # Nebeneinander, nicht nacheinander: vier unerreichbare Adressen waeren
-    # sonst vier Wartezeiten hintereinander, und die Seite stuende solange.
+    # Side by side, not one after another: four unreachable addresses would
+    # otherwise be four waits in a row, and the page would stand still that long.
     for u in kandidaten:
         f = threading.Thread(target=pruefe, args=(u,), daemon=True)
         f.start()
@@ -3273,11 +3271,11 @@ def _ki_http(url: str, kopf: dict, rumpf: dict) -> dict:
 
 
 def ki_fragen(system: str, frage: str) -> str:
-    """Eine Frage an das eingestellte Modell, eine Antwort als Text.
+    """One question to the configured model, one answer as text.
 
-    Zwei Protokolle genuegen fuer alle vier Faelle: Ollama und OpenAI sprechen
-    dasselbe (`/v1/chat/completions`), Anthropic spricht `/v1/messages`. Die
-    Werkstatt geht einen anderen Weg und kommt hier nicht vorbei.
+    Two protocols are enough for all four cases: Ollama and OpenAI speak the same
+    one (`/v1/chat/completions`), Anthropic speaks `/v1/messages`. The workshop
+    takes a different route and does not come through here.
     """
     k = ki_konfig()
     if k["anbieter"] == "anthropic":
@@ -3301,8 +3299,8 @@ def ki_fragen(system: str, frage: str) -> str:
 
 
 def _json_aus_text(t: str):
-    """Modelle legen ihr JSON gern in einen Codeblock oder schreiben einen Satz
-    davor. Gesucht wird deshalb die aeusserste Klammer, nicht die ganze Antwort."""
+    """Models like to put their JSON into a code block or write a sentence in
+    front of it. So the outermost brace is searched for, not the whole answer."""
     t = (t or "").strip()
     if t.startswith("```"):
         t = re.sub(r"^```[a-zA-Z]*\s*", "", t)
@@ -3318,9 +3316,8 @@ def _json_aus_text(t: str):
 
 
 def ki_regeln_vorschlagen(faelle: list) -> list:
-    """Aus unklaren Mails Regelvorschlaege machen. Gibt eine (moeglicherweise
-    leere) Liste zurueck und wirft nie — eine Urteilshilfe darf den Postlauf
-    nicht kosten."""
+    """Turn unclear mails into rule suggestions. Returns a (possibly empty) list
+    and never raises — a judgement aid must not cost the mail run."""
     ok, _grund = ki_bereit()
     if not ok or ki_konfig()["anbieter"] == "werkstatt" or not faelle:
         return []
@@ -3357,8 +3354,8 @@ def ki_regeln_vorschlagen(faelle: list) -> list:
             continue
         absender = str(v.get("absender") or "").strip().lower()
         schublade = str(v.get("schublade") or "").strip()
-        # 🔴 Eine Schublade, die es nicht gibt, wird verworfen statt geraten.
-        # Ein Modell erfindet Kategorien, wenn man es laesst.
+        # 🔴 A drawer that does not exist is discarded, not guessed at. A
+        # model invents categories if you let it.
         if not absender or schublade not in SCHUBLADEN:
             continue
         fertig.append({
@@ -3371,11 +3368,11 @@ def ki_regeln_vorschlagen(faelle: list) -> list:
 
 
 def vorschlaege_schreiben(vorschlaege: list, quelle: str) -> None:
-    """Vorschlaege landen auf der Seite, nicht in den Einstellungen.
+    """Suggestions end up on the page, not in the settings.
 
-    🔑 Der Waechter schaltet NIE selbst scharf. Ein Modell, das sich irrt, wuerde
-    sonst Post an einen Ort raeumen, an dem sie niemand sucht — und der Irrtum
-    faellt erst auf, wenn etwas fehlt.
+    🔑 The watchman NEVER arms anything itself. A model that is wrong would
+    otherwise clear post away to a place nobody looks — and the mistake only
+    shows up when something is missing.
     """
     try:
         os.makedirs(OUT, exist_ok=True)
@@ -3390,9 +3387,9 @@ def vorschlaege_schreiben(vorschlaege: list, quelle: str) -> None:
 
 
 def uebergeben(unklar: list) -> bool:
-    """Die unklaren Faelle dem Agenten hinlegen. Nur Betreff, Absender und die
-    Begruendung — der Nachrichtentext wird nirgends gespeichert und soll auch
-    hier nicht auftauchen."""
+    """Put the unclear cases in front of the agent. Only subject, sender and the
+    reason — the message body is stored nowhere and must not surface here
+    either."""
     if not (konfig()["werkstatt"] and os.path.isdir(konfig()["werkstatt"])):
         return False
     daten = [{"betreff": e["kopf"].get("betreff", ""),
@@ -3420,9 +3417,9 @@ def uebergeben(unklar: list) -> bool:
 
 
 def escalate(title: str, body: str, art: str = "weckruf") -> int:
-    """Einen Auftrag in der Werkstatt anlegen — der einzige Weg, auf dem dieses
-    Programm Tokens ausgibt. Faellt der Werkstatt-Container aus, faellt hier nur
-    der Weckruf aus, nicht der Waechter."""
+    """Create a task in the workshop — the only route on which this program spends
+    tokens. If the workshop container fails, only the wake-up call fails here,
+    not the watchman."""
     code = (
         "import json,sys;sys.path.insert(0,'/app');"
         "import config,local_engine;"
@@ -3438,8 +3435,8 @@ def escalate(title: str, body: str, art: str = "weckruf") -> int:
         if r.returncode == 0 and r.stdout.strip().isdigit():
             nr = int(r.stdout.strip())
             log("Weckruf: Auftrag #%d — %s" % (nr, title))
-            # 🔑 Sofort in die eigene Buchhaltung. Ein Auftrag, den nur die
-            #    Werkstatt kennt, ist nach einem Ausfall dort niemandes Auftrag.
+            # 🔑 Into our own books at once. A task only the workshop knows
+            #    about is nobody's task once the workshop has an outage.
             auftrag_merken(nr, title, art)
             return nr
         log("Weckruf FEHLGESCHLAGEN (%s): %s" % (r.returncode, (r.stderr or "")[:200]))
@@ -3448,25 +3445,24 @@ def escalate(title: str, body: str, art: str = "weckruf") -> int:
     return 0
 
 
-# ── Was aus einem Weckruf wurde (4.5.0) ──────────────────────────────────────
-# der Besitzer, 27.09.2026: „was mich aufregt und unbedingt behoben werden muss das in
-# der werkstatt/postwache immer haufen auftraege drin stehen und agent in
-# warteschlange dasteht und nichts passiert, das darf nicht sein ich will zu
-# 100% nachverfolgen koennen was in der postwache passiert."
+# ── What became of a wake-up call (4.5.0) ────────────────────────────
+# der Besitzer, 2026-09-27 — what infuriates him and must be fixed: the workshop always
+# has heaps of tasks sitting in it with the agent stuck in the queue and nothing
+# happening; he wants to follow 100 % of what goes on in the Postwache.
 #
-# 🔴 GEMESSEN am 27.09.: ZEHN Auftraege der Postwache standen seit dem 11.09. auf
-#    `queued`, `attempts=0`, OHNE Fehler. Die Ursache lag ausserhalb: der
-#    Arbeitsbaum fuer den Agenten war beim Auftragsbuch nie eingerichtet, und der
-#    Broker schrieb 16 Tage lang „warte auf Provisioning" in ein Protokoll, das
-#    niemand liest. Die Postwache meldete jedes Mal „Weckruf: Auftrag #N" und
-#    hielt das fuer Erfolg.
+# 🔴 MEASURED on 2026-09-27: TEN tasks of the Postwache had been sitting at
+#    `queued`, `attempts=0`, since 2026-09-11, WITHOUT an error. The cause lay
+#    outside: the working tree for the agent had never been set up in the task
+#    system, and for 16 days the broker wrote „waiting for provisioning“ into a
+#    log nobody reads. The Postwache reported „wake-up call: task #N“ every time
+#    and took that for success.
 #
-# 🔑 DIESELBE LEHRE WIE BEIM UPLOAD: abgehakt wird erst auf die ZUSAGE des
-#    Zielsystems, und eine Zusage braucht eine FRIST. Ein Auftrag anzulegen ist
-#    kein Ergebnis — er ist eine Behauptung, bis jemand ihn angefangen hat.
-AUFTRAEGE = "auftraege.json"        # in out/: was die Postwache angelegt hat
+# 🔑 THE SAME LESSON AS WITH THE UPLOAD: nothing is ticked off until the target
+#    system CONFIRMS, and a confirmation needs a DEADLINE. Creating a task is not
+#    a result — it is a claim until somebody has started it.
+AUFTRAEGE = "auftraege.json"        # in out/: what the Postwache has created
 AUFTRAG_FRIST = 2 * 3600            # danach gilt „keiner arbeitet daran"
-MAX_OFFENE_AUFTRAEGE = 3            # so viele unbearbeitete, dann kein neuer
+MAX_OFFENE_AUFTRAEGE = 3            # this many untouched, then no new one
 
 
 def auftraege_lesen() -> list:
@@ -3495,10 +3491,10 @@ def save_out(name: str, daten) -> None:
 
 
 def auftrag_merken(nr: int, titel: str, art: str) -> None:
-    """Einen angelegten Auftrag in die eigene Buchhaltung eintragen.
+    """Enter a created task into our own books.
 
-    🔑 Die Postwache fuehrt eine EIGENE Liste. Sich allein auf die Werkstatt zu
-       verlassen hiesse: faellt die aus, weiss niemand mehr, dass etwas offen war.
+    🔑 The Postwache keeps a list of its OWN. Relying on the workshop alone would
+       mean: when it fails, nobody knows any more that something was open.
     """
     if not nr:
         return
@@ -3510,16 +3506,15 @@ def auftrag_merken(nr: int, titel: str, art: str) -> None:
 
 
 def _werkstatt_zustaende() -> dict:
-    """{Auftragsnummer: Zustand} — bei der Werkstatt ERFRAGT, nicht geraten.
+    """{task number: state} — ASKED of the workshop, not guessed.
 
-    Faellt der Container aus, kommt ein leeres Woerterbuch zurueck; dann bleibt
-    der letzte bekannte Zustand stehen. 🔴 Ein leeres Ergebnis darf nicht als
-    „alles erledigt" gelesen werden.
+    If the container fails, an empty dictionary comes back; the last known state
+    then stands. 🔴 An empty result must not be read as „all done“.
     """
-    # 🔴 Als LESBARES Skript, nicht als zusammengeklebter Einzeiler. Ein
-    #    Einzeiler mit eingebetteten Zeilenumbruechen ist genau die Stelle, an
-    #    der ein Anfuehrungszeichen zu viel niemandem auffaellt — und der
-    #    Rueckgabewert waere dann einfach leer, also „alles erledigt".
+    # 🔴 As a READABLE script, not as a glued-together one-liner. A one-liner
+    #    with embedded newlines is exactly the place where one quote too many
+    #    goes unnoticed — and the return value would then simply be empty, that
+    #    is: „all done“.
     code = "\n".join([
         "import json, sys",
         "sys.path.insert(0, '/app')",
@@ -3544,10 +3539,10 @@ def _werkstatt_zustaende() -> dict:
 
 
 def auftraege_pruefen() -> dict:
-    """Was ist aus den Weckrufen geworden? Gibt eine Zusammenfassung zurueck.
+    """What became of the wake-up calls? Returns a summary.
 
-    Wird bei jedem Lauf aufgerufen (eine Abfrage, keine Netzlast) und meldet
-    EINMAL je Auftrag, wenn die Frist reisst — nicht jede Minute.
+    Called on every run (one query, no network load) and reports ONCE per task
+    when the deadline is missed — not every minute.
     """
     liste = auftraege_lesen()
     if not liste or not konfig().get("werkstatt"):
@@ -3569,8 +3564,8 @@ def auftraege_pruefen() -> dict:
             alter = (jetzt - datetime.fromisoformat(a["angelegt"])).total_seconds()
         except Exception:
             alter = 0
-        # 🔴 „laeuft" ist kein Haenger. Gemeldet wird nur, was nach der Frist
-        #    noch NIE angefangen hat.
+        # 🔴 „running“ is not stuck. Only what has NEVER started after the
+        #    deadline is reported.
         if alter > AUFTRAG_FRIST and not a.get("gestartet"):
             haengen += 1
             if not a.get("gemeldet"):
@@ -3587,38 +3582,38 @@ def auftraege_pruefen() -> dict:
     return {"offen": offen, "haengen": haengen, "gesamt": len(liste)}
 
 
-# --- Der Arbeitsplatz des Agenten ---------------------------------------------
-# Ein Werkstatt-Agent urteilt nur mit zwei Wegen gut: dem VAULT-SPIEGEL
-# (`vault-mirror`, dessen Wissensstand, nur lesen) und dem EINWURF
-# (`vault-inbox`, aus dem ein Sammler seine Notizen bis nach Obsidian traegt).
-# Beide legt der Werkstatt-Provisioner an. Wer einen Arbeitsplatz von HAND baut,
-# vergisst sie — bei der Postwache am 27.09.2026 genau so passiert: der Agent
-# ordnete 199 Absender allein nach Domain und Betreff ein und schrieb dazu
-# "Vault-Spiegel war nicht erreichbar".
+# --- The agent's workplace ----------------------------------------------------
+# A workshop agent only judges well with two paths: the VAULT MIRROR
+# (`vault-mirror`, what the owner knows, read-only) and the DROP FOLDER
+# (`vault-inbox`, from which a collector carries its notes all the way into
+# Obsidian). The workshop provisioner creates both. Build a workplace BY HAND and
+# you forget them — which is exactly what happened to the Postwache on
+# 2026-09-27: the agent classified 199 senders from domain and subject alone and
+# wrote so in its note: „the vault mirror was not reachable“.
 #
-# 🔑 Diese Meldung stand in einer Notiz, die im selben Moment ins Nichts lief:
-#    der Einwurf fehlte ja ebenso. Ein Arbeitsplatz kann seinen eigenen Mangel
-#    nicht melden. Also prueft es der Waechter von SEINER Seite — er sieht
-#    dieselben Pfade, und sein Meldeweg haengt nicht an dem, was fehlt.
+# 🔑 That report stood in a note which, in the same moment, went nowhere: the
+#    drop folder was missing too. A workplace cannot report its own defect. So
+#    the watchman checks it from ITS side — it sees the same paths, and its way
+#    of reporting does not hang on what is missing.
 ARBEITSPLATZ = ("vault-mirror", "vault-inbox")
 ARBEITSPLATZ_STAND = "arbeitsplatz.json"
 ARBEITSPLATZ_FRIST = 12 * 3600
 
 
 def arbeitsplatz_pruefen() -> list:
-    """Fehlt dem Agenten ein Weg? Gibt die fehlenden Namen zurueck.
+    """Is a path missing for the agent? Returns the missing names.
 
-    Gemeldet wird, wenn sich der Befund AENDERT, danach hoechstens alle
-    ARBEITSPLATZ_FRIST Sekunden — und einmal, wenn er behoben ist. Ohne
-    Werkstatt-Pfad gibt es keinen Arbeitsplatz zu pruefen.
+    A report goes out when the finding CHANGES, after that at most every
+    ARBEITSPLATZ_FRIST seconds — and once when it has been fixed. Without a
+    workshop path there is no workplace to check.
     """
     pfad = str(konfig().get("werkstatt") or "").strip()
     if not pfad:
         return []
     heim = os.path.dirname(pfad.rstrip("/"))
-    # 🔴 Der Waechter darf das Heim des Agenten nicht LESEN, nur durchqueren
-    #    (Durchgangsrecht per ACL). `isdir` auf einen GENANNTEN Pfad geht damit,
-    #    `listdir` nicht — deshalb wird jeder Weg einzeln gefragt.
+    # 🔴 The watchman may not READ the agent's home, only traverse it (execute
+    #    permission via ACL). `isdir` on a NAMED path works with that, `listdir`
+    #    does not — so each path is asked for on its own.
     if not heim or not os.path.isdir(heim):
         return []
     fehlt = [n for n in ARBEITSPLATZ if not os.path.isdir(os.path.join(heim, n))]
@@ -3643,11 +3638,11 @@ def arbeitsplatz_pruefen() -> list:
 
 
 def auftrag_stau() -> int:
-    """Wie viele Auftraege liegen unbearbeitet? Ab MAX_OFFENE_AUFTRAEGE kein neuer.
+    """How many tasks are untouched? From MAX_OFFENE_AUFTRAEGE on, no new one.
 
-    🔑 Das ist die Antwort auf den Haufen: es hilft niemandem, einen elften
-       Auftrag zu einem Stapel zu legen, den niemand anfasst. Der BEFUND geht
-       trotzdem in die Chronik — der darf nie verloren gehen.
+    🔑 This is the answer to the heap: it helps nobody to add an eleventh task
+       to a pile nobody is touching. The FINDING still goes into the history —
+       that must never be lost.
     """
     nicht_fertig = [a for a in auftraege_lesen()
                     if a.get("zustand") not in ("done", "cancelled")]
@@ -3655,8 +3650,8 @@ def auftrag_stau() -> int:
 
 
 def melde_sofort(treffer: list, einst: dict) -> None:
-    """Die Alarmklassen sofort nach Telegram — gebuendelt zu EINER Nachricht.
-    Zehn einzelne Meldungen in einer Minute liest niemand."""
+    """The alarm classes straight to Telegram — bundled into ONE message. Nobody
+    reads ten separate alerts within a minute."""
     if not treffer or not einst.get("telegram"):
         return
     namen = schubladen_namen()
@@ -3692,7 +3687,7 @@ def melde_sofort(treffer: list, einst: dict) -> None:
 
 
 def zusammenfassung(zaehler: dict, prof: dict, einst: dict) -> str:
-    """Die Tagesuebersicht. Kurz genug, dass man sie wirklich liest."""
+    """The daily overview. Short enough that it actually gets read."""
     heute = datetime.now()
     tag = zaehler.get("heute") if isinstance(zaehler.get("heute"), dict) else {}
     gesamt = sum(int(v) for v in tag.values())
@@ -3718,8 +3713,8 @@ def zusammenfassung(zaehler: dict, prof: dict, einst: dict) -> str:
     dok = int(zaehler.get("dokumente") or 0)
     if dok:
         L.append("📎 " + txt("w.bericht.dokumente", n="*%d*" % dok))
-    # Die drei lautesten Absender des Tages: das ist die Information, aus der
-    # eine Regel wird.
+    # The three loudest senders of the day: that is the information a rule is
+    # made of.
     laut = sorted(((a, e) for a, e in prof.items() if isinstance(e, dict)),
                   key=lambda kv: -int(kv[1].get("n") or 0))[:3]
     if laut:
@@ -3733,17 +3728,17 @@ def zusammenfassung(zaehler: dict, prof: dict, einst: dict) -> str:
 
 
 def nur_einmal():
-    """Verhindert, dass zwei Laeufe gleichzeitig am selben Postfach arbeiten.
+    """Prevents two runs from working on the same mailbox at once.
 
-    🔴 Notwendig geworden durch den Umbau (4.0.0): das Lernen der Ablage las
-    frueher 3.376 Mails aus 37 Ordnern (8 s). Seit die 12.396 Archivmails in
-    NORMALEN Ordnern liegen, sind es 17.900 aus 105 Ordnern — rund 10 Minuten.
-    Der Cron startet aber jede Minute. Ohne Sperre liefen dann zehn Prozesse
-    gleichzeitig auf demselben Postfach, und zwei davon koennten dieselbe Mail
-    kopieren, bevor der andere sie abhakt.
+    🔴 Became necessary through the restructuring (4.0.0): learning the filing
+    map used to read 3,376 mails from 37 folders (8 s). Since the 12,396 archive
+    mails sit in NORMAL folders it is 17,900 from 105 folders — about 10 minutes.
+    But cron starts every minute. Without a lock ten processes would then run on
+    the same mailbox at once, and two of them could copy the same mail before the
+    other ticks it off.
 
-    Gibt die offene Datei zurueck (muss am Leben bleiben, sonst faellt die
-    Sperre) oder `None`, wenn schon jemand arbeitet.
+    Returns the open file (which must stay alive, otherwise the lock falls) or
+    `None` when somebody is already working.
     """
     import fcntl
     try:
@@ -3753,8 +3748,8 @@ def nur_einmal():
     except OSError:
         return None
     except Exception:
-        # Wo `flock` nicht geht, ist eine fehlende Sperre besser als ein
-        # Waechter, der gar nicht mehr laeuft.
+        # Where `flock` is unavailable, a missing lock is better than a watchman
+        # that no longer runs at all.
         return True
 
 
@@ -3762,12 +3757,12 @@ def main() -> int:
     t0 = time.time()
     os.makedirs(STATE, exist_ok=True)
     os.makedirs(OUT, exist_ok=True)
-    # 🔴 `sperre` sieht ungenutzt aus und ist es nicht: die OFFENE Datei IST
-    #    die Sperre. Wer die Variable wegraeumt, gibt sie sofort wieder frei.
+    # 🔴 `sperre` looks unused and is not: the OPEN FILE IS the lock. Tidy the
+    #    variable away and you release it immediately.
     sperre = nur_einmal()
     if sperre is None:
-        # Kein Protokolleintrag: bei einem Minutentakt waere das Laerm. Der
-        # naechste Lauf in 60 s findet dieselbe Post noch vor.
+        # No log entry: at a one-minute rhythm that would be noise. The next run
+        # in 60 s will still find the same post.
         return 0
     log_kappen()
     tok = token()
@@ -3778,10 +3773,10 @@ def main() -> int:
         if vorher.get("grund") != grund:
             log("stillgelegt: %s" % grund)
             chronik("stillgelegt", titel=txt("w.still.titel"), detail=grund)
-        # 🔴 lauf_buchen statt save: der Stillgelegt-Zweig hat frueher die
-        # `uid` mit weggeschrieben — der naechste Start waere ein Kaltstart
-        # gewesen und haette alles stumm uebersprungen, was waehrend des
-        # Stillstands ankam.
+        # 🔴 lauf_buchen instead of save: the shut-down branch used to write the
+        # `uid` away with everything else — the next start would have been a cold
+        # start and would have skipped mutely everything that arrived during the
+        # standstill.
         lauf_buchen({"grund": grund})
         status_schreiben({"aktiv": False, "grund": grund})
         melde_sammlung()
@@ -3792,31 +3787,31 @@ def main() -> int:
     if not faecher:
         status_schreiben({"aktiv": True, "eingerichtet": False,
                           "grund": txt("a.kein_postfach")})
-        # Kein Weckruf, keine Meldung: das ist kein Fehler, sondern der Zustand
-        # vor der Einrichtung.
+        # No wake-up call, no alert: this is not a failure but the state before
+        # anything has been set up.
         return 0
 
-    # 🔑 Ein Lauf JE Postfach, nacheinander. Nacheinander und nicht nebenlaeufig,
-    # weil jeder Lauf dieselbe Chronik, dasselbe Journal und dieselbe
-    # DocuSort-Sitzung benutzt — drei Faeden darauf waeren drei Gelegenheiten
-    # fuer eine halb geschriebene Datei, und gewonnen waere eine Sekunde.
-    # 🔴 Ein Postfach, das nicht antwortet, darf die anderen nicht aufhalten:
-    # jeder Lauf steht fuer sich, sein Fehler bleibt seiner.
-    # ── Staendige Umleitung (Anbieterwechsel) ────────────────────────────────
-    # der Besitzer, 27.09.2026: „oder eine staendige umleitung der mails ueber die
-    # postwache einrichten. so das anbieter a keine mails mehr behaelt aber
-    # alles bei anbieter b ankommt und einsortiert wird."
+    # 🔑 One run PER mailbox, one after another. One after another and not in
+    # parallel, because every run uses the same history, the same journal and the
+    # same DocuSort session — three threads on that would be three chances for a
+    # half-written file, and the gain would be one second.
+    # 🔴 A mailbox that does not answer must not hold up the others: every run
+    # stands on its own, its failure stays its own.
+    # ── Permanent redirection (changing provider) ───────────────────────
+    # der Besitzer, 2026-09-27 — or set up a permanent redirection of the mail through
+    # the Postwache, so that provider A keeps no mail but everything arrives at
+    # provider B and is filed there.
     #
-    # 🔑 VOR der Schleife, nicht darin. Die Umleitung holt die Post bei A ab und
-    #    legt sie bei B in den Posteingang; SORTIERT wird sie vom Lauf fuer B,
-    #    der gleich danach kommt. Liefe die Umleitung erst im Lauf von A, haette
-    #    B seinen Lauf in dieser Minute je nach Reihenfolge schon hinter sich —
-    #    dann laege die Post eine Minute unsortiert im Posteingang. Hier
-    #    kommt sie im GLEICHEN Durchgang an ihren Platz.
+    # 🔑 BEFORE the loop, not inside it. The redirection collects the post at A
+    #    and puts it into the inbox at B; it is SORTED by the run for B that comes
+    #    right after. If the redirection ran inside A's run, B might already have
+    #    had its run this minute depending on the order — and then the post would
+    #    lie unsorted in the inbox for a minute. Here it reaches its place in the
+    #    SAME pass.
     #
-    # 🔴 Nur im scharfen Betrieb. Im Lernlauf veraendert die Postwache
-    #    grundsaetzlich nichts — und eine Umleitung legt bei B an und loescht
-    #    bei A. „Tut nichts" und „kann nichts tun" sind zwei verschiedene Dinge.
+    # 🔴 Only in armed operation. During a learning run the Postwache changes
+    #    nothing at all — and a redirection appends at B and deletes at A. „does
+    #    nothing“ and „can do nothing“ are two different things.
     if einst.get("scharf"):
         try:
             import umzug as UZ
@@ -3831,27 +3826,27 @@ def main() -> int:
             if um.get("fehler"):
                 log("Umleitung: %s" % um["fehler"])
         except Exception as e:
-            # Ein Umzug darf den Postlauf nicht kosten — derselbe eigene Riegel
-            # wie bei der Statistik.
+            # A migration must not cost the mail run — the same separate bolt
+            # as with the statistics.
             log("Umleitung uebersprungen: %s" % str(e)[:160])
 
-    # 🔑 Was ist aus den Weckrufen geworden? EINE Abfrage je Lauf. Ohne sie
-    #    haette niemand gemerkt, dass zehn Auftraege 16 Tage lang lagen.
+    # 🔑 What became of the wake-up calls? ONE query per run. Without it nobody
+    #    would have noticed that ten tasks had been sitting there for 16 days.
     try:
         auftraege_pruefen()
     except Exception as e:
         log("Auftragspruefung uebersprungen: %s" % str(e)[:140])
 
-    # 🔑 Und hat der Agent ueberhaupt seine beiden Wege? Zwei `isdir`-Fragen.
-    #    Ohne sie urteilt er blind weiter und seine Meldung darueber verschwindet.
+    # 🔑 And does the agent even have its two paths? Two `isdir` questions.
+    #    Without them it keeps judging blindly and its report about it vanishes.
     try:
         arbeitsplatz_pruefen()
     except Exception as e:
         log("Arbeitsplatzpruefung uebersprungen: %s" % str(e)[:140])
 
-    # 🔑 Hat die Werkstatt inzwischen Domain-Kategorien beantwortet? Das ist eine
-    #    Dateipruefung und kostet nichts — aber ohne sie muesste der Besitzer von Hand
-    #    einen Plan anstossen, damit die Antwort des Agenten ueberhaupt ankommt.
+    # 🔑 Has the workshop answered domain categories meanwhile? That is a file
+    #    check and costs nothing — but without it a plan would have to be started
+    #    by hand for the agent's answer to arrive at all.
     try:
         import umbau as UB
         UB.werkstatt_antwort_holen()
@@ -3876,11 +3871,11 @@ def main() -> int:
 
 
 def gesamt_schreiben(stand: dict, einst: dict, tok: str) -> None:
-    """Die oberste Ebene von `status.json` ist die SUMME ueber alle Postfaecher.
+    """The top level of `status.json` is the SUM over all mailboxes.
 
-    Die Seite soll auf einen Blick sagen koennen „3 neu, 1 verschoben", ohne
-    selbst zu addieren — und der Hausschalter-Sensor bekommt dieselbe Summe.
-    Was je Postfach gilt, steht darunter in `postfaecher`.
+    The page should be able to say „3 new, 1 moved“ at a glance without adding up
+    itself — and the house-switch sensor gets the same sum. What applies per
+    mailbox stands below it in `postfaecher`.
     """
     summe = {"aktiv": True, "eingerichtet": True,
              "scharf": bool(einst.get("scharf")),
@@ -3908,15 +3903,15 @@ def gesamt_schreiben(stand: dict, einst: dict, tok: str) -> None:
 
 
 def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
-    """Ein vollstaendiger Postlauf fuer GENAU EIN Postfach.
+    """One complete mail run for EXACTLY ONE mailbox.
 
-    Alles, was dieser Lauf an Zustand liest und schreibt, liegt dank
-    `pf_waehlen()` unter `state/pf/<id>/` — der Code darunter merkt davon
-    nichts. Was global bleibt: Chronik, Journal, Protokoll, Einstellungen und
-    die Zugaenge zu Telegram und DocuSort.
+    Everything this run reads and writes as state lies, thanks to `pf_waehlen()`,
+    under `state/pf/<id>/` — the code below notices nothing of it. What stays
+    global: history, journal, log, settings and the credentials for Telegram and
+    DocuSort.
 
-    Gibt zurueck, was der Gesamtlauf fuer die Summe braucht; er meldet und
-    schreibt den Sensor NICHT selbst.
+    Returns what the overall run needs for the sum; it does NOT report or write
+    the sensor itself.
     """
     lauf = load(LAUF, {})
     letzte_uid = int(lauf.get("uid") or 0)
@@ -3930,9 +3925,9 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
     if not isinstance(koepfe, list):
         koepfe = []
 
-    # Im Lernlauf wird die Mailbox READONLY geoeffnet — dann kann selbst ein
-    # Programmierfehler nichts veraendern. Das ist der Unterschied zwischen
-    # „tut nichts" und „kann nichts tun".
+    # During a learning run the mailbox is opened READONLY — then not even a
+    # programming mistake can change anything. That is the difference between
+    # „does nothing“ and „can do nothing“.
     schreiben = bool(einst.get("scharf"))
     treffer, verschoben, unklar = [], 0, 0
     try:
@@ -3942,8 +3937,8 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
             else:
                 uids = pf.neue_uids(letzte_uid)[:MAX_PRO_LAUF]
             if not uids:
-                # 🔴 Auch OHNE neue Post: sonst wird an einem ruhigen Tag nichts
-                # nachgetragen (siehe `dokumente_pflegen`).
+                # 🔴 Also WITHOUT new post: otherwise nothing is caught up on a
+                # quiet day (see `dokumente_pflegen`).
                 dokumente_pflegen(pf)
                 lauf_buchen({"uid": letzte_uid, "grund": "", "fehler": "",
                              "dauer": round(time.time() - t0, 1)})
@@ -3953,31 +3948,31 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                 tagesbericht(zaehler, prof, einst)
                 return {"rc": 0, "neu": 0}
 
-            # 🔑 ZWEI GETRENNTE FRAGEN, und das ist der ganze Umbau vom
-            # 11.09.2026:
-            #   1. Muss der Besitzer es SOFORT wissen?  -> `einordnen()`, am Inhalt
-            #   2. Wohin gehoert es?              -> seine eigene Ablage
-            # Vorher entschied die Einordnung beides. Das war falsch: eine
-            # Rechnung von PayPal gehoert nach Shopping.Paypal (so macht er es
-            # seit Jahren) UND soll trotzdem sofort melden. Getrennt geht beides.
+            # 🔑 TWO SEPARATE QUESTIONS, and that is the whole rebuild of
+            # 2026-09-11:
+            #   1. Does he need to know it AT ONCE?  -> `einordnen()`, by content
+            #   2. Where does it belong?             -> his own filing
+            # Before that, the classification decided both. That was wrong: a
+            # PayPal invoice belongs in Shopping.Paypal (as he has done it for
+            # years) AND should still report at once. Kept apart, both work.
             karte = ablage_frisch(pf)
-            # 🔴 Die Statistik ist Beiwerk. Faellt sie aus, darf das den
-            # Postlauf NICHT kosten — deshalb ein eigener Riegel. Bei der
-            # Ablage waere das falsch: ohne sie kann gar nicht sortiert werden.
+            # 🔴 The statistics are decoration. If they fail, that must NOT cost
+            # the mail run — hence a bolt of their own. For the filing map that
+            # would be wrong: without it nothing can be sorted at all.
             try:
                 statistik_frisch(pf)
             except Exception as e:
                 log("Statistik uebersprungen: %s" % str(e)[:120])
 
-            # ── Dokumente in der Post ────────────────────────────────────────
-            # Der Bauplan ALLER neuen Mails in einem Zug — ein Abruf statt 120,
-            # und kein einziges Byte Anhang.
+            # ── Documents in the post ───────────────────────────────
+            # The blueprint of ALL new mails in one go — one fetch instead of 120,
+            # and not a single byte of attachment.
             idx = anhang_index()
             strukturen = pf.strukturen(uids)
             ds, ds_grund = ds_bereit()
-            # 🔴 Im Kaltstart wird NICHTS uebergeben. Er sieht sich 300 alte
-            # Mails an, um die Lage zu lernen — er wuerde DocuSort mit Jahren
-            # alter Post fluten, und zwar einmalig und unwiderruflich.
+            # 🔴 During a cold start NOTHING is handed over. It looks at 300 old
+            # mails to learn the situation — it would flood DocuSort with post
+            # years old, and do so once and irreversibly.
             if kaltstart:
                 ds = None
             ds_offen = DS_JE_LAUF
@@ -3999,7 +3994,7 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                 if klasse == "unklar":
                     unklar += 1
 
-                # Wohin? dessen eigene Zuordnung schlaegt die gelernte.
+                # Where to? His own assignment beats the learned one.
                 eigen = absender_regel(einst, kopf["adresse"])
                 if eigen:
                     ziel, warum, sicher, darf_stufe = eigen, "Deine eigene Regel", 100, True
@@ -4013,11 +4008,11 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                            "gesehen": datetime.now().isoformat(timespec="seconds"),
                            "verschoben_nach": ""}
 
-                # ── Was haengt dran? ─────────────────────────────────────────
-                # 🔴 An DIESER Stelle, nicht weiter unten: nach dem Verschieben
-                # gibt es die UID im Posteingang nicht mehr, und die neue kennt
-                # niemand. Der Index entsteht IMMER, die Uebergabe nur, wenn
-                # DocuSort eingerichtet und eingeschaltet ist.
+                # ── What is attached? ─────────────────────────────
+                # 🔴 At THIS point, not further down: after the move the UID in
+                # the inbox no longer exists, and nobody knows the new one. The
+                # index is ALWAYS built, the handover only when DocuSort is
+                # configured and switched on.
                 ae = None
                 anh = anhaenge_der_mail(strukturen.get(uid))
                 if anh:
@@ -4030,25 +4025,24 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                         ds_offen -= n
                         dokumente += n
 
-                # 🚨 DER RIEGEL, an der EINEN Stelle, durch die jede Verschiebung
-                # muss. Er baut nicht mehr auf einer Kategorienliste, sondern auf
-                # etwas Staerkerem: der Waechter darf eine Mail NUR dorthin
-                # legen, wo der Besitzer selbst schon Post von diesem Absender
-                # hingelegt hat. Er erfindet kein Ziel und legt nie einen Ordner
-                # an. Wo er nichts gelernt hat, bleibt die Mail liegen.
+                # 🚨 THE BOLT, at the ONE place every move has to pass. It no
+                # longer rests on a list of categories but on something stronger:
+                # the watchman may put a mail ONLY where he has already put post
+                # from this sender himself. It invents no target and never creates
+                # a folder. Where it has learned nothing, the mail stays put.
                 darf = (bool(ziel) and darf_stufe
                         and ziel in (karte.get("ordner") or {}))
                 if eigen:
-                    darf = bool(ziel)          # eine eigene Regel gilt immer
+                    darf = bool(ziel)          # a rule of his own always applies
                 # Phishing-Verdacht bleibt IMMER liegen, egal was gelernt wurde.
                 if urteil.get("phishing"):
                     darf = False
                     eintrag["ziel_grund"] = "Phishing-Verdacht — bleibt liegen"
-                # ── Selbst einsortieren, wenn die gelernte Ablage nichts weiss ──
-                # 🔑 EINE Stelle, nach dem Riegel und VOR „Wichtiges bleibt":
-                #    so gelten Phishing-Sperre und dessen Schalter weiter.
-                # 🔴 Der Import steht HIER, nicht oben: `umbau` importiert
-                #    `postwache` — ein Import am Dateikopf waere ein Zirkel.
+                # ── File it itself when the learned map knows nothing ───────
+                # 🔑 ONE place, after the bolt and BEFORE „important stays put“:
+                #    that way the phishing lock and his switch still apply.
+                # 🔴 The import stands HERE, not at the top: `umbau` imports
+                #    `postwache` — an import in the header would be a cycle.
                 neuer_ordner = False
                 if (not darf and not urteil.get("phishing")
                         and einst.get("selbst_sortieren")):
@@ -4057,10 +4051,11 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                         z2, g2, abgeleitet = U.ziel_fuer_neue({
                             "von": kopf["adresse"], "betreff": kopf["betreff"],
                             "an": kopf.get("an") or "",
-                            # 🔴 `einordnen()` liefert kein „liste"-Feld — das
-                            # Rundschreiben-Merkmal steckt in der KLASSE. Wer
-                            # hier `urteil.get("liste")` schreibt, baut toten
-                            # Code: immer False, Newsletter-Rueckfall nie aktiv.
+                            # 🔴 `einordnen()` returns no „liste“ field — the
+                            # circular feature sits in the CLASS. Write
+                            # `urteil.get("liste")` here and you build dead
+                            # code: always False, the newsletter fallback never
+                            # active.
                             "liste": klasse in ("newsletter", "werbung")})
                         if z2:
                             ziel, warum = z2, g2
@@ -4070,7 +4065,7 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                     except Exception as e:
                         log("Selbst einsortieren nicht moeglich: %s" % str(e)[:140])
 
-                # Wunsch: Wichtiges trotzdem im Posteingang lassen.
+                # On request: leave important mail in the inbox anyway.
                 if darf and einst.get("wichtiges_bleibt") and klasse in ALARM:
                     darf = False
                     eintrag["ziel_grund"] = (
@@ -4078,13 +4073,13 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                         "Posteingang\u201c eingeschaltet hast" % warum)
 
                 if kaltstart:
-                    pass                       # lernen und schweigen
+                    pass                       # learn and stay silent
                 elif darf and schreiben:
-                    # 🔴 NICHT `ordner_sicherstellen()`: das setzt „INBOX." davor.
-                    #    Der Namespace dieses Servers ist die WURZEL ("" mit "."),
-                    #    ein INBOX-Praefix legte einen zweiten Baum an. `umbau`
-                    #    legt an der Wurzel an und prueft danach, dass der Ordner
-                    #    wirklich unter diesem Namen in LIST steht.
+                    # 🔴 NOT `ordner_sicherstellen()`: that puts „INBOX.“ in
+                    #    front. This server's namespace is the ROOT ("" with
+                    #    "."), and an INBOX prefix would create a second tree.
+                    #    `umbau` creates at the root and then checks that the
+                    #    folder really appears under that name in LIST.
                     if neuer_ordner and ziel not in pf.ordner_liste():
                         try:
                             import umbau as U
@@ -4097,10 +4092,10 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                         eintrag["verschoben_nach"] = ziel
                         verschoben += 1
                         if ae is not None:
-                            # Die Mail liegt jetzt woanders und hat dort eine
-                            # ANDERE UID. Bis der Nachtrag sie dort gesehen
-                            # hat, ist die alte Nummer wertlos — 0 heisst
-                            # ehrlich „weiss ich gerade nicht".
+                            # The mail is somewhere else now and has a
+                            # DIFFERENT UID there. Until the back-fill has seen
+                            # it there, the old number is worthless — 0 says
+                            # honestly „I do not know right now“.
                             ae["ordner"], ae["uid"] = ziel, 0
                             beruehrte_ordner.add(ziel)
                         anhaengen("journal.jsonl", {
@@ -4119,21 +4114,21 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                 koepfe.append(eintrag)
                 letzte_uid = max(letzte_uid, uid)
 
-            # Gerade verschobene Mails sofort am neuen Ort wiederfinden, damit
-            # der Index nicht bis zum naechsten Nachtrag mit „weiss ich nicht"
-            # dasteht.
+            # Find mails that were just moved again at their new place, so the
+            # index does not sit there saying „I do not know“ until the next
+            # back-fill.
             if beruehrte_ordner:
                 try:
                     anhaenge_nachtragen(pf, idx, frist=10, nur=beruehrte_ordner)
                 except Exception as e:
                     log("Nachtrag der Zielordner: %s" % str(e)[:120])
-            # Stand der Uebergaben + Rueckstand — derselbe Weg wie im Lauf ohne
-            # neue Post, damit es nur EINE Stelle gibt, die das tut.
+            # Status of the handovers + backlog — the same route as in a run
+            # without new post, so that only ONE place does this.
             dokumente_pflegen(pf, idx, ds, ds_bekannt=True)
             anhang_index_sichern(idx)
     except imaplib.IMAP4.error as e:
-        # Ein falsches Passwort sieht genauso aus wie eine Stoerung. Beides wird
-        # gemeldet, aber nur EINMAL — sonst funkt der Waechter jede Minute.
+        # A wrong password looks exactly like an outage. Both are reported, but
+        # only ONCE — otherwise the watchman radios every minute.
         fehler = str(e)[:200]
         vorher = load(LAUF, {})
         if vorher.get("fehler") != fehler:
@@ -4163,8 +4158,8 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
         verteilung = {}
         for e in koepfe:
             zaehlen(verteilung, e["klasse"])
-        # Der Kaltstart darf den Tageszaehler nicht fuellen — sonst meldet der
-        # erste Tagesbericht 300 Mails, die alle alt sind.
+        # The cold start must not fill the daily counter — otherwise the first
+        # daily report announces 300 mails that are all old.
         zaehler["heute"] = {}
         save("zaehler.json", zaehler)
         _namen = schubladen_namen()
@@ -4184,8 +4179,8 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
         chronik("sortiert", titel=txt("w.sortiert.titel"),
                 detail=txt("w.sortiert.detail", n=verschoben))
 
-    # Weckruf nur bei echtem Urteilsbedarf: zu viele Mails, die der Waechter
-    # nicht einordnen kann. Alles andere kann er selbst.
+    # A wake-up call only where judgement is really needed: too many mails the
+    # watchman cannot classify. Everything else it can do itself.
     offen_unklar = [e for e in koepfe[-400:] if e["klasse"] == "unklar"]
     if (len(offen_unklar) >= UNKLAR_SCHWELLE
             and int(zaehler.get("weckrufe") or 0) < MAX_WECKRUFE_PRO_TAG
@@ -4194,10 +4189,10 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
             "- %s — von %s (%s)" % (e["kopf"]["betreff"][:120],
                                     e["kopf"]["adresse"], e["grund"])
             for e in offen_unklar[-15:])
-        # 🔑 Ein Weg je eingestellter Urteilshilfe. Der Werkstatt-Weg legt die
-        # Faelle hin und weckt einen Agenten; jeder andere Anbieter wird direkt
-        # gefragt und liefert Vorschlaege auf die Seite. Ist nichts eingerichtet,
-        # bleibt es bei der Chronik — der Befund geht nie verloren.
+        # 🔑 One route per configured judgement aid. The workshop route puts the
+        # cases down and wakes an agent; every other provider is asked directly
+        # and delivers suggestions onto the page. If nothing is configured, the
+        # history is all there is — the finding is never lost.
         ki_a = ki_konfig()["anbieter"]
         nr = 0
         if ki_a not in ("aus", "werkstatt"):
@@ -4210,9 +4205,9 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
         elif ki_a == "werkstatt":
             stau = auftrag_stau()
             if stau >= MAX_OFFENE_AUFTRAEGE:
-                # 🔴 Kein elfter Auftrag auf einen Stapel, den niemand anfasst.
-                #    Der BEFUND geht trotzdem in die Chronik — verloren gehen
-                #    darf er nie, nur der Weckruf entfaellt.
+                # 🔴 No eleventh task onto a pile nobody touches. The FINDING
+                #    still goes into the history — it must never be lost, only
+                #    the wake-up call is dropped.
                 log("Weckruf unterdrueckt: %d Auftraege liegen unbearbeitet" % stau)
                 chronik("auftrag_stau", titel=txt("w.stau.titel", n=stau),
                         detail=txt("w.stau.detail", n=stau))
@@ -4229,12 +4224,12 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                     "Vorschlaege als Notiz nach den vereinbarten Ablageordner. Regeln NICHT selbst "
                     "scharfschalten — der Mensch entscheidet auf der Seite.",
                     art="unklar")
-        # 🔴 Der Weckruf DARF NICHT die einzige Ausgabe sein. Faellt der
-        # Werkstatt-Container aus oder kennt er das Projekt nicht, waere das
-        # sonst ein Pfad, der immer still scheitert — genau der Fehler, der in
-        # der das Schwesterprojekt 506 Massnahmen unbemerkt verschluckt hat. Deshalb wird
-        # der Befund IMMER in die Chronik geschrieben (und damit gemeldet), und
-        # der Weckruf ist nur die Kuer.
+        # 🔴 The wake-up call MUST NOT be the only output. If the workshop
+        # container fails or does not know the project, this would be a path that
+        # always fails silently — exactly the mistake that swallowed 506 measures
+        # unnoticed in the das Schwesterprojekt. So the finding is ALWAYS written into the
+        # history (and thereby reported), and the wake-up call is only the
+        # flourish.
         zaehler["weckrufe"] = int(zaehler.get("weckrufe") or 0) + 1
         save("zaehler.json", zaehler)
         lauf["unklar_gemeldet_am"] = heute
@@ -4284,12 +4279,12 @@ def _status_lesen() -> dict:
 
 
 def status_schreiben(d: dict) -> None:
-    """`out/status.json` — das, was die Seite liest.
+    """`out/status.json` — what the page reads.
 
-    Waehrend ein Postfach laeuft, landet sein Stand unter `postfaecher.<id>`;
-    die oberste Ebene ist die Summe und wird am Ende von `gesamt_schreiben()`
-    gesetzt. So bleibt jede der rund zehn bestehenden Aufrufstellen gueltig,
-    ohne dass eine davon wissen muesste, dass es mehrere Postfaecher gibt.
+    While a mailbox is running, its state lands under `postfaecher.<id>`; the top
+    level is the sum and is set at the end by `gesamt_schreiben()`. That keeps
+    each of the roughly ten existing call sites valid without any of them having
+    to know that there are several mailboxes.
     """
     d = dict(d)
     d["zeit"] = datetime.now().isoformat(timespec="seconds")
@@ -4310,13 +4305,13 @@ def status_schreiben(d: dict) -> None:
 
 
 def tagesbericht(zaehler: dict, prof: dict, einst: dict) -> None:
-    """Einmal am Tag — der einzige planmaessige Bericht. Er geht auch dann raus,
-    wenn nichts los war: „keine neue Post" ist eine Aussage, die man lesen
-    koennen soll, ohne nachzusehen."""
+    """Once a day — the only scheduled report. It goes out even when nothing
+    happened: „no new post“ is a statement one should be able to read without
+    having to go and look."""
     heute = datetime.now().strftime("%Y-%m-%d")
-    # 🔴 Die Marke liegt GLOBAL. Lag sie im Zaehler des Postfachs, bekaeme man
-    # bei drei Postfaechern drei Tagesberichte — jeder mit einem Drittel der
-    # Wahrheit.
+    # 🔴 The marker lies GLOBALLY. If it lay in the mailbox's counter, three
+    # mailboxes would produce three daily reports — each with a third of the
+    # truth.
     marke = load("bericht.json", {}) or {}
     if marke.get("tag") == heute:
         return
@@ -4331,12 +4326,12 @@ def tagesbericht(zaehler: dict, prof: dict, einst: dict) -> None:
 
 
 def melde_sammlung() -> None:
-    """Was in dieser Runde in die Chronik ging, geht auch hinaus — aber nur die
-    Ereignisse, die etwas bedeuten. Reine Zaehlstaende bleiben auf der Seite.
+    """What went into the history this round goes out as well — but only the
+    events that mean something. Pure counters stay on the page.
 
-    🔴 Waehrend ein Postfach bearbeitet wird, passiert hier nichts. Sonst
-    bekaeme man bei drei Postfaechern drei Nachrichten statt einer, und die
-    dritte haette den Zusammenhang der ersten verloren."""
+    🔴 While a mailbox is being processed, nothing happens here. Otherwise three
+    mailboxes would produce three messages instead of one, and the third would
+    have lost the context of the first."""
     if _PF_ID or not _ZU_MELDEN:
         return
     einst = einstellungen()
@@ -4349,7 +4344,7 @@ def melde_sammlung() -> None:
     zeilen = []
     for z in _ZU_MELDEN:
         if z["art"] == "sortiert":
-            continue                      # das steht schon im Tagesbericht
+            continue                      # that is already in the daily report
         zeilen.append("%s *%s* — %s" % (icon.get(z["art"], "•"),
                                         _tg_md(str(z.get("titel") or z["art"])),
                                         _tg_md(str(z.get("detail") or ""))))
