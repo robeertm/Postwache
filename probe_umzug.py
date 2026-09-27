@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Pruefstand fuer den Umzug (umzug.py).
+"""Test bench for the migration (umzug.py).
 
-🔑 Ein Umzug ist die einzige Stelle, an der die Postwache Post bei einem
-   Anbieter LOESCHT. Jeder Fall hier prueft entweder eine der drei Sperren, die
-   das verhindern, wenn etwas nicht stimmt — oder eine Stelle, an der im Umbau
-   am 27.09.2026 schon einmal etwas schiefging und hier dieselbe Falle waere.
+🔑 A migration is the only place where the Postwache DELETES post at a provider.
+   Every case here checks either one of the three locks that prevent that when
+   something is wrong — or a place where something already went wrong in the
+   restructuring on 2026-09-27 and would be the same trap here.
 
-Aufruf:  python3 probe_umzug.py
+Call:  python3 probe_umzug.py
 """
 import ast
 import os
@@ -49,8 +49,8 @@ pruef("mid_normal nimmt die spitzen Klammern weg",
       Z.mid_normal("  <ABC@def.DE> "), "abc@def.de")
 pruef("mid_normal aus leer bleibt leer", Z.mid_normal("   "), "")
 pruef("mid_normal aus None bleibt leer", Z.mid_normal(None), "")
-# 🔴 Die Falle vom 27.09.: ein leeres Ergebnis galt als Bestaetigung, und
-#    `anwenden` meldete „3 bewegt", ohne eine Mail zu bewegen.
+# 🔴 The trap of 2026-09-27: an empty result counted as a confirmation, and
+#    `anwenden` reported „3 moved“ without moving a single mail.
 pruef("leeres Ergebnis ist KEINE Bestaetigung",
       Z.U.mid_bestaetigt("<a@b>", ""), False)
 pruef("fehlende Message-Id ist KEINE Bestaetigung",
@@ -68,8 +68,8 @@ for name, soll in (("Trash", True), ("Papierkorb", True), ("Spam", True),
                    ("Gesendet", False), ("Sent Items", False),
                    ("Drafts", False), ("INBOX", False), ("Hausbau.Statik", False)):
     pruef("bleibt zurueck? %-22s" % name, Z.zurueckbleiber(name), soll)
-# 🔴 Gesendetes und Entwuerfe MUESSEN mitziehen — sie sind dessen Nachweis.
-#    Genau darin unterscheidet sich der Umzug vom Umbau, der sie nicht anfasst.
+# 🔴 Sent items and drafts MUST come along — they are his record. That is
+#    exactly where the migration differs from the restructuring, which leaves them.
 pruef("Umzug-Tabu ist enger als Umbau-Tabu",
       Z.BLEIBT_ZURUECK < Z.U.TABU or not (Z.BLEIBT_ZURUECK & {"sent", "drafts"}), True)
 pruef("Gesendetes steht nicht in BLEIBT_ZURUECK",
@@ -78,8 +78,8 @@ pruef("Gesendetes steht nicht in BLEIBT_ZURUECK",
 print("\n── Ordnernamen beim anderen Anbieter ──")
 pruef("Punkt-Trenner bleibt Punkt",
       Z.bei_b_name("Banking.PayPal", ".", ""), "Banking.PayPal")
-# 🔴 Bei einem Server mit „/" waere „Banking.PayPal" EIN Ordner mit Punkt im
-#    Namen statt „PayPal" unter „Banking".
+# 🔴 On a server with „/“, „Banking.PayPal“ would be ONE folder with a dot in
+#    its name instead of „PayPal“ under „Banking“.
 pruef("Schraegstrich-Trenner wird uebersetzt",
       Z.bei_b_name("Banking.PayPal", "/", ""), "Banking/PayPal")
 pruef("Namensraum INBOX. wird vorangestellt",
@@ -91,8 +91,8 @@ pruef("dreistufig bleibt dreistufig",
 pruef("leeres Ziel gibt leeren Namen", Z.bei_b_name("", ".", ""), "")
 
 print("\n── Marken beim Anlegen: nur was jeder Server vertraegt ──")
-# 🔴 \Deleted waere ein Loeschauftrag BEIM ZIEL, \Recent ist im APPEND
-#    verboten, eigene Schlagwoerter reissen den ganzen APPEND mit.
+# 🔴 \Deleted would be a delete order AT THE TARGET, \Recent is forbidden in an
+#    APPEND, and custom keywords take the whole APPEND down with them.
 pruef("Deleted wird nicht mitgenommen",
       Z.marken_saeubern("\\Seen \\Deleted"), "(\\Seen)")
 pruef("Recent wird nicht mitgenommen",
@@ -129,13 +129,13 @@ try:
           Z.paar("x", "b")[2].startswith("Quelle"), True)
     pruef("unbekanntes Ziel wird abgelehnt",
           Z.paar("a", "x")[2].startswith("Ziel"), True)
-    # 🔴 Zwei Eintraege mit derselben ADRESSE sind dasselbe Postfach, auch wenn
-    #    sie zwei Kennungen haben. Ein Umzug darauf legte jede Mail doppelt an.
+    # 🔴 Two entries with the same ADDRESS are the same mailbox, even when they
+    #    have two ids. A migration onto that would create every mail twice.
     _faecher([{"id": "a", "name": "A", "adresse": "gleich@x.de", "an": True},
               {"id": "b", "name": "B", "adresse": "GLEICH@X.de", "an": True}])
     pruef("gleiche Adresse unter zwei Kennungen wird abgelehnt",
           "dieselbe Adresse" in Z.paar("a", "b")[2], True)
-    # Die Umleitung benutzt DENSELBEN Pruefer.
+    # The redirection uses THE SAME checker.
     _faecher(zwei)
     pruef("Umleitung auf sich selbst wird abgelehnt",
           Z.umleitung_setzen(True, "a", "a") != "", True)
@@ -189,16 +189,16 @@ pruef("Umleitung ist aus, solange sie niemand einschaltet",
       Z.umleitung_lesen()["an"], False)
 
 print("\n── Gegenprobe am Quelltext: WO wird geloescht? ──")
-# 🔴 Nicht per Wortsuche, sondern ueber den AST: in welchen Funktionen steht
-#    ueberhaupt ein expunge oder ein \Deleted?
+# 🔴 Not by text search but through the AST: in which functions does an expunge
+#    or a \Deleted appear at all?
 wo = sorted(fn.name for fn in ast.walk(BAUM)
             if isinstance(fn, ast.FunctionDef)
             and ("expunge" in ast.unparse(fn) or "Deleted" in ast.unparse(fn)))
 pruef("expunge/Deleted nur in quelle_leeren und umleitung_lauf",
       wo, ["quelle_leeren", "umleitung_lauf"])
-# 🔴 Das ist die WICHTIGSTE Zusage des ganzen Programms: das Uebertragen
-#    fasst bei A nichts an. Wer hier etwas hineinschreibt, macht aus einer
-#    Kopie ein Verschieben — und aus einem Abbruch einen Verlust.
+# 🔴 This is the program's MOST IMPORTANT promise: the transfer touches nothing
+#    at A. Write something in here and you turn a copy into a move — and an
+#    interruption into a loss.
 q_ueb = fn_quelle("uebertragen")
 pruef("uebertragen loescht nichts", "Deleted" in q_ueb or "expunge" in q_ueb, False)
 pruef("uebertragen verlangt die Freigabe",
@@ -211,8 +211,8 @@ pruef("quelle_leeren ist ohne --scharf trocken",
       Z.quelle_leeren.__defaults__[-1], False)
 pruef("quelle_leeren verlangt eine Freigabe zur Liste",
       "freigabe != abdruck" in q_leer, True)
-# 🔴 Die drei Sperren, in dieser Reihenfolge: bei B nachgesehen, Nummernkreis
-#    unveraendert, UID traegt noch dieselbe Kennung. Erst danach \Deleted.
+# 🔴 The three locks, in this order: checked at B, number space unchanged, UID
+#    still carries the same id. Only then \Deleted.
 pruef("quelle_leeren prueft den Nummernkreis vor dem Loeschen",
       q_leer.index("uidvalidity") < q_leer.index("Deleted"), True)
 pruef("quelle_leeren prueft die Kennung der UID vor dem Loeschen",
@@ -234,8 +234,8 @@ pruef("die Umleitung hat einen Deckel je Lauf",
       "deckel" in q_um, True)
 
 print("\n── Gegenprobe: der Umzug nimmt dem Umbau nicht sein Gedaechtnis ──")
-# 🔴 `inventar.json.gz` gehoert dem UMBAU und sagt ihm, welcher Ordner FRUEHER
-#    Post hatte. Ohne sie darf `umbau.py ordner` keinen Ordner entfernen.
+# 🔴 `inventar.json.gz` belongs to the RESTRUCTURING and tells it which folder
+#    USED TO have post. Without it `umbau.py ordner` may not remove a folder.
 pruef("der Umzug schreibt seine EIGENE Inventardatei",
       "umzug_inventar_" in fn_quelle("inv_pfad"), True)
 pruef("kein Schreiben in inventar.json.gz",
@@ -251,23 +251,23 @@ lauf = [n for n in ast.walk(baum_w) if isinstance(n, ast.FunctionDef)
         and n.name == "main"]
 q_main = ast.unparse(lauf[0]) if lauf else ""
 pruef("der Waechter ruft umleitung_lauf", "umleitung_lauf" in q_main, True)
-# 🔴 Nur im scharfen Betrieb: im Lernlauf veraendert die Postwache nichts.
+# 🔴 Only in armed operation: during a learning run the Postwache changes nothing.
 pruef("die Umleitung laeuft nur scharf",
       q_main.index("scharf") < q_main.index("umleitung_lauf"), True)
-# 🔴 VOR der Schleife ueber die Postfaecher — sonst liegt die Post eine Minute
-#    unsortiert im Posteingang bei B.
+# 🔴 BEFORE the loop over the mailboxes — otherwise the post lies unsorted in
+#    B's inbox for a minute.
 pruef("die Umleitung laeuft VOR der Schleife ueber die Postfaecher",
       q_main.index("umleitung_lauf") < q_main.index("lauf_fuer_postfach"), True)
 pruef("ein Fehler der Umleitung kostet den Postlauf nicht",
       "Umleitung uebersprungen" in q_main, True)
 
 print("\n── Gegenprobe: jeder Ordnerwechsel kehrt zurueck ──")
-# 🔴 Dieselbe Lehre wie am 11.09.: bleibt der Server auf dem zuletzt gelesenen
-#    Ordner stehen, greift jeder folgende Abruf ins Leere — und meldet Erfolg.
+# 🔴 The same lesson as on 2026-09-11: if the server stays on the folder last
+#    read, every following fetch grasps at nothing — and reports success.
 for name in ("mids_im_ordner",):
     q = fn_quelle(name)
-    # 🔴 `ast.unparse` schreibt Zeichenketten mit EINFACHEN Anfuehrungszeichen —
-    #    wer nur nach dem doppelten sucht, prueft nichts.
+    # 🔴 `ast.unparse` writes strings with SINGLE quotes — search only for the
+    #    double one and you check nothing.
     pruef("%s stellt im finally auf INBOX zurueck" % name,
           "finally" in q and ("select('INBOX'" in q or 'select("INBOX"' in q), True)
 
@@ -283,11 +283,11 @@ q_html = quelle("post_web.html")
 pruef("die Seite hat den Reiter", 'data-ansicht="umzug"' in q_html, True)
 pruef("die Seite laedt den Reiter beim Umschalten",
       'if(ANSICHT === "umzug") umzugLage();' in q_html, True)
-# 🔴 Kein zusammengebauter Sprachschluessel: `txt("z.phase." + s.phase)` waere
-#    fuer probe_sprachen.py unsichtbar, und genauso unsichtbar waere eine
-#    fehlende Uebersetzung. Geprueft wird deshalb, dass alle neun Phasennamen
-#    AUSGESCHRIEBEN im Quelltext stehen — nicht, dass die zusammengebaute Form
-#    fehlt: die steht als Warnung im Kommentar daneben und waere ein Fehlalarm.
+# 🔴 No assembled translation key: `txt("z.phase." + s.phase)` would be
+#    invisible to probe_sprachen.py, and a missing translation would be just as
+#    invisible. So what is checked is that all nine phase names stand SPELLED OUT
+#    in the source — not that the assembled form is absent: that stands as a
+#    warning in the comment next to it and would be a false alarm.
 for ph in ("verbinden", "inventar", "ziele", "ableiten", "bestand",
            "uebertragen", "lesen", "pruefen", "loeschen"):
     pruef("Phase %-12s ausgeschrieben" % ph,

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Postwache — Uebersichtsseite (Port 8110).
+"""Postwache — overview page (port 8110).
 
-Zeigt, was der Waechter eingeordnet hat und WARUM, traegt den Notaus, nimmt den
-Postfach-Zugang entgegen und macht jede Verschiebung wieder rueckgaengig.
+Shows what the watchman has classified and WHY, carries the emergency stop, takes
+in the mailbox credentials and undoes any move.
 
-🔴 Die Seite ist die einzige Stelle, an der Zugangsdaten ENTGEGENGENOMMEN werden —
-sie gibt nie welche heraus. `/api/lage` liefert fuer das Passwort ausschliesslich
-ein true/false. Wer die Seite oeffnet, sieht also, DASS ein Postfach eingerichtet
-ist, aber nie womit.
+🔴 The page is the only place where credentials are TAKEN IN — it never hands
+any out. For the password, `/api/lage` delivers a true/false and nothing else.
+Whoever opens the page therefore sees THAT a mailbox is configured, but never
+with what.
 
-🔴 Der Nachrichtentext wird nirgends gespeichert und deshalb auch hier nirgends
-angezeigt. Sichtbar sind Betreff, Absender und die Begruendung der Einordnung —
-genug zum Nachvollziehen, nicht genug, um den Posteingang auf einer Webseite
-ohne Anmeldung auszubreiten.
+🔴 The message body is stored nowhere and therefore displayed nowhere here
+either. Visible are subject, sender and the reason for the classification —
+enough to follow it, not enough to spread the inbox across a web page without a
+login.
 """
 from __future__ import annotations
 
@@ -33,36 +33,36 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOME = os.path.expanduser("~")
-# Wo die Postwache wohnt. Im Container ist das ein eingehaengtes Verzeichnis,
-# auf einem Rechner der gewachsene Pfad — beides ohne Codeaenderung.
+# Where the Postwache lives. In a container that is a mounted directory, on a
+# machine the path it grew into — both without a code change.
 BASE = os.path.abspath(os.environ.get("POSTWACHE_HOME")
                        or os.path.join(HOME, "scripts", "postwache"))
 STATE = os.path.join(BASE, "state")
 OUT = os.path.join(BASE, "out")
 
-# 🔴 Programm und Zustand sind ZWEI Orte, auch wenn sie bei einer gewachsenen
-# Installation derselbe sind. Im Container liegt der Code in /app und der
-# Zustand in einem eingehaengten /data — wer die Seite oder die Versionsnummer
-# im Zustandsordner sucht, findet dort nichts und meldet „HTTP 500" bzw. „?".
+# 🔴 Program and state are TWO places, even where a grown installation has
+# them in the same one. In a container the code sits in /app and the state in a
+# mounted /data — look for the page or the version number in the state folder
+# and you find nothing there and report "HTTP 500" or "?".
 PROG = os.path.dirname(os.path.abspath(__file__))
 
 
 def neben_dem_programm(name: str) -> str:
-    """Erst neben dem Programm, sonst im Zustandsordner. Die zweite Stelle ist
-    der gewachsene Fall, bei dem beides nebeneinanderliegt."""
+    """Next to the program first, otherwise in the state folder. The second place
+    is the grown case, where both lie side by side."""
     q = os.path.join(PROG, name)
     return q if os.path.isfile(q) else os.path.join(BASE, name)
 
 DISABLED = os.path.join(BASE, "DISABLED")
-ENVFILE = os.path.join(BASE, "ha.env")   # nur Rueckfall; konfig.json gilt
+ENVFILE = os.path.join(BASE, "ha.env")   # fallback only; konfig.json applies
 HA = "http://127.0.0.1:8123"
 SCHALTER = "input_boolean.postwache_aktiv"
 PORT = int(os.environ.get("POSTWACHE_WEB_PORT", "8110"))
 
 sys.path.insert(0, BASE)
 try:
-    import postwache as W            # eine Quelle fuer Schubladen und Regeln
-except Exception:                    # die Seite darf nie am Waechter scheitern
+    import postwache as W            # one source for drawers and rules
+except Exception:                    # the page must never fail because of the watchman
     W = None
 
 
@@ -75,12 +75,12 @@ def _version() -> str:
 
 
 def txt(schluessel: str, **werte) -> str:
-    """Ein Text in der eingestellten Sprache.
+    """A text in the configured language.
 
-    🔴 Ohne Waechter kommt der SCHLUESSEL zurueck, nicht eine leere Zeichen-
-    kette: eine Antwort, die „a.kein_postfach" sagt, faellt sofort auf. Eine
-    leere faellt nie auf. Und sie heisst `txt`, nicht `t` — ein `t` verdeckt
-    ueberall dort, wo eine Schleifenvariable `t` heisst, die Uebersetzung."""
+    🔴 Without the watchman the KEY comes back, not an empty string: an answer
+    saying „a.kein_postfach“ stands out at once. An empty one never does. And it
+    is called `txt`, not `t` — a `t` shadows the translation everywhere a loop
+    variable is called `t`."""
     return W.txt(schluessel, **werte) if W is not None else schluessel
 
 
@@ -94,9 +94,9 @@ def token(key: str = "HA_TOKEN") -> str:
     v = os.environ.get(key)
     if v:
         return v.strip()
-    # Dieselbe Quelle wie der Waechter — zwei Meinungen darueber, wo der
-    # Zugang liegt, waeren eine Seite, die den Schalter nicht findet, den der
-    # Waechter sehr wohl liest.
+    # The same source as the watchman — two opinions about where the credentials
+    # lie would mean a page that cannot find the switch which the watchman reads
+    # perfectly well.
     datei = ENVFILE
     if W is not None:
         datei = W.konfig()["ha"]["token_datei"] or ENVFILE
@@ -136,13 +136,13 @@ def lade(pfad, default):
 
 
 def st(name, default):
-    """Zustand lesen — durch den Waechter, nicht am ihm vorbei.
+    """Read state — through the watchman, not around it.
 
-    🔴 Seit 3.0.0 liegt der Zustand eines Postfachs unter `state/pf/<id>/`. Die
-    Seite hatte dafuer eine eigene, flache Lesefunktion; haette sie die
-    behalten, saehe sie nach dem Umzug ueberall leere Dateien und wuerde das
-    als „noch nichts passiert" anzeigen. Es gibt jetzt EINE Stelle, die weiss,
-    wo eine Datei liegt, und die steht im Waechter.
+    🔴 Since 3.0.0 a mailbox's state lies under `state/pf/<id>/`. The page used
+    to have its own flat read function for that; had it kept it, it would see
+    empty files everywhere after the move and would display that as „nothing has
+    happened yet“. There is now ONE place that knows where a file lies, and it is
+    in the watchman.
     """
     if W is not None:
         return W.load(name, default)
@@ -150,7 +150,7 @@ def st(name, default):
 
 
 def pf_waehlen(pf_id=""):
-    """Welches Postfach die folgenden Lese- und Schreibzugriffe meinen."""
+    """Which mailbox the following reads and writes refer to."""
     if W is not None:
         W.pf_waehlen(pf_id or "")
 
@@ -160,17 +160,17 @@ def pf_liste():
 
 
 def aktives_pf(wunsch=""):
-    """Welches Postfach die Seite gerade zeigt.
+    """Which mailbox the page is currently showing.
 
-    Reihenfolge: was der Aufruf mitbringt › was zuletzt gewaehlt wurde › das
-    erste in der Liste. 🔴 Ein unbekannter Wunsch faellt auf das erste zurueck
-    statt ins Leere zu zeigen — sonst saehe man nach dem Loeschen eines
-    Postfachs eine leere Seite ohne Erklaerung.
+    Order: what the request brings › what was chosen last › the first in the list.
+    🔴 An unknown wish falls back to the first instead of pointing into nothing —
+    otherwise, after deleting a mailbox, you would see an empty page with no
+    explanation.
     """
     liste = pf_liste()
     if not liste:
         return ""
-    pf_waehlen("")                       # ansicht.json ist global
+    pf_waehlen("")                       # ansicht.json is global
     gemerkt = str((st("ansicht.json", {}) or {}).get("pf") or "")
     for gewuenscht in (str(wunsch or ""), gemerkt):
         for f in liste:
@@ -226,12 +226,12 @@ def schalter_zustand():
 
 
 def seite_mit_sprache(html: str) -> str:
-    """Die Texttabelle in die Seite legen, bevor sie ausgeliefert wird.
+    """Put the text table into the page before it is delivered.
 
-    🔴 Nicht per zweitem Abruf: die Seite wuerde sonst einen Wimpernschlag lang
-    in Schluesseln dastehen („kopf.titel" statt „Postwache"), und genau dieser
-    Wimpernschlag ist das, was man auf einem Telefon sieht. Die Tabelle steht im
-    ersten Byte der Antwort.
+    🔴 Not via a second request: the page would otherwise stand there in keys for
+    the blink of an eye („kopf.titel“ instead of „Postwache“), and that blink is
+    exactly what you see on a phone. The table is in the first byte of the
+    response.
     """
     if W is None:
         return html
@@ -257,29 +257,29 @@ def lage():
     zaehler = st("zaehler.json", {})
     tag = zaehler.get("heute") if isinstance(zaehler.get("heute"), dict) else {}
 
-    # Wieviel WUERDE aussortiert — die Zahl, an der der Besitzer den Lernlauf misst.
+    # How much WOULD be sorted out — the number he measures the learning run by.
     wuerde = sum(1 for e in koepfe[-400:] if e.get("wuerde_nach"))
     journal = [j for j in jsonl("journal.jsonl", 400) if not j.get("zurueck")]
 
     return {
         "version": _version(),
         "status": status,
-        # Welche Postfaecher es gibt und welches gerade gezeigt wird. Ohne
-        # Passwoerter — die verlassen die 0600-Datei nie.
+        # Which mailboxes there are and which one is currently shown. Without
+        # passwords — those never leave the 0600 file.
         "postfaecher": [{"id": f["id"], "name": f["name"], "adresse": f["adresse"],
                          "server": f["server"], "port": f["port"], "an": f["an"],
                          "passwort_gesetzt": bool(f["passwort"])}
                         for f in pf_liste()],
         "pf": gewaehlt,
-        # `historie` bleibt draussen: 40 Zeitstempel, aus denen die Seite nichts
-        # baut — der Takt ist daraus schon gerechnet (`takt_s`).
+        # `historie` stays out: 40 timestamps the page builds nothing from — the
+        # interval has already been computed from them (`takt_s`).
         "lauf": {k: v for k, v in lauf.items()
                  if k not in ("fehler", "historie")} | {
             "fehler": str(lauf.get("fehler") or "")},
         "eingerichtet": bool(zug.get("adresse") and zug.get("passwort")),
         "adresse": str(zug.get("adresse") or ""),
         "server": str(zug.get("server") or ""),
-        # 🔴 Nur ob, nie was.
+        # 🔴 Only whether, never what.
         "passwort_gesetzt": bool(zug.get("passwort")),
         "scharf": bool(einst.get("scharf")),
         "telegram": bool(einst.get("telegram", True)),
@@ -290,9 +290,9 @@ def lage():
         "ablage": ablage_kurz(),
         "absender_regeln": einst.get("absender_regeln") or {},
         "statistik": st("statistik.json", {}),
-        # 🔑 Nur die Kurzfassung aus `out/dokumente.json` — der Index selbst hat
-        # Zehntausende Eintraege und hat auf einer Seite, die sich alle 30 s
-        # holt, nichts verloren. Gesucht wird ueber /api/dokumente.
+        # 🔑 Only the short version from `out/dokumente.json` — the index itself
+        # has tens of thousands of entries and has no business on a page that
+        # fetches itself every 30 s. Searching goes through /api/dokumente.
         "dokumente": lade(os.path.join(OUT, "dokumente.json"), {}),
         "docusort": ds_kurz(),
         "ki": ki_kurz(),
@@ -300,8 +300,8 @@ def lage():
         "konfig": konfig_kurz(),
         "heimatlos": heimatlose(),
         "auftraege": auftraege_zeigen(),
-        # 🔴 Nicht SCHUBLADEN direkt: die Namen darin sind der deutsche
-        # Rueckfall. Uebersetzt wird an EINER Stelle, im Waechter.
+        # 🔴 Not SCHUBLADEN directly: the names in it are the German fallback.
+        # Translation happens at ONE place, in the watchman.
         "schubladen": {k: {"name": v["name"], "icon": v["icon"],
                            "alarm": k in ALARM, "laerm": k in LAERM,
                            "verschiebbar": k in LAERM}
@@ -318,11 +318,11 @@ def lage():
 
 
 def ablage_kurz() -> dict:
-    """Was der Waechter aus dessen Ordnern gelernt hat — in der Kurzfassung.
+    """What the watchman has learned from his folders — in short form.
 
-    Die vollstaendige Landkarte hat ein paar hundert Eintraege; auf die Seite
-    gehoert nur, was man auch liest: wie viel gelernt wurde, welche Ordner es
-    gibt, und woran die Ablage haekelt.
+    The complete map has a few hundred entries; what belongs on the page is only
+    what anyone actually reads: how much was learned, which folders exist, and
+    where the filing is ragged.
     """
     k = st("ablage.json", {}) or {}
     ordner = k.get("ordner") or {}
@@ -333,7 +333,7 @@ def ablage_kurz() -> dict:
         "deckung": k.get("deckung") or 0,
         "absender": len(k.get("absender") or {}),
         "domains": len(k.get("domain") or {}) + len(k.get("haupt") or {}),
-        # Ordner mit Anzahl, groesste zuerst — das ist die Kategorienliste.
+        # Folders with counts, biggest first — that is the list of categories.
         "ordner": sorted(ordner.items(), key=lambda kv: -kv[1]),
         "schwaechen": {
             "uneindeutig": (schw.get("uneindeutige_absender") or [])[:12],
@@ -345,12 +345,12 @@ def ablage_kurz() -> dict:
 
 
 def auftraege_zeigen() -> dict:
-    """Was die Postwache in der Werkstatt liegen hat — mit Zustand und Alter.
+    """What the Postwache has lying in the workshop — with state and age.
 
-    Der Besitzer, 27.09.2026: „ich will zu 100% nachverfolgen koennen was in der
-    postwache passiert." Genau dafuer ist diese Karte da. 🔴 Sie erscheint NUR,
-    wenn eine Werkstatt eingerichtet ist — fuer jeden anderen Nutzer der
-    Postwache waere sie eine leere Karte ueber ein Ding, das er nicht hat.
+    Der Besitzer, 2026-09-27: he wants to be able to follow 100 % of what happens in the
+    Postwache. That is exactly what this card is for. 🔴 It appears ONLY when a
+    workshop is configured — for any other user of the Postwache it would be an
+    empty card about a thing they do not have.
     """
     if not W or not W.konfig().get("werkstatt"):
         return {"an": False, "liste": []}
@@ -367,8 +367,8 @@ def auftraege_zeigen() -> dict:
             "nr": int(a.get("nr") or 0), "titel": a.get("titel") or "",
             "zustand": zustand, "alter": int(alter),
             "gestartet": bool(a.get("gestartet")),
-            # 🔴 „laeuft" ist kein Haenger. Haengen heisst: die Frist ist um und
-            #    es hat NIE angefangen.
+            # 🔴 „running“ is not stuck. Stuck means: the deadline has passed and
+            #    it has NEVER started.
             "haengt": bool(alter > W.AUFTRAG_FRIST and not a.get("gestartet")
                            and zustand not in ("done", "cancelled")),
         })
@@ -379,16 +379,16 @@ def auftraege_zeigen() -> dict:
 
 
 def heimatlose(grenze: int = 2) -> list:
-    """Absender, die immer wieder schreiben und fuer die es KEIN Ziel gibt.
+    """Senders who write again and again and for whom there is NO target.
 
-    🔑 Das ist die eigentliche Antwort auf „der Bot hat ja gar nichts sortiert".
-    Gemessen am 12.09.2026 am echten Posteingang: von 22 Mails scheiterten nur
-    2 an einer Schwelle — bei 20 gab es schlicht nichts, wonach sich der
-    Waechter richten koennte. Er kann nur NACHAHMEN, und wo der Besitzer nie etwas
-    abgelegt hat, gibt es nichts nachzuahmen.
+    🔑 This is the real answer to „the bot has not sorted anything at all“.
+    Measured 2026-09-12 against the real inbox: of 22 mails only 2 failed at a
+    threshold — for 20 there was simply nothing the watchman could have gone by.
+    It can only IMITATE, and where he has never filed anything there is nothing to
+    imitate.
 
-    Ein Vorschlag ist keine Handlung: hier steht nur, wer auffaellig oft ohne
-    Zuhause ankommt. Entschieden wird mit einem Klick.
+    A suggestion is not an action: all that stands here is who keeps arriving
+    without a home. The decision takes one click.
     """
     if not W:
         return []
@@ -405,7 +405,7 @@ def heimatlose(grenze: int = 2) -> list:
             continue
         ziel, warum, sicher, darf = W.ziel_finden(karte, adr)
         if ziel and darf:
-            continue                       # hat ein Zuhause, alles gut
+            continue                       # has a home, all good
         klassen = e.get("klassen") if isinstance(e.get("klassen"), dict) else {}
         haupt = max(klassen.items(), key=lambda kv: kv[1])[0] if klassen else ""
         raus.append({
@@ -414,8 +414,8 @@ def heimatlose(grenze: int = 2) -> list:
             "anzahl": n,
             "zuletzt": str(e.get("zuletzt") or ""),
             "klasse": haupt,
-            # Wenn eine Stufe etwas VORSCHLAEGT, aber nicht handeln darf,
-            # gehoert der Vorschlag hierher — ein Klick macht ihn dauerhaft.
+            # When a stage SUGGESTS something but may not act, the suggestion
+            # belongs here — one click makes it permanent.
             "vorschlag": ziel or "",
             "vorschlag_grund": warum if ziel else "",
             "neuer_ordner": ordnername_vorschlagen(adr, karte),
@@ -424,12 +424,12 @@ def heimatlose(grenze: int = 2) -> list:
 
 
 def ordnername_vorschlagen(adresse: str, karte: dict) -> str:
-    """Ein Ordnername aus der Adresse — als ausgefuellter Textkasten, nicht als
-    Entscheidung. Der Besitzer ueberschreibt ihn, wenn er etwas anderes will.
+    """A folder name from the address — as a pre-filled text box, not as a
+    decision. He overwrites it when he wants something else.
 
-    Genommen wird die Hauptstufe der Domain (`autogruppe` aus
-    `k.ivanov@autogruppe.example`), weil die den Absender benennt und
-    nicht den einzelnen Menschen dahinter.
+    What is taken is the main level of the domain (`autogruppe` from
+    `k.ivanov@autogruppe.example`), because that names the sender and not the
+    individual person behind it.
     """
     dom = (adresse or "").partition("@")[2]
     teile = [t for t in dom.split(".") if t]
@@ -438,29 +438,29 @@ def ordnername_vorschlagen(adresse: str, karte: dict) -> str:
     if not kern:
         return ""
     name = kern[:1].upper() + kern[1:]
-    # Unter „Shopping" liegt bei der Besitzer alles Gekaufte — dort einzureihen ist
-    # naeher an seiner Gewohnheit als ein neuer Ordner auf oberster Ebene.
+    # Under „Shopping“ he keeps everything bought — slotting it in there is
+    # closer to his habit than a new folder at the top level.
     ordner = karte.get("ordner") or {}
     return name if name in ordner else name
 
 
 def auffangorte(pf) -> list:
-    """Wo liegt Post, über die noch NIEMAND entschieden hat?
+    """Where is post nobody has decided about yet?
 
-    🔴 27.09.2026, dessen Befund: „ich habe bei neu anlegen auto.autohaus-nord
-    angegeben … aber die mail dahinter von j. haller nicht dorthin geschoben,
-    jetzt finde ich sie garnicht mehr." Die Mails lagen in **Unsortiert**, und
-    `nachziehen()` sah **nur den Posteingang** an. Bis 4.0.0 war das richtig:
-    unerkannte Post BLIEB im Posteingang. Seit dem Umbau räumt die Postwache sie
-    in den Auffang — damit war die Annahme „was schon da ist, liegt im
-    Posteingang" still falsch geworden, und die Meldung sagte wahrheitsgemäß
-    „Im Posteingang lag davon nichts". Wahr und nutzlos.
+    🔴 2026-09-27, his finding: he had entered auto.autohaus-nord under „create
+    new“, but the mail behind it was not moved there and now he cannot find it at
+    all. The mails lay in **Unsortiert**, and `nachziehen()` looked at **the inbox
+    only**. Up to 4.0.0 that was right: unrecognised post STAYED in the inbox.
+    Since the restructuring the Postwache clears it into the catch folder — which
+    silently made the assumption „whatever is already there lies in the inbox“
+    wrong, and the message said truthfully „there was nothing of that in the
+    inbox“. True and useless.
 
-    🔑 Geholt wird NUR aus Auffangorten: Posteingang, `Unsortiert` und jedes
-    `…Allgemein`. Das sind die Orte, an denen Post liegt, weil noch niemand
-    entschieden hat. Aus einem gepflegten Ordner (`Auto.KIA`) wird NICHTS
-    geholt — dort ist die Entscheidung schon gefallen, und eine neue Regel darf
-    sie nicht rückwirkend umstoßen.
+    🔑 Post is only fetched from catch locations: the inbox, `Unsortiert` and
+    every `…Allgemein`. Those are the places where post lies because nobody has
+    decided yet. From a curated folder (`Auto.KIA`) NOTHING is fetched — there the
+    decision has already been made, and a new rule must not overturn it
+    retroactively.
     """
     auffang = "Unsortiert"
     try:
@@ -478,20 +478,21 @@ def auffangorte(pf) -> list:
 
 
 def nachziehen(adresse: str, ziel: str) -> dict:
-    """Die Post, die SCHON da liegt, dem neuen Ziel nachschicken.
+    """Send the post that is ALREADY there after its new target.
 
-    🔑 Ohne das bleibt eine frisch gesetzte Regel für der Besitzer wirkungslos. Er
-    sagte am 12.09.2026: „postwache erstellt zwar ordner aber die mails aus dem
-    posteingang verschiebt es dann aber nicht automatisch dorthin." Genau so war
-    es: `Seal-82` und `Autogruppe` waren angelegt und leer, während ihre 4
-    bzw. 9 Mails im Posteingang lagen. Der Wächter liest nur NEUE Post
-    (`UID letzte+1:*`) — was schon da ist, sieht er nie wieder.
+    🔑 Without this a freshly set rule has no effect for him. He said on
+    2026-09-12: „postwache erstellt zwar ordner aber die mails aus dem posteingang
+    verschiebt es dann aber nicht automatisch dorthin.“ (the Postwache does create
+    folders but then does not move the mails from the inbox there automatically)
+    That is exactly how it was: `Seal-82` and `Autogruppe` were created and empty,
+    while their 4 and 9 mails lay in the inbox. The watchman only reads NEW post
+    (`UID last+1:*`) — what is already there it never sees again.
 
-    Eine Regel zu setzen ist eine Aussage über DIESEN ABSENDER, nicht über den
-    Zeitpunkt. Also gilt sie auch rückwärts.
+    Setting a rule is a statement about THIS SENDER, not about a point in time. So
+    it applies backwards as well.
 
-    Gesucht wird in allen `auffangorte()`, nicht nur im Posteingang — die
-    Begründung steht dort.
+    The search runs over all `auffangorte()`, not only the inbox — the reason is
+    documented there.
     """
     if not W:
         return {"bewegt": 0, "text": ""}
@@ -509,8 +510,8 @@ def nachziehen(adresse: str, ziel: str) -> dict:
         with W.Postfach(W.zugang(), True) as pf:
             voll = pf.voller_name(ziel)
             for ort in auffangorte(pf):
-                # Aus dem ZIEL selbst wird nichts geholt — sonst verschiebt sich
-                # Post in ihren eigenen Ordner.
+                # Nothing is fetched out of the TARGET itself — otherwise post
+                # would move into its own folder.
                 if ort == voll:
                     continue
                 typ, _ = pf.m.select(pf._zitat(ort), readonly=False)
@@ -527,14 +528,15 @@ def nachziehen(adresse: str, ziel: str) -> dict:
                     if msg is None:
                         continue
                     kopf = W.kopf_lesen(msg, text)
-                    # 🔴 Die IMAP-Suche trifft auf TEILZEICHENKETTE. Bevor etwas
-                    # bewegt wird, muss die Adresse GENAU stimmen — sonst wandert
-                    # fremde Post mit, nur weil sie den Namen im Kopf trägt.
+                    # 🔴 The IMAP search matches SUBSTRINGS. Before anything is
+                    # moved, the address has to match EXACTLY — otherwise foreign
+                    # post travels along just because it carries the name in its
+                    # header.
                     if (kopf.get("adresse") or "").lower() != adresse:
                         continue
                     urteil = W.einordnen(kopf, text)
-                    # Dieselben Riegel wie im Wächter, an derselben Stelle — eine
-                    # zweite, abweichende Fassung wäre der nächste Fehler.
+                    # The same bolts as in the watchman, at the same place — a
+                    # second, diverging version would be the next bug.
                     if urteil.get("phishing"):
                         liegen += 1
                         continue
@@ -550,8 +552,8 @@ def nachziehen(adresse: str, ziel: str) -> dict:
                             "klasse": urteil["klasse"], "betreff": kopf["betreff"],
                             "absender": kopf["adresse"], "zurueck": False},
                             W.JOURNAL_ZEILEN)
-            # 🔴 Zurück auf den Posteingang — ein Wechsel muss dahin zurück, wo
-            #    er herkam, sonst greift jeder folgende Abruf ins Leere.
+            # 🔴 Back to the inbox — a change has to return to where it came
+            #    from, otherwise every following fetch grasps at nothing.
             try:
                 pf.m.select("INBOX", readonly=False)
             except Exception:
@@ -563,9 +565,9 @@ def nachziehen(adresse: str, ziel: str) -> dict:
                   detail=txt("a.nach.detail", n=bewegt, adresse=adresse, ziel=ziel))
     teile = []
     if bewegt:
-        # 🔑 WOHER, nicht nur wie viele. „2 Mail(s) mitgenommen" lässt der Besitzer
-        #    rätseln, wo sie vorher lagen — genau die Frage, mit der dieser
-        #    Fehler angefangen hat.
+        # 🔑 WHERE FROM, not just how many. „2 mail(s) taken along“ leaves him
+        #    guessing where they lay before — exactly the question this bug
+        #    started with.
         woher = ", ".join("%s (%d)" % (o, n)
                           for o, n in sorted(her.items(), key=lambda x: -x[1]))
         teile.append(txt("a.nach.bewegt", n=bewegt, orte=woher))
@@ -576,11 +578,11 @@ def nachziehen(adresse: str, ziel: str) -> dict:
     return {"bewegt": bewegt, "text": " " + " ".join(teile)}
 
 def ordner_anlegen(d: dict) -> dict:
-    """Einen neuen Ordner im Postfach anlegen UND den Absender daran binden.
+    """Create a new folder in the mailbox AND bind the sender to it.
 
-    🔴 Der WAECHTER legt weiterhin nie einen Ordner an — das bleibt so. Was hier
-    anlegt, ist dessen Klick. Deshalb steht das im Webteil und nicht im
-    Waechter: eine Struktur zu aendern ist eine Entscheidung, keine Ableitung.
+    🔴 The WATCHMAN still never creates a folder — that stays as it is. What
+    creates here is his click. That is why this is in the web part and not in the
+    watchman: changing a structure is a decision, not a derivation.
     """
     if not W:
         return {"ok": False, "text": txt("a.kein_waechter")}
@@ -596,8 +598,9 @@ def ordner_anlegen(d: dict) -> dict:
     try:
         with W.Postfach(zug, True) as pf:
             vorhanden = set(pf.ordner_liste())
-            # Der Trenner wird beim Server ERFRAGT (bei manchen Anbietern: „."). Wer ihn raet,
-            # legt einen Ordner mit Punkt im Namen an statt einen Unterordner.
+            # The separator is ASKED of the server (at some providers: „.“).
+            # Guess it and you create a folder with a dot in its name instead of
+            # a subfolder.
             voll = name.replace("/", pf.trenner)
             if voll in vorhanden:
                 angelegt = False
@@ -613,12 +616,12 @@ def ordner_anlegen(d: dict) -> dict:
                 except Exception:
                     pass
                 angelegt = True
-            k = W.ablage_lernen(pf)          # damit der Ordner sofort bekannt ist
+            k = W.ablage_lernen(pf)          # so that the folder is known at once
         W.save(W.ABLAGE, k)
     except Exception as e:
         return {"ok": False, "text": txt("a.ordner.fehler", fehler=str(e)[:160])}
-    # 🔴 Beide Sätze AUSGESCHRIEBEN, nicht `txt("a" if x else "b")`: der
-    #    Sprach-Prüfstand sieht nur die erste Zeichenkette hinter `txt(`.
+    # 🔴 Both sentences SPELLED OUT, not `txt("a" if x else "b")`: the language
+    #    test bench only sees the first string after `txt(`.
     if angelegt:
         text = txt("a.ordner.angelegt", ordner=voll)
     else:
@@ -627,8 +630,8 @@ def ordner_anlegen(d: dict) -> dict:
         antwort = einstellung_setzen({"absender": {"adresse": adresse, "ordner": voll}})
         if not antwort.get("ok"):
             return {"ok": False, "text": text + " " + str(antwort.get("text") or "")}
-        # Die Rueckmeldung des Nachziehens durchreichen — sonst erfaehrt der Besitzer
-        # nicht, ob die vorhandene Post mitgekommen ist.
+        # Pass the feedback of the retroactive move through — otherwise he does
+        # not learn whether the existing post came along.
         text += " " + txt("a.ordner.gebunden", adresse=adresse)
         rest = str(antwort.get("text") or "").replace("Gespeichert.", "", 1).strip()
         if rest:
@@ -637,7 +640,7 @@ def ordner_anlegen(d: dict) -> dict:
 
 
 def statistik_neu(_d) -> dict:
-    """Die Zahlen sofort neu rechnen. READONLY — eine Statistik fasst nichts an."""
+    """Recompute the numbers at once. READONLY — a statistic touches nothing."""
     if not W:
         return {"ok": False, "text": txt("a.kein_waechter")}
     zug = W.zugang()
@@ -656,15 +659,15 @@ def statistik_neu(_d) -> dict:
 
 
 def neu_lernen(_d) -> dict:
-    """Die Landkarte sofort neu bauen. Dauert Sekunden bis Minuten — deshalb
-    laeuft es sonst nur einmal am Tag."""
+    """Rebuild the map at once. Takes seconds to minutes — which is why it
+    otherwise runs only once a day."""
     if not W:
         return {"ok": False, "text": txt("a.kein_waechter")}
     zug = W.zugang()
     if not zug.get("adresse"):
         return {"ok": False, "text": txt("a.kein_postfach")}
     try:
-        with W.Postfach(zug, False) as pf:     # READONLY — Lernen veraendert nie etwas
+        with W.Postfach(zug, False) as pf:     # READONLY — learning never changes anything
             k = W.ablage_lernen(pf)
         W.save(W.ABLAGE, k)
         return {"ok": True,
@@ -676,11 +679,11 @@ def neu_lernen(_d) -> dict:
 
 
 def tg_lage() -> dict:
-    """Welcher Bot funkt gerade — und aus welcher Quelle.
+    """Which bot is radioing right now — and from which source.
 
-    🔴 Der Token selbst kommt hier NIE heraus, nur der Name, den Telegram zu
-    ihm nennt. Der Name ist die einzige Rueckmeldung, die der Besitzer braucht, um zu
-    sehen, dass der richtige Bot eingetragen ist.
+    🔴 The token itself NEVER comes out here, only the name Telegram gives for
+    it. The name is the only feedback he needs to see that the right bot is
+    configured.
     """
     eigen = os.path.exists(os.path.join(STATE, "telegram_zugang.json"))
     tok = W.tg_zugang("TELEGRAM_BOT_TOKEN") if W else ""
@@ -699,12 +702,12 @@ def tg_lage() -> dict:
 
 
 def tg_zugang_speichern(d: dict) -> dict:
-    """Eigenen Bot eintragen. 0600, und sofort geprueft.
+    """Enter your own bot. 0600, and checked at once.
 
-    🔴 Ein Bot darf nicht zuerst schreiben: Telegram antwortet mit
-    `chat not found`, solange der Mensch den Bot nicht selbst gestartet hat.
-    Das ist kein Fehler der Einrichtung, sondern ein fehlender Schritt — und
-    die Meldung sagt genau das, statt auf die Chat-ID zu zeigen.
+    🔴 A bot may not write first: Telegram answers with `chat not found` as long
+    as the human has not started the bot themselves. That is not a configuration
+    error but a missing step — and the message says exactly that instead of
+    pointing at the chat id.
     """
     tok = str(d.get("token") or "").strip()
     chat = str(d.get("chat") or "").strip()
@@ -718,7 +721,7 @@ def tg_zugang_speichern(d: dict) -> dict:
         return {"ok": False, "text": txt("a.tg.kein_token")}
     if not chat:
         return {"ok": False, "text": txt("a.tg.keine_chat")}
-    # 1) Gehoert der Token zu einem echten Bot?
+    # 1) Does the token belong to a real bot?
     try:
         with urllib.request.urlopen(
                 "https://api.telegram.org/bot%s/getMe" % tok, timeout=12) as r:
@@ -730,7 +733,7 @@ def tg_zugang_speichern(d: dict) -> dict:
         return {"ok": False, "text": txt("a.tg.token_abgelehnt", code=e.code)}
     except Exception as e:
         return {"ok": False, "text": txt("a.tg.nicht_erreichbar", fehler=str(e)[:120])}
-    # 2) Erreicht er der Besitzer auch wirklich?
+    # 2) Does it really reach him?
     try:
         req = urllib.request.Request(
             "https://api.telegram.org/bot%s/sendMessage" % tok,
@@ -759,14 +762,13 @@ def tg_zugang_speichern(d: dict) -> dict:
 
 # ── Aktionen ──────────────────────────────────────────────────────────────────
 def postfach_speichern(d: dict) -> dict:
-    """Ein Postfach anlegen oder aendern. Die Verbindung wird SOFORT geprueft —
-    ein Zugang, der erst beim naechsten Lauf auffaellt, laesst einen im Glauben,
-    es sei eingerichtet.
+    """Create or change a mailbox. The connection is checked IMMEDIATELY —
+    credentials that only show up as wrong on the next run leave you believing it
+    is set up.
 
-    🔴 Die Kennung (`id`) ist der Ordnername des Zustands und wird beim Anlegen
-    EINMAL vergeben. Sie spaeter zu aendern wuerde den gesamten gelernten Stand
-    dieses Postfachs unerreichbar machen, ohne dass jemand es merkt — deshalb
-    laesst sich nur der Anzeigename aendern.
+    🔴 The id is the folder name of the state and is assigned ONCE at creation.
+    Changing it later would make this mailbox's entire learned state unreachable
+    without anyone noticing — so only the display name can be changed.
     """
     pf_waehlen("")
     liste = list(pf_liste())
@@ -809,12 +811,12 @@ def postfach_speichern(d: dict) -> dict:
 
 
 def postfach_entfernen(d: dict) -> dict:
-    """Ein Postfach aus der Liste nehmen.
+    """Take a mailbox out of the list.
 
-    🔴 Der gelernte Zustand unter `state/pf/<id>/` bleibt LIEGEN. Ihn
-    mitzuloeschen waere ein unumkehrbarer Klick: Monate an gelernter Ablage,
-    Absenderprofilen und Anhangindex waeren weg, weil jemand kurz aufraeumen
-    wollte. Wer den Platz braucht, loescht den Ordner von Hand.
+    🔴 The learned state under `state/pf/<id>/` STAYS. Deleting it along with the
+    entry would be an irreversible click: months of learned filing, sender profiles
+    and attachment index gone because somebody wanted to tidy up for a moment.
+    Whoever needs the space deletes the folder by hand.
     """
     pf_waehlen("")
     pid = str(d.get("id") or "").strip()
@@ -827,7 +829,7 @@ def postfach_entfernen(d: dict) -> dict:
 
 
 def postfach_schalten(d: dict) -> dict:
-    """Ein Postfach ruhen lassen, ohne es zu verlieren."""
+    """Let a mailbox rest without losing it."""
     pf_waehlen("")
     pid = str(d.get("id") or "").strip()
     liste = pf_liste()
@@ -840,10 +842,10 @@ def postfach_schalten(d: dict) -> dict:
     return {"ok": True, "text": "Eingeschaltet." if d.get("an") else "Ruht."}
 
 
-# ── Urteilshilfe ─────────────────────────────────────────────────────────────
-# 🔑 Wer gerade fragt. Gesetzt an EINER Stelle (do_POST), gelesen von der
-# Ollama-Suche — genau wie das Postfach. Haette jede Aktion sich die Adresse
-# selbst geholt, muesste jede Aktion den Handler kennen.
+# ── Judgement aid ────────────────────────────────────────────
+# 🔑 Who is asking right now. Set at ONE place (do_POST), read by the Ollama
+# search — exactly like the mailbox. Had every action fetched the address itself,
+# every action would have to know the handler.
 _KLIENT = ""
 
 
@@ -853,8 +855,8 @@ def klient_merken(adresse: str) -> None:
 
 
 def ki_kurz() -> dict:
-    """Was die Seite ueber die Urteilshilfe wissen darf. 🔴 Nie den Schluessel,
-    nur ob einer hinterlegt ist."""
+    """What the page may know about the judgement aid. 🔴 Never the key, only
+    whether one is stored."""
     if W is None:
         return {"anbieter": "aus"}
     k = W.ki_konfig()
@@ -872,8 +874,8 @@ def ki_speichern(d: dict) -> dict:
         a = str(d.get("anbieter") or "aus").strip().lower()
         if a not in (W.KI_ANBIETER if W else ("aus",)):
             return {"ok": False, "text": txt("a.ki_anbieter_unbekannt")}
-        # Anbieterwechsel setzt Adresse und Modell auf die Vorgaben des neuen —
-        # sonst bliebe die Ollama-Adresse stehen, wenn jemand auf OpenAI wechselt.
+        # Changing provider resets address and model to the new one's defaults —
+        # otherwise the Ollama address would stay when somebody switches to OpenAI.
         if a != k.get("anbieter"):
             k["url"] = (W.KI_STANDARD_URL.get(a, "") if W else "")
             k["modell"] = (W.KI_STANDARD_MODELL.get(a, "") if W else "")
@@ -886,14 +888,14 @@ def ki_speichern(d: dict) -> dict:
         k["schluessel"] = str(d["schluessel"])
     if d.get("schluessel_loeschen"):
         k.pop("schluessel", None)
-    schreibe("ki.json", k, 0o600)          # 🔴 0600 wie jeder andere Zugang
+    schreibe("ki.json", k, 0o600)          # 🔴 0600 like any other credential
     return {"ok": True, "text": txt("a.gespeichert"), "ki": ki_kurz()}
 
 
 def ki_pruefen(_d=None) -> dict:
-    """Eine echte, winzige Frage an das eingestellte Modell. Nicht „erreichbar",
-    sondern „antwortet" — ein Dienst, der 200 auf die Startseite gibt, aber das
-    Modell nicht kennt, waere sonst gruen."""
+    """A real, tiny question to the configured model. Not „reachable“ but
+    „answers“ — a service that returns 200 on its start page but does not know the
+    model would otherwise show green."""
     if W is None:
         return {"ok": False, "text": txt("a.kein_waechter")}
     ok, grund = W.ki_bereit()
@@ -919,16 +921,16 @@ def vorschlaege_lesen() -> dict:
 
 
 def ki_suchen(_d=None) -> dict:
-    """Wo findet der WAECHTER ein lokales Modell?
+    """Where does the WATCHMAN find a local model?
 
-    🔴 Gesucht wird auf seiner Seite, nicht im Browser. Wer im Browser suchen
-    laesst, findet die Ollama auf dem eigenen Rechner und meldet „erreichbar",
-    waehrend der Waechter auf dem Pi nie hinkommt.
+    🔴 The search runs on its side, not in the browser. Search from the browser
+    and you find the Ollama on your own machine and report „reachable“, while the
+    watchman on the Pi never gets there.
     """
     if W is None:
         return {"ok": False, "text": txt("a.kein_waechter")}
-    # Der Rechner, der gerade die Seite offen hat, ist der wahrscheinlichste
-    # Ort fuer ein lokales Modell — er wird mitgefragt, sonst nichts.
+    # The machine that currently has the page open is the most likely place for a
+    # local model — it is asked as well, and nothing else.
     gefunden = W.ollama_suchen([_KLIENT] if _KLIENT else [])
     for e in gefunden:
         e["vorschlag"] = W.ollama_taugliches(e["modelle"])
@@ -940,9 +942,9 @@ def ki_suchen(_d=None) -> dict:
 
 
 def ki_uebernehmen(d: dict) -> dict:
-    """Gefundene Adresse und Modell eintragen — und SOFORT nachfragen, ob es
-    wirklich antwortet. 🔴 „Gespeichert" ist nicht „funktioniert": genau
-    dieselbe Trennung wie bei einer Uebergabe an DocuSort."""
+    """Enter the found address and model — and ASK AT ONCE whether it really
+    answers. 🔴 „saved“ is not „works“: exactly the same distinction as with a
+    handover to DocuSort."""
     url = str(d.get("url") or "").strip().rstrip("/")
     modell = str(d.get("modell") or "").strip()
     if not url or not modell:
@@ -957,8 +959,8 @@ def ki_uebernehmen(d: dict) -> dict:
 
 
 def vorschlag_uebernehmen(d: dict) -> dict:
-    """Einen Vorschlag zu einer eigenen Regel machen — durch dieselbe Tuer, durch
-    die auch eine von Hand gesetzte Regel geht."""
+    """Turn a suggestion into a rule of his own — through the same door a
+    hand-set rule goes through."""
     absender = str(d.get("absender") or "").strip().lower()
     schublade = str(d.get("schublade") or "").strip()
     if not absender or (W and schublade not in W.SCHUBLADEN):
@@ -989,8 +991,8 @@ def vorschlag_verwerfen(d: dict) -> dict:
 
 
 def konfig_speichern(d: dict) -> dict:
-    """Die Umgebung: Seitenadresse, Home Assistant, Werkstatt. Wer hier nichts
-    eintraegt, bekommt weiter das, was erkannt wurde."""
+    """The environment: page address, Home Assistant, workshop. Enter nothing here
+    and you keep getting what was detected."""
     k = st("konfig.json", {})
     if not isinstance(k, dict):
         k = {}
@@ -1015,7 +1017,7 @@ def konfig_speichern(d: dict) -> dict:
         k["ha"] = ha
     schreibe("konfig.json", k)
     if W is not None:
-        W._KONFIG_ZWISCHEN = None          # sofort wirksam, nicht erst beim Neustart
+        W._KONFIG_ZWISCHEN = None          # effective at once, not only after a restart
     return {"ok": True, "text": txt("a.gespeichert"), "konfig": konfig_kurz()}
 
 
@@ -1030,12 +1032,12 @@ def konfig_kurz() -> dict:
 
 
 def zugang_speichern(d: dict) -> dict:
-    """Der alte Weg aus 2.x — er schrieb `zugang.json`, die seit der Migration
-    niemand mehr liest.
+    """The old route from 2.x — it wrote `zugang.json`, which nobody has read
+    since the migration.
 
-    🔴 Ihn stehen zu lassen waere eine Falle: der Aufruf haette geantwortet
-    „gespeichert" und nichts bewirkt. Er geht deshalb durch dieselbe Tuer wie
-    alles andere und legt das Postfach in die Liste.
+    🔴 Leaving it in place would be a trap: the call would have answered „saved“
+    and done nothing. So it goes through the same door as everything else and puts
+    the mailbox into the list.
     """
     daten = dict(d)
     daten.setdefault("id", (W.zugang() or {}).get("id", "") if W else "")
@@ -1043,8 +1045,8 @@ def zugang_speichern(d: dict) -> dict:
 
 
 def pruefen(adresse: str, passwort: str, server: str, port: int) -> dict:
-    """Einmal anmelden und wieder gehen. READONLY: eine Pruefung darf im
-    Postfach nichts veraendern, nicht einmal den Gelesen-Status."""
+    """Log in once and leave again. READONLY: a check must change nothing in the
+    mailbox, not even the read status."""
     try:
         socket.setdefaulttimeout(25)
         m = imaplib.IMAP4_SSL(server, port)
@@ -1065,8 +1067,8 @@ def pruefen(adresse: str, passwort: str, server: str, port: int) -> dict:
 
 
 def einstellung_setzen(d: dict) -> dict:
-    # Merkt sich, ob in diesem Aufruf eine Absenderregel ENTSTANDEN ist. Muss
-    # vorbelegt sein — sonst bricht jedes normale Speichern mit UnboundLocalError.
+    # Remembers whether a sender rule CAME INTO BEING in this call. Has to be
+    # preset — otherwise every ordinary save breaks with an UnboundLocalError.
     nachziehen_an = None
     e = st("einstellungen.json", {})
     if not isinstance(e, dict):
@@ -1094,19 +1096,19 @@ def einstellung_setzen(d: dict) -> dict:
         ordner = str(d["absender"].get("ordner") or "").strip()
         ar = e.get("absender_regeln") if isinstance(e.get("absender_regeln"), dict) else {}
         if a and ordner:
-            # 🔴 Nur in einen Ordner, den es WIRKLICH gibt. Der Waechter legt
-            # keine Ordner an, und eine Regel auf ein Ziel, das es nicht gibt,
-            # wuerde bei jedem Lauf still scheitern.
+            # 🔴 Only into a folder that REALLY exists. The watchman creates no
+            # folders, and a rule pointing at a target that does not exist would
+            # fail silently on every run.
             bekannt = (st("ablage.json", {}) or {}).get("ordner") or {}
             if ordner not in bekannt:
                 return {"ok": False,
                         "text": txt("a.ordner_fehlt", ordner=ordner)}
             ar[a] = ordner
-            # 🔑 An DIESER einen Stelle laufen alle Wege zusammen, auf denen eine
-            # Absenderregel entsteht: der Knopf neben der Mail, „Hierhin" in der
-            # Heimatlosen-Karte und „Anlegen" (das ruft hier herein). Das
-            # Nachziehen gehört deshalb hierher und nicht an die Knöpfe —
-            # sonst vergisst der nächste Weg es wieder.
+            # 🔑 At THIS one place all the routes on which a sender rule comes
+            # into being run together: the button next to the mail, „Here“ in the
+            # homeless card, and „Create“ (which calls in here). So the
+            # retroactive move belongs here and not on the buttons — otherwise
+            # the next route forgets it again.
             nachziehen_an = (a, ordner)
         elif a:
             ar.pop(a, None)
@@ -1146,8 +1148,8 @@ def schalten(an: bool) -> dict:
 
 
 def zuruecksortieren(eintraege: list) -> dict:
-    """Verschiebungen rueckgaengig machen. Der Weg ZURUECK muss immer offen sein —
-    sonst waere „erst Lernlauf, dann scharf" eine Einbahnstrasse."""
+    """Undo moves. The way BACK has to stay open at all times — otherwise „first
+    learn, then arm“ would be a one-way street."""
     if not W:
         return {"ok": False, "text": txt("a.kein_waechter")}
     zug = W.zugang() if W else {}
@@ -1183,21 +1185,20 @@ def zuruecksortieren(eintraege: list) -> dict:
 
 
 def aufraeumen(d: dict) -> dict:
-    """Den Posteingang EINMAL durchgehen — auch das, was schon dort liegt.
+    """Go through the inbox ONCE — including what is already lying there.
 
-    🔑 Ohne das bleibt dessen eigentliches Aergernis unberuehrt. Der Waechter
-    liest im Normalbetrieb nur NEUE Mails (`UID letzte+1:*`); alles, was vor
-    seiner Einrichtung ankam oder was er unter alten Regeln liegen liess, ist
-    fuer ihn fuer immer Vergangenheit. Genau die 22 Mails, die der Besitzer am
-    12.09.2026 vor sich sah, lagen hinter dem Zeiger.
+    🔑 Without this his actual annoyance stays untouched. In normal operation the
+    watchman reads only NEW mails (`UID last+1:*`); everything that arrived before
+    it was set up, or that it left lying under old rules, is past for it for ever.
+    Exactly the 22 mails he was looking at on 2026-09-12 lay behind the pointer.
 
-    🔴 Es wird NICHT gemeldet. Ein Aufraeumen ist kein Ereignis: 22 Weckrufe
-    fuer Post, die seit Tagen daliegt, waeren Laerm und kein Dienst. Der
-    UID-Zeiger wird ebenfalls NICHT angefasst — dieser Lauf ist ein Zusatz,
-    keine Ersetzung des normalen Betriebs.
+    🔴 Nothing is reported. A tidy-up is not an event: 22 wake-up calls for post
+    that has been lying there for days would be noise, not a service. The UID
+    pointer is NOT touched either — this run is an addition, not a replacement for
+    normal operation.
 
-    Der Riegel ist derselbe wie im Waechter: nur dorthin, wo der Besitzer selbst
-    schon abgelegt hat oder wo sein Ordner den Absender beim Namen nennt.
+    The bolt is the same as in the watchman: only where he has filed something
+    himself or where his folder names the sender.
     """
     if not W:
         return {"ok": False, "text": txt("a.kein_waechter")}
@@ -1276,10 +1277,10 @@ def jetzt_pruefen() -> dict:
         return {"ok": False, "text": str(e)[:160]}
 
 
-# ── Dokumente in der Post ────────────────────────────────────────────────────
+# ── Documents in the post ─────────────────────────────────
 def ds_kurz() -> dict:
-    """Was von DocuSort auf die Seite darf. 🔴 Das Passwort NIE — nur, DASS
-    eines hinterlegt ist. Dieselbe Regel wie beim Postfach."""
+    """What DocuSort is allowed to put on the page. 🔴 The password NEVER — only
+    THAT one is stored. The same rule as with the mailbox."""
     z = st("docusort.json", {})
     if not isinstance(z, dict):
         z = {}
@@ -1300,9 +1301,9 @@ def ds_zugang_speichern(d: dict) -> dict:
     if "url" in d:
         url = str(d.get("url") or "").strip().rstrip("/")
         if url and not url.startswith("https://"):
-            # 🔴 Nur HTTPS. Das Passwort dieses Zugangs geht ueber diese
-            # Verbindung; DocuSort spricht ohnehin nur TLS (http:// gibt dort
-            # gar keine Antwort).
+            # 🔴 HTTPS only. This account's password goes over that connection;
+            # DocuSort speaks nothing but TLS anyway (http:// gets no answer
+            # there at all).
             return {"ok": False, "text": txt("a.https")}
         z["url"] = url
     if "benutzer" in d:
@@ -1316,13 +1317,13 @@ def ds_zugang_speichern(d: dict) -> dict:
             z["max_mb"] = max(1.0, min(200.0, float(d["max_mb"])))
         except (TypeError, ValueError):
             pass
-    schreibe("docusort.json", z, 0o600)      # 🔴 0600, wie der Postfach-Zugang
+    schreibe("docusort.json", z, 0o600)      # 🔴 0600, like the mailbox credentials
     return {"ok": True, "text": txt("a.gespeichert")}
 
 
 def ds_pruefen(_d=None) -> dict:
-    """Einmal wirklich anmelden. Ein gespeicherter Zugang, der nicht geht, ist
-    schlimmer als keiner — er sieht auf der Seite genauso aus."""
+    """Really log in once. A stored account that does not work is worse than none —
+    it looks exactly the same on the page."""
     if not W:
         return {"ok": False, "text": txt("a.kein_waechter")}
     ds, grund = W.ds_bereit()
@@ -1350,12 +1351,11 @@ def dokumente_suchen(d: dict) -> dict:
 
 
 def dokumente_stand(_d=None) -> dict:
-    """Bei DocuSort nachfragen, wie weit es ist — JETZT, nicht erst beim
-    naechsten Minutenlauf.
+    """Ask DocuSort how far it has got — NOW, not at the next one-minute run.
 
-    🔑 Abgehakt wird nichts, weil der Upload geklappt hat, sondern erst, wenn
-    DocuSort das Dokument bestaetigt. Genau dafuer fragt die Seite nach, solange
-    noch etwas unterwegs ist."""
+    🔑 Nothing is ticked off because the upload worked, only once DocuSort
+    confirms the document. That is exactly what the page asks for while something
+    is still in transit."""
     if not W:
         return {"ok": False, "text": txt("a.kein_waechter")}
     ds, grund = W.ds_bereit()
@@ -1369,9 +1369,9 @@ def dokumente_stand(_d=None) -> dict:
     if n:
         W.anhang_index_sichern(idx)
     z = W.dokument_zaehlung(idx)
-    # 🔴 Die Kurzfassung IMMER nachziehen, auch wenn sich nichts geaendert hat:
-    # die Seite sieht nur sie. Hinkt sie hinterher, zeigt die Karte „nichts
-    # unterwegs", obwohl etwas unterwegs ist — und fragt deshalb nie nach.
+    # 🔴 ALWAYS bring the short version up to date, even when nothing has
+    # changed: the page sees only that. If it lags behind, the card shows „nothing
+    # in transit“ although something is — and therefore never asks again.
     idx["zahlen"] = z
     W.dokument_kurz_schreiben(idx)
     return {"ok": True, "geaendert": n,
@@ -1381,8 +1381,8 @@ def dokumente_stand(_d=None) -> dict:
 
 
 def dokumente_nachtragen(d: dict) -> dict:
-    """Den Rueckstand jetzt lesen statt beim naechsten Lauf. READONLY — ein
-    Nachtrag fasst im Postfach nichts an."""
+    """Read the backlog now instead of at the next run. READONLY — a back-fill
+    touches nothing in the mailbox."""
     if not W:
         return {"ok": False, "text": txt("a.kein_waechter")}
     zug = W.zugang()
@@ -1402,33 +1402,31 @@ def dokumente_nachtragen(d: dict) -> dict:
         return {"ok": False, "text": txt("a.nachtrag_fehler", fehler=str(e)[:160])}
 
 
-# Grenzen der Sammel-Uebergabe. 🔴 Beide sind noetig und meinen Verschiedenes:
-# die ZAHL schuetzt DocuSort (jedes Dokument kostet dort OCR und ein Urteil),
-# die ZEIT schuetzt den Browser, der auf die Antwort wartet. Was nicht mehr
-# reingeht, bleibt ausgewaehlt stehen und wird beim naechsten Druck geholt —
-# es verschwindet nicht still.
+# Limits of the bulk handover. 🔴 Both are needed and mean different things: the
+# COUNT protects DocuSort (every document costs OCR and a judgement there), the
+# TIME protects the browser waiting for the answer. Whatever does not fit stays
+# selected and is fetched on the next press — it does not disappear silently.
 DOK_SAMMEL_MAX = 60
 DOK_SAMMEL_FRIST = 150
 
 def ds_klartext(stand: str) -> str:
-    """Ein Uebergabe-Stand in Worten. Genommen wird derselbe Text, den auch
-    die Seite an der Mail zeigt — zwei Listen fuer dieselbe Sache gehen
-    auseinander, und zwar in der Sprache, die niemand nachliest."""
+    """A handover status in words. The same text the page shows on the mail is
+    used — two lists for the same thing drift apart, and in the language nobody
+    reads back."""
     fertig = txt("ds.stand." + stand)
     return stand if fertig == "ds.stand." + stand else fertig
 
 
 def dokumente_geben(d: dict) -> dict:
-    """Ausgewaehlte Mails an DocuSort geben — einzeln oder gesammelt.
+    """Give selected mails to DocuSort — one at a time or in bulk.
 
-    Das ist der „im Nachgang"-Weg: der Index weiss, in welchem Ordner die Mail
-    liegt und welcher Teil das Dokument ist — geholt wird erst jetzt und nur
-    dieser eine Teil.
+    This is the „after the fact“ route: the index knows which folder the mail lies
+    in and which part is the document — it is only fetched now, and only that one
+    part.
 
-    🔑 EINE Verbindung, EINE Anmeldung, EIN Sichern des Index fuer den ganzen
-    Stapel. Und nur EINE Umsetzung: der Knopf an der einzelnen Mail kommt hier
-    mit einer Liste der Laenge 1 herein. Zwei Wege, die dasselbe tun sollen,
-    laufen irgendwann auseinander."""
+    🔑 ONE connection, ONE login, ONE save of the index for the whole batch. And
+    only ONE implementation: the button on a single mail comes in here with a list
+    of length 1. Two routes meant to do the same thing drift apart eventually."""
     if not W:
         return {"ok": False, "text": txt("a.kein_waechter")}
     roh = d.get("schluessel")
@@ -1442,8 +1440,8 @@ def dokumente_geben(d: dict) -> dict:
         return {"ok": False, "text": "DocuSort ist %s." % grund}
     idx = W.anhang_index()
     eintraege = idx.get("eintraege") or {}
-    # Neue Uebergabe-Vermerke erkennt man am Zeitstempel: alles ab JETZT ist aus
-    # diesem Aufruf. Ohne das zaehlt man die Ergebnisse frueherer Laeufe mit.
+    # New handover notes are recognised by their timestamp: everything from NOW on
+    # is from this call. Without that you count the results of earlier runs too.
     beginn = datetime.now().isoformat(timespec="seconds")
     ende = time.time() + DOK_SAMMEL_FRIST
     budget = DOK_SAMMEL_MAX
@@ -1473,7 +1471,7 @@ def dokumente_geben(d: dict) -> dict:
                         k = str(x.get("stand") or "?")
                         staende[k] = staende.get(k, 0) + 1
     except Exception as ex:
-        W.anhang_index_sichern(idx)       # was schon drueben ist, bleibt vermerkt
+        W.anhang_index_sichern(idx)       # what is already over there stays noted
         return {"ok": False, "text": txt("a.uebergabe_ab", n=gegeben,
                                          fehler=str(ex)[:140])}
     W.anhang_index_sichern(idx)
@@ -1482,7 +1480,7 @@ def dokumente_geben(d: dict) -> dict:
         teile.append(txt("a.uebergeben", n=gegeben, mails=mails))
     for stand, n in sorted(staende.items(), key=lambda kv: -kv[1]):
         if stand == "uebergeben":
-            continue                      # steht schon in der ersten Zeile
+            continue                      # that is already in the first line
         teile.append("%d × %s" % (n, ds_klartext(stand)))
     if rest:
         teile.append(txt("a.uebrig", n=rest))
@@ -1495,16 +1493,15 @@ def dokumente_geben(d: dict) -> dict:
     return {"ok": bool(gegeben), "text": ". ".join(teile) + "."}
 
 
-# ── HTTP ──────────────────────────────────────────────────────────────────────
-# ── Umbau: das ganze Postfach neu ordnen (4.0.0) ─────────────────────────────
-# der Besitzer, 27.09.2026: „ich moechte das du die postwache so umbaust das ich dann
-# es ausfuehren kann".
+# ── HTTP ───────────────────────────────────────────────────
+# ── Restructuring: reorder the whole mailbox (4.0.0) ─────────────────
+# der Besitzer, 2026-09-27: rebuild the Postwache so that he can then run it.
 #
-# 🔴 Der Import steht in der Funktion, nicht am Dateikopf: `umbau` importiert
-#    `postwache` — oben waere das ein Zirkel.
-# 🔑 Die Seite STARTET nur und LIEST den Stand. Sie wartet nicht: ein Lauf ueber
-#    17.600 Mails dauert Minuten, und ein Browser, der solange am Faden haengt,
-#    laeuft in seine eigene Zeitgrenze und sieht dann aus wie ein Fehler.
+# 🔴 The import stands inside the function, not in the file header: `umbau`
+#    imports `postwache` — at the top that would be a cycle.
+# 🔑 The page only STARTS things and READS the status. It does not wait: a run
+#    over 17,600 mails takes minutes, and a browser hanging on the thread that
+#    long runs into its own timeout and then looks like an error.
 def _umbau():
     import umbau as U
     return U
@@ -1548,11 +1545,11 @@ def _umbau_faden(schritt: str, abdruck: str, grenze: int, trocken: bool,
         elif schritt == "zurueck":
             U.zurueck(grenze)
         elif schritt == "ordner":
-            # 🔴 Vorgabe bleibt TROCKEN. Scharf nur, wenn die Seite es sagt.
+            # 🔴 The default stays DRY. Armed only when the page says so.
             U.ordner_raeumen(trocken=trocken, auch_vorher_leere=auch_vorher_leere)
     except Exception as e:
-        # 🔴 Ein Faden, der still stirbt, laesst „laeuft" ewig auf wahr stehen —
-        #    dann geht kein Knopf mehr. Der Fehler gehoert in den Stand.
+        # 🔴 A thread that dies silently leaves „running“ true for ever — and then
+        #    no button works any more. The error belongs in the status.
         U.stand_schreiben(laeuft=False, fehler=str(e)[:200],
                           text="abgebrochen: %s" % str(e)[:120])
     finally:
@@ -1571,9 +1568,9 @@ def umbau_start(d: dict) -> dict:
     if U.stand_lesen().get("laeuft"):
         return {"ok": False, "text": txt("u.laeuft_schon")}
     grenze = int(d.get("grenze") or 0)
-    # 🔴 Beim Entfernen von Ordnern ist TROCKEN die Vorgabe: wer nichts sagt,
-    #    bekommt eine Vorschau. Bei den anderen Schritten waere das falsch —
-    #    dort ist „ausfuehren" gemeint, wenn man drueckt.
+    # 🔴 When removing folders, DRY is the default: say nothing and you get a
+    #    preview. For the other steps that would be wrong — there, pressing means
+    #    „run it“.
     trocken = bool(d.get("trocken")) if schritt != "ordner" \
         else bool(d.get("trocken", True))
     abdruck = str(d.get("abdruck") or "")
@@ -1581,16 +1578,16 @@ def umbau_start(d: dict) -> dict:
         pfad = U.out_pfad("umbau_plan.json.gz")
         if not os.path.exists(pfad):
             return {"ok": False, "text": txt("u.kein_plan")}
-        # 🔴 Die Freigabe ist der Abdruck des Plans, den die Seite ANGEZEIGT hat.
-        #    Wurde zwischendurch neu geplant, passt er nicht mehr — dann laeuft
-        #    nichts los, was niemand gesehen hat.
+        # 🔴 The approval is the print of the plan the page HAS SHOWN. If a new
+        #    plan was made in between, it no longer matches — and then nothing
+        #    starts that nobody has seen.
         if abdruck != U.fingerabdruck(pfad):
             return {"ok": False, "text": txt("u.abdruck_alt")}
     if schritt == "zurueck" and not os.path.exists(U.out_pfad("umbau_journal.jsonl")):
         return {"ok": False, "text": txt("u.kein_journal")}
-    # 🔴 Auch `gesamt`/`phase`/`entfernt` zuruecksetzen: sonst zeigt der neue
-    #    Schritt die Zahlen des VORIGEN („0 / 17605" beim Ordnerlauf), und das
-    #    sieht aus wie ein Fortschritt, den es nicht gibt.
+    # 🔴 Reset `gesamt`/`phase`/`entfernt` as well: otherwise the new step shows
+    #    the numbers of the PREVIOUS one („0 / 17605“ during the folder run), and
+    #    that looks like progress which does not exist.
     U.stand_schreiben(schritt=schritt, laeuft=True, fortschritt=0, gesamt=0,
                       phase="", entfernt=0, fehler="", weg=[], behalten=[],
                       text=txt("u.gestartet", schritt=schritt))
@@ -1601,14 +1598,14 @@ def umbau_start(d: dict) -> dict:
     return {"ok": True, "text": txt("u.gestartet", schritt=schritt)}
 
 
-# ── Umzug: von einem Anbieter zum anderen (4.4.0) ────────────────────────────
-# der Besitzer, 27.09.2026: „man gibt zwei anbieter an ... dann kann man die parallel
-# betreiben oder man sagt uebertrage emails von anbieter a nach anbieter b und
-# sortiere sie gleich ... ist der umzug abgeschlossen kann man bei anbieter a
-# alles loeschen oder eine staendige umleitung ... einrichten."
+# ── Migration: from one provider to another (4.4.0) ─────────────────
+# der Besitzer, 2026-09-27 — you name two providers, then you can run them in parallel
+# or say: transfer mail from provider A to provider B and sort it on the way; once
+# the migration is done you can delete everything at A or set up a permanent
+# redirection.
 #
-# Gleiche Bauart wie der Umbau: die Seite STARTET und LIEST, sie wartet nie.
-# Ein Umzug ueber 17.600 Mails dauert nicht Minuten, sondern Stunden.
+# Built like the restructuring: the page STARTS and READS, it never waits. A
+# migration over 17,600 mails takes hours, not minutes.
 def _umzug():
     import umzug as Z
     return Z
@@ -1651,7 +1648,7 @@ def _umzug_faden(schritt: str, von: str, nach: str, abdruck: str, grenze: int,
         elif schritt == "abgleich":
             Z.abgleich(von, nach)
         elif schritt == "leeren":
-            # 🔴 Scharf ist hier die AUSNAHME: ohne Freigabe bleibt es trocken.
+            # 🔴 Armed is the EXCEPTION here: without approval it stays dry.
             Z.quelle_leeren(von, nach, abdruck, not trocken)
     except Exception as e:
         Z.stand_schreiben(laeuft=False, fehler=str(e)[:200],
@@ -1678,8 +1675,8 @@ def umzug_start(d: dict) -> dict:
             return {"ok": False, "text": fehler}
     grenze = int(d.get("grenze") or 0)
     abdruck = str(d.get("abdruck") or "")
-    # 🔴 Beim Uebertragen bedeutet Druecken „mach es". Beim Leeren bedeutet es
-    #    „zeig mir erst" — dort ist TROCKEN die Vorgabe, wie beim Ordnerraeumen.
+    # 🔴 For the transfer, pressing means „do it“. For emptying it means „show me
+    #    first“ — there DRY is the default, as with clearing folders.
     trocken = bool(d.get("trocken", True)) if schritt == "leeren"         else bool(d.get("trocken"))
     if schritt == "uebertragen":
         pfad = Z.out_pfad("umzug_plan.json.gz")
@@ -1699,7 +1696,7 @@ def umzug_start(d: dict) -> dict:
 
 
 def umzug_umleitung(d: dict) -> dict:
-    """Die staendige Umleitung ein- oder ausschalten. Sofort, kein Faden."""
+    """Switch the permanent redirection on or off. At once, no thread."""
     try:
         Z = _umzug()
     except Exception as e:
@@ -1713,9 +1710,9 @@ def umzug_umleitung(d: dict) -> dict:
               else "posteingang"))
     if fehler:
         return {"ok": False, "text": fehler}
-    # 🔴 Beide Schluessel AUSGESCHRIEBEN. `txt("a" if x else "b")` findet der
-    #    Sprach-Pruefstand nicht — er sieht nur die erste Zeichenkette hinter
-    #    `txt(`. Genau so waere eine fehlende Uebersetzung unsichtbar.
+    # 🔴 Both keys SPELLED OUT. The language test bench does not find
+    #    `txt("a" if x else "b")` — it only sees the first string after `txt(`.
+    #    A missing translation would be invisible exactly like that.
     if an:
         return {"ok": True, "text": txt("z.umleitung_an")}
     return {"ok": True, "text": txt("z.umleitung_aus")}
@@ -1740,7 +1737,7 @@ AKTIONEN = {
     "docusort": ds_zugang_speichern,
     "docusort_pruefen": ds_pruefen,
     "dokumente_nachtragen": dokumente_nachtragen,
-    # Einzel- und Sammelknopf gehen durch DIESELBE Funktion.
+    # The single and the bulk button go through THE SAME function.
     "dokument_geben": dokumente_geben,
     "dokumente_geben": dokumente_geben,
     "dokumente_stand": dokumente_stand,
@@ -1752,10 +1749,10 @@ AKTIONEN = {
     "ki": ki_speichern,
     "ki_pruefen": ki_pruefen,
     "ki_suchen": ki_suchen,
-    # ── seit 4.0.0: der Umbau ──
+    # ── since 4.0.0: the restructuring ──
     "umbau_lage": umbau_lage,
     "umbau": umbau_start,
-    # ── seit 4.4.0: der Umzug zu einem anderen Anbieter ──
+    # ── since 4.4.0: migration to another provider ──
     "umzug_lage": umzug_lage,
     "umzug": umzug_start,
     "umzug_umleitung": umzug_umleitung,
@@ -1766,15 +1763,15 @@ AKTIONEN = {
 }
 
 
-# ── Ein-Klick-Einrichtung fuer ein lokales Modell ────────────────────────────
-# Der Launcher ist drei Zeilen: Skript holen, Skript starten, Adresse der
-# Postwache mitgeben. Das eigentliche Werk steht in `ollama_einrichten.py` —
-# EINE Datei, die alle drei Systeme bedient, statt drei, die auseinanderlaufen.
+# ── One-click setup for a local model ───────────────────────────
+# The launcher is three lines: fetch the script, start the script, pass the
+# Postwache's address. The actual work is in `ollama_einrichten.py` — ONE file
+# serving all three systems instead of three that drift apart.
 #
-# 🔴 Unter macOS und Linux wird der Launcher in ein ZIP gepackt. Ein Browser
-# wirft beim Speichern das Ausfuehrungsrecht weg; im ZIP ueberlebt der Modus,
-# und ohne ihn antwortet macOS beim Doppelklick „you don't have permission".
-# Windows braucht das nicht — eine .bat startet ohne Recht.
+# 🔴 On macOS and Linux the launcher is packed into a ZIP. A browser throws away
+# the execute bit when saving; inside a ZIP the mode survives, and without it
+# macOS answers a double-click with „you don't have permission“. Windows does not
+# need this — a .bat starts without the bit.
 INSTALLER_SKRIPT = "ollama_einrichten.py"
 
 
@@ -1789,11 +1786,11 @@ def _als_zip(name: str, inhalt: str) -> bytes:
 
 
 def installer_bauen(system: str, herkunft: str):
-    """(Dateiname, Typ, Inhalt) fuer das gewaehlte System.
+    """(file name, type, content) for the chosen system.
 
-    🔴 Der Launcher raeumt hinter sich auf. Ein heruntergeladenes Skript, das
-    unter einem Zufallsnamen in /tmp liegen bleibt, ist genau die Sorte
-    Wegwerfdatei, von der spaeter niemand mehr weiss, warum sie da ist."""
+    🔴 The launcher tidies up after itself. A downloaded script left lying under
+    a random name in /tmp is exactly the kind of throwaway file nobody later
+    remembers the purpose of."""
     kurz = herkunft.split("//")[-1].split(":")[0].replace("/", "") or "postwache"
     skript = herkunft + "/api/installer/skript"
     if system in ("mac", "macos", "darwin"):
@@ -1825,8 +1822,8 @@ def installer_bauen(system: str, herkunft: str):
         return ("postwache-ollama-%s-linux.zip" % kurz, "application/zip",
                 _als_zip("postwache-ollama-%s.sh" % kurz, rumpf))
     if system in ("win", "windows"):
-        # 🔴 EIN Prozentzeichen. `%%TEMP%%` steht in einer .bat woertlich da —
-        # zu sehen nur in der ERZEUGTEN Datei, nie im Quelltext hier.
+        # 🔴 ONE percent sign. `%%TEMP%%` appears literally in a .bat — visible
+        # only in the GENERATED file, never in the source here.
         rumpf = "\r\n".join([
             "@echo off",
             "REM Postwache -- set up a local model (Ollama). Double-click me.",
@@ -1860,11 +1857,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(koerper)
 
     def do_GET(self):
-        # 🔴 Der Pfad OHNE Abfrageteil. Vorher wurde `self.path` direkt mit "/"
-        #    verglichen — jede URL mit einem Fragezeichen („?standbild=1", ein
-        #    Zwischenspeicher-Brecher, ein angehaengter Verweisparameter) bekam
-        #    eine 404, und im Bild stand `{"fehler": "not found"}` statt der
-        #    Seite. Gefunden, weil das BILD angesehen wurde, nicht der Quelltext.
+        # 🔴 The path WITHOUT the query part. Before, `self.path` was compared
+        #    directly with "/" — every URL with a question mark („?standbild=1“, a
+        #    cache buster, an appended referrer parameter) got a 404, and the
+        #    screenshot showed `{"fehler": "not found"}` instead of the page.
+        #    Found because the IMAGE was looked at, not the source.
         pfad = self.path.split("?", 1)[0]
         if self.path.startswith("/api/lage"):
             try:
@@ -1883,12 +1880,11 @@ class Handler(BaseHTTPRequestHandler):
         self._sende(404, {"fehler": txt("a.nicht_gefunden")})
 
     def _installer(self):
-        """Den Einrichter ausliefern — als Quelltext oder als fertigen Launcher.
+        """Deliver the setup helper — as source or as a finished launcher.
 
-        🔴 Hier steht kein Geheimnis drin (anders als bei DocuSorts Bruecke, die
-        einen Zugriffsschluessel mitgibt): der Launcher traegt nur die Adresse
-        dieser Postwache. Trotzdem `no-store` — eine zwischengespeicherte
-        Adresse waere nach einem Umzug schlicht falsch."""
+        🔴 There is no secret in it (unlike DocuSort's bridge, which passes an
+        access key): the launcher carries only this Postwache's address. Still
+        `no-store` — a cached address would simply be wrong after a move."""
         pfad, _, abfrage = self.path.partition("?")
         if pfad.rstrip("/") == "/api/installer/skript":
             try:
@@ -1898,7 +1894,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._sende(404, "Einrichter fehlt: %s" % e,
                                    "text/plain; charset=utf-8")
         system = (urllib.parse.parse_qs(abfrage).get("os") or ["mac"])[0].lower()
-        # Hinter einem Gegenstueck mit TLS ist das Schema nicht http.
+        # Behind a TLS-terminating counterpart the scheme is not http.
         schema = (self.headers.get("X-Forwarded-Proto") or "http").split(",")[0].strip()
         wirt = self.headers.get("Host") or ("127.0.0.1:%d" % PORT)
         gebaut = installer_bauen(system, "%s://%s" % (schema, wirt))
@@ -1924,9 +1920,9 @@ class Handler(BaseHTTPRequestHandler):
             d = {}
         try:
             d = d if isinstance(d, dict) else {}
-            # 🔑 EINE Stelle waehlt das Postfach — vor jeder Aktion. Haette
-            # jede Aktion das selbst getan, waere die eine, die es vergisst,
-            # genau die, die in den falschen Ordner schreibt.
+            # 🔑 ONE place chooses the mailbox — before every action. Had every
+            # action done it itself, the one that forgets would be exactly the one
+            # writing into the wrong folder.
             klient_merken(self.client_address[0] if self.client_address else "")
             gewaehlt = aktives_pf(d.get("pf") or "")
             if d.get("pf") and d["pf"] != (st("ansicht.json", {}) or {}).get("pf"):
@@ -1942,17 +1938,17 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def takt_faden(sekunden: int) -> None:
-    """Den Waechter selbst takten, statt auf einen Cron zu warten.
+    """Give the watchman its own beat instead of waiting for a cron.
 
-    🔴 Nur, wenn ausdruecklich gewuenscht (`POSTWACHE_TAKT`). Auf einem Rechner
-    mit Cron waere das ein ZWEITER Takt — zwei Laeufe gleichzeitig auf demselben
-    Postfach, und der eine schriebe dem anderen den Stand unter den Fuessen weg.
-    Im Container gibt es keinen Cron, dort ist dieser Faden der Takt.
+    🔴 Only when explicitly wanted (`POSTWACHE_TAKT`). On a machine with cron this
+    would be a SECOND beat — two runs at once on the same mailbox, and one would
+    write the state out from under the other. In a container there is no cron;
+    there this thread is the beat.
     """
     import threading
 
     def schleife():
-        time.sleep(5)                     # die Seite zuerst erreichbar machen
+        time.sleep(5)                     # make the page reachable first
         while True:
             t0 = time.time()
             try:
@@ -1960,8 +1956,8 @@ def takt_faden(sekunden: int) -> None:
                     W.main()
             except Exception as e:
                 print("Waechterlauf fehlgeschlagen: %s" % str(e)[:200], flush=True)
-            # Abstand vom ENDE des Laufs, nicht vom Anfang: ein Lauf, der laenger
-            # dauert als der Takt, soll sich nicht selbst ueberholen.
+            # The gap measured from the END of the run, not the start: a run that
+            # takes longer than the interval must not overtake itself.
             time.sleep(max(5.0, sekunden - (time.time() - t0)))
 
     f = threading.Thread(target=schleife, name="postwache-takt", daemon=True)

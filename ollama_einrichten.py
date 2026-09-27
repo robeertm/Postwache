@@ -231,7 +231,7 @@ def modell_holen(modell: str) -> bool:
         return False
 
 
-# ── Der Weg zur Postwache ────────────────────────────────────────────────────
+# ── The route to the Postwache ───────────────────────────────
 def zerlegen(origin: str):
     from urllib.parse import urlsplit
     t = urlsplit(origin if "://" in origin else "http://" + origin)
@@ -269,7 +269,7 @@ def main() -> int:
     print("%s\nPostwache — local model setup%s" % (GELB, AUS))
     print("  Postwache: %s" % origin)
 
-    # ── 1. Erreichen wir die Postwache ueberhaupt? ───────────────────────────
+    # ── 1. Can we reach the Postwache at all? ──────────────────────
     schritt("Reaching the Postwache")
     try:
         lage = holen(origin + "/api/lage", 6.0, a.unsicher)
@@ -278,7 +278,7 @@ def main() -> int:
              "machine on the same network?" % (origin, e))
     gut("Postwache %s answers." % (lage.get("version") or "?"))
 
-    # ── 2. Steht sie auf DIESEM Rechner? ─────────────────────────────────────
+    # ── 2. Is it on THIS machine? ──────────────────────────────
     meine = eigene_adresse(host, port)
     hier = meine.startswith("127.") or host in ("localhost", "127.0.0.1", "::1")
     if hier:
@@ -291,7 +291,7 @@ def main() -> int:
     # ── 3. Ollama installieren ───────────────────────────────────────────────
     ollama_installieren()
 
-    # ── 4. Laeuft sie, und laeuft sie an der richtigen Stelle? ───────────────
+    # ── 4. Is it running, and running in the right place? ────────────
     schritt("Checking Ollama")
     lokal = ollama_antwortet("http://127.0.0.1:%d" % OLLAMA_PORT)
     ziel_url = "http://%s:%d" % (sichtbar, OLLAMA_PORT)
@@ -300,7 +300,7 @@ def main() -> int:
     if erreichbar:
         gut("Ollama answers at %s." % ziel_url)
     elif lokal and not hier:
-        # Der haeufigste echte Fall: die App laeuft, aber nur fuer sich selbst.
+        # The most common real case: the app runs, but only for itself.
         warn("Ollama runs, but only for this machine (127.0.0.1).")
         print("\n  The Postwache sits on another computer, so Ollama has to")
         print("  listen on the network as well. That means: anyone on your")
@@ -344,8 +344,8 @@ def main() -> int:
     # ── 5. Modell ────────────────────────────────────────────────────────────
     modell = a.modell.strip()
     if not modell:
-        # Erst nehmen, was schon da ist — ein Modell zu holen, das daneben
-        # liegt, waeren mehrere Gigabyte fuer nichts.
+        # Take what is already there first — fetching a model that lies beside
+        # the point would be several gigabytes for nothing.
         brauchbar = [m for m in erreichbar
                      if not any(u in m.lower() for u in UNTAUGLICH)]
         modell = ""
@@ -370,7 +370,7 @@ def main() -> int:
     else:
         gut("Model %s is already there." % modell)
 
-    # ── 6. Der Postwache Bescheid sagen ──────────────────────────────────────
+    # ── 6. Tell the Postwache about it ──────────────────────────
     schritt("Telling the Postwache")
     try:
         antwort = senden(origin + "/api/ki",
@@ -382,7 +382,7 @@ def main() -> int:
         ende("The Postwache refused the setting: %s" % (antwort.get("text") or "?"))
     gut("Provider set to Ollama, %s, model %s." % (ziel_url, modell))
 
-    # ── 7. 🔴 Und jetzt fragen wir die POSTWACHE, nicht uns selbst ───────────
+    # ── 7. 🔴 And now we ask the POSTWACHE, not ourselves ────────────
     schritt("Asking the Postwache whether it actually works")
     info("The first answer loads the model into memory — this can take a minute.")
     try:

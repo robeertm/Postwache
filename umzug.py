@@ -1,53 +1,52 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""umzug.py — ein ganzes Postfach zu einem anderen Anbieter bringen.
+"""umzug.py — bring a whole mailbox to another provider.
 
-Der Besitzer, 27.09.2026: „man gibt zwei anbieter an, geht ja schon, dann kann man
-die parallel betreiben oder man sagt uebertrage emails von anbieter a nach
-anbieter b und sortiere sie gleich so wie wir es die letzten stunden getan
-haben in eine schoene struktur je nach inhalt der mail, ist der umzug
-abgeschlossen kann man bei anbieter a alles loeschen oder eine staendige
-umleitung der mails ueber die postwache einrichten. so das anbieter a keine
-mails mehr behaelt aber alles bei anbieter b ankommt und einsortiert wird"
+Der Besitzer, 2026-09-27 — you name two providers (which already works), then you can
+run them in parallel or say: transfer mail from provider A to provider B and sort
+it straight away into a nice structure according to the content of the mail; once
+the migration is finished you can delete everything at provider A or set up a
+permanent redirection of the mail through the Postwache, so that provider A keeps
+no mail but everything arrives at provider B and is filed there.
 
-Sechs Stufen, jede einzeln aufrufbar, jede fuer sich harmlos:
+Six stages, each callable on its own, each harmless by itself:
 
-  1. pruefen        beide Anbieter erreichbar? B beschreibbar? was liegt dort?
-  2. plan           WAS geht WOHIN — ohne eine einzige Mail anzufassen
-  3. uebertragen    bei A lesen, bei B anlegen, NACHSEHEN. A bleibt unberuehrt.
-  4. abgleich       ist bei B wirklich alles angekommen?
-  5. quelle-leeren  erst jetzt, eigene Freigabe, nur was bei B nachweislich steht
-  6. umleitung      ab jetzt laufend: neue Post bei A -> einsortiert bei B
+  1. pruefen        both providers reachable? B writable? what is already there?
+  2. plan           WHAT goes WHERE — without touching a single mail
+  3. uebertragen    read at A, create at B, CHECK. A stays untouched.
+  4. abgleich       has everything really arrived at B?
+  5. quelle-leeren  only now, with its own approval, only what is provably at B
+  6. umleitung      from now on continuously: new post at A -> filed at B
 
-Die Einsortierung ist NICHT neu erfunden: `umzug` fragt denselben `umbau`,
-der dessen Postfach am 27.09. von 53 auf 132 Ordner gebracht hat. Eine Mail
-landet bei B dort, wo sie bei A gelandet waere — nur ohne den Zwischenschritt.
+The filing is NOT reinvented: `umzug` asks the same `umbau` that took his mailbox
+from 53 to 132 folders on 2026-09-27. A mail lands at B where it would have landed
+at A — only without the intermediate step.
 
-🔴 DIE GRENZE DIESES PROGRAMMS: zwei Anbieter sind zwei Server, und zwischen
-   zwei Servern gibt es kein COPY. Jede Mail wird bei A GELESEN (BODY.PEEK) und
-   bei B NEU ANGELEGT (APPEND). Das ist eine Kopie, kein Verschieben — danach
-   liegt die Mail ZWEIMAL. Genau darum ist „quelle-leeren" eine eigene Stufe
-   mit eigener Freigabe und nicht das stille Ende von „uebertragen".
+🔴 THE LIMIT OF THIS PROGRAM: two providers are two servers, and between two
+   servers there is no COPY. Every mail is READ at A (BODY.PEEK) and CREATED ANEW
+   at B (APPEND). That is a copy, not a move — afterwards the mail exists TWICE.
+   Exactly why „quelle-leeren“ is a stage of its own with its own approval and not
+   the silent end of „uebertragen“.
 
-🔴 IDENTITAET IST DIE MESSAGE-ID, NICHT DIE UID. UIDs gelten je Server und je
-   Ordner; nach dem APPEND hat dieselbe Mail bei B eine andere. Wer bei A
-   loeschen will, muss sie bei B WIEDERFINDEN koennen — und wer keine
-   Message-Id hat, ist nicht wiederfindbar. Eine Mail ohne Message-Id wird
-   uebertragen und bei A NIEMALS geloescht. Lieber doppelt als weg.
+🔴 IDENTITY IS THE MESSAGE-ID, NOT THE UID. UIDs apply per server and per
+   folder; after the APPEND the same mail has a different one at B. Whoever wants
+   to delete at A has to be able to FIND IT AGAIN at B — and whoever has no
+   Message-Id cannot be found again. A mail without a Message-Id is transferred and
+   NEVER deleted at A. Better twice than gone.
 
-🔴 EIN LEERES SUCHERGEBNIS IST KEINE BESTAETIGUNG. Dieselbe Falle wie am
-   27.09. im Umbau: „nichts gefunden" heisst nicht „stimmt". Bestaetigt ist
-   eine Mail nur, wenn ihre Message-Id bei B TATSAECHLICH GELESEN wurde.
-   Deshalb `U.mid_bestaetigt()` — dieselbe reine Funktion, dieselbe Probe.
+🔴 AN EMPTY SEARCH RESULT IS NOT A CONFIRMATION. The same trap as in the
+   restructuring on 2026-09-27: „nothing found“ does not mean „correct“. A mail is
+   confirmed only when its Message-Id was ACTUALLY READ at B. Hence
+   `U.mid_bestaetigt()` — the same pure function, the same test.
 
-🔴 SONDERORDNER GEHEN AN DER FLAGGE, NICHT AM NAMEN. Gesendetes bei A heisst
-   „Sent Items", bei B vielleicht „Gesendet" oder „INBOX.Sent". Wer nach Namen
-   zuordnet, legt bei B einen zweiten Gesendet-Ordner an. `\\Sent` -> `\\Sent`.
+🔴 SPECIAL FOLDERS GO BY THE FLAG, NOT BY THE NAME. Sent mail at A is called
+   „Sent Items“, at B perhaps „Gesendet“ or „INBOX.Sent“. Map by name and you
+   create a second sent folder at B. `\\Sent` -> `\\Sent`.
 
-🔴 PAPIERKORB UND SPAM ZIEHEN NICHT MIT. Sie sind Absicht, nicht Inhalt.
-   Gesendetes und Entwuerfe ziehen mit — das ist dessen eigener Nachweis.
-   Das Archiv zieht mit und wird dabei SORTIERT, so wie im Umbau: Der Besitzer wollte
-   „auch archivierte mails sortieren und aus dem archiv holen".
+🔴 TRASH AND SPAM DO NOT COME ALONG. They are intent, not content. Sent items
+   and drafts do come along — that is his own record. The archive comes along and
+   is SORTED on the way, as in the restructuring: he wanted archived mail sorted
+   and taken out of the archive.
 """
 
 import contextlib
@@ -65,37 +64,38 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import postwache as pw   # noqa: E402  — bewaehrtes IMAP, dekodieren()
 import umbau as U        # noqa: E402  — Inventar, Regeln, Verbindung, Ordner anlegen
 
-# ── Was NICHT mitzieht ───────────────────────────────────────────────────────
-# 🔴 Enger als `umbau.TABU`! Der Umbau darf Gesendetes nicht ANFASSEN, weil es
-#    dort bleiben soll. Beim Umzug soll es MITKOMMEN — nur eben unsortiert in
-#    den Gesendet-Ordner bei B. Zurueck bleibt allein, was der Besitzer schon
-#    weggeworfen oder was der Anbieter als Spam einsortiert hat.
+# ── What does NOT come along ────────────────────────────────
+# 🔴 Narrower than `umbau.TABU`! The restructuring must not TOUCH sent items,
+#    because they are meant to stay where they are. In a migration they are meant
+#    to COME ALONG — just unsorted, into the sent folder at B. What stays behind
+#    is only what he has already thrown away or what the provider filed as spam.
 BLEIBT_ZURUECK = {
     "trash", "papierkorb", "deleted items", "gelöschte objekte",
     "spam", "junk", "junk e-mail", "unerwünscht",
 }
 
-# Flaggen, deren Inhalt 1:1 in den gleichflaggigen Ordner bei B geht statt in
-# die Inhaltsstruktur. `\Archive` steht bewusst NICHT dabei.
+# Flags whose content goes 1:1 into the folder with the same flag at B instead of
+# into the content structure. `\Archive` is deliberately NOT among them.
 UNSORTIERT_UEBER = ("Sent", "Drafts")
 
-# Nur diese Marken werden mitgenommen. `\Deleted` waere ein Loeschauftrag bei B,
-# `\Recent` darf ein APPEND gar nicht setzen, eigene Schlagwoerter ($Label1)
-# lehnen viele Server ab und reissen den ganzen APPEND mit.
+# Only these flags come along. `\Deleted` would be a delete order at B, `\Recent`
+# an APPEND may not set at all, and custom keywords ($Label1) are rejected by many
+# servers and take the whole APPEND down with them.
 MARKEN_ERLAUBT = ("\\Seen", "\\Answered", "\\Flagged", "\\Draft")
 
-BLOCK = 40          # so viele Mails je FETCH-Runde; eine Mail kann Megabyte sein
-MAX_MAIL = 40 * 1024 * 1024   # 40 MB — darueber wird gemeldet, nicht uebertragen
+BLOCK = 40          # this many mails per FETCH round; one mail can be megabytes
+MAX_MAIL = 40 * 1024 * 1024   # 40 MB — above that it is reported, not transferred
 
 
 def out_pfad(name: str) -> str:
     return U.out_pfad(name)
 
 
-# ── Stand fuer die Seite ─────────────────────────────────────────────────────
-# Gleiche Bauart wie `umbau.stand_schreiben`, eigene Datei: ein Umzug kann
-# Stunden dauern, und der Besitzer muss sehen, wo er steht, ohne ein Protokoll zu
-# lesen. (der Besitzer, 27.09.: „sehe nicht wie weit das ordner loeschen ist.")
+# ── Status for the page ──────────────────────────────────────
+# Built like `umbau.stand_schreiben`, with a file of its own: a migration can take
+# hours, and he has to see where it stands without reading a log. (der Besitzer,
+# 2026-09-27: „sehe nicht wie weit das ordner loeschen ist.“ — I cannot see how
+# far the folder deletion has got.)
 def stand_schreiben(**felder) -> None:
     d = stand_lesen()
     if felder.get("laeuft") and not d.get("laeuft"):
@@ -117,11 +117,11 @@ def stand_lesen() -> dict:
 
 
 def journal_schreiben(saetze: list) -> None:
-    """Jede uebertragene Mail mit Herkunft, Ziel und Message-Id.
+    """Every transferred mail with its origin, target and Message-Id.
 
-    🔑 Das ist die einzige Bruecke zwischen zwei Servern: bei A steht eine UID,
-       bei B eine andere, gemeinsam haben sie nur die Message-Id. Ohne dieses
-       Journal koennte „quelle-leeren" nicht wissen, WELCHE Mail bei A weg darf.
+    🔑 This is the only bridge between two servers: at A there is one UID, at B
+       another, and all they share is the Message-Id. Without this journal
+       „quelle-leeren“ could not know WHICH mail may go at A.
     """
     if not saetze:
         return
@@ -147,15 +147,15 @@ def journal_lesen() -> list:
     return raus
 
 
-# ── Die beiden Anbieter ──────────────────────────────────────────────────────
+# ── The two providers ──────────────────────────────────────
 def paar(von_id: str, nach_id: str):
-    """Die zwei Zugaenge — oder eine Fehlermeldung, die den Grund nennt.
+    """The two accounts — or an error message that names the reason.
 
-    🔴 A und B duerfen nicht dasselbe Postfach sein. Ein Umzug auf sich selbst
-       waere ein APPEND jeder Mail in ihren eigenen Ordner: jede Mail doppelt,
-       und „quelle-leeren" wuerde anschliessend beide Haelften desselben
-       Bestandes gegeneinander pruefen. Verglichen wird die ADRESSE, nicht die
-       Kennung — zwei Eintraege mit derselben Adresse sind dasselbe Postfach.
+    🔴 A and B must not be the same mailbox. A migration onto itself would be an
+       APPEND of every mail into its own folder: every mail twice, and
+       „quelle-leeren“ would afterwards check both halves of the same stock against
+       each other. The ADDRESS is compared, not the id — two entries with the same
+       address are the same mailbox.
     """
     faecher = {f["id"]: f for f in pw.postfaecher()}
     if not faecher:
@@ -181,12 +181,12 @@ def paar(von_id: str, nach_id: str):
 
 
 def zurueckbleiber(name: str) -> bool:
-    """Papierkorb/Spam — der Ordner UND alles darunter.
+    """Trash/spam — the folder AND everything below it.
 
-    🔴 Geprueft wird JEDES Wegstueck, nicht der ganze Name. „INBOX.Spam.Alt"
-       endet nicht auf „spam" und beginnt nicht damit — waere also mit einem
-       Praefix- oder Suffixvergleich nicht mitgezogen worden. Das fuehrende
-       „INBOX" faellt weg, weil es bei vielen Anbietern vor jedem Ordner steht.
+    🔴 EVERY path segment is checked, not the whole name. „INBOX.Spam.Alt“ neither
+       ends with „spam“ nor begins with it — so a prefix or suffix comparison would
+       not have taken it along. The leading „INBOX“ is dropped, because at many
+       providers it stands in front of every folder.
     """
     n = (name or "").lower().replace("/", ".")
     stuecke = [t for t in n.split(".") if t]
@@ -196,11 +196,12 @@ def zurueckbleiber(name: str) -> bool:
 
 
 def flaggen_karte(pf) -> dict:
-    """{Flagge ohne Backslash (klein): Ordnername} — fuer die Sonderordner.
+    """{flag without backslash (lower case): folder name} — for the special
+    folders.
 
-    Kommt derselbe Ordner mit zwei Flaggen, gilt die erste; kommt eine Flagge
-    zweimal, gilt der ERSTE Ordner. Beides ist selten und beides waere sonst
-    eine stille Entscheidung.
+    If the same folder comes with two flags, the first applies; if a flag comes
+    twice, the FIRST folder applies. Both are rare and both would otherwise be a
+    silent decision.
     """
     raus = {}
     for name, flaggen in U._list_mit_flags(pf).items():
@@ -212,15 +213,15 @@ def flaggen_karte(pf) -> dict:
 
 
 def marken_saeubern(roh: str) -> str:
-    """Nur die vier Marken, die ein APPEND ueberall vertraegt."""
+    """Only the four flags that an APPEND tolerates everywhere."""
     vorhanden = (roh or "").lower()
     behalten = [m for m in MARKEN_ERLAUBT if m.lower() in vorhanden]
     return ("(%s)" % " ".join(behalten)) if behalten else None
 
 
 def mid_normal(mid: str) -> str:
-    """Message-Id vergleichbar machen. Server geben sie mit und ohne spitze
-    Klammern zurueck, manche mit Leerzeichen — verglichen wird der Kern."""
+    """Make a Message-Id comparable. Servers return it with and without angle
+    brackets, some with spaces — the core is what is compared."""
     s = (mid or "").strip()
     if s.startswith("<") and s.endswith(">"):
         s = s[1:-1]
@@ -228,16 +229,16 @@ def mid_normal(mid: str) -> str:
 
 
 def mids_im_ordner(pf, name: str, ab_uid: int = 0) -> dict:
-    """{Message-Id: UID} eines Ordners. readonly, BODY.PEEK, in Bloecken.
+    """{Message-Id: UID} of a folder. Read-only, BODY.PEEK, in blocks.
 
-    🔑 Gelesen wird ueber FETCH, nicht ueber `SEARCH HEADER Message-Id`. Eine
-       Suche waere ein Hin- und Rueckweg PRO MAIL und muesste die Message-Id in
-       Anfuehrungszeichen setzen — bei einer Kennung mit Anfuehrungszeichen
-       darin bricht die Suche oder, schlimmer, sie findet still das Falsche.
-       Ein Block-FETCH liest 300 Kennungen auf einmal und hat kein Zitat-Problem.
+    🔑 Reading goes through FETCH, not through `SEARCH HEADER Message-Id`. A
+       search would be one round trip PER MAIL and would have to put the Message-Id
+       in quotes — with an id that contains a quote the search breaks or, worse,
+       silently finds the wrong thing. A block FETCH reads 300 ids at once and has
+       no quoting problem.
 
-    🔴 Das `finally` stellt auf INBOX zurueck — dieselbe Lehre wie ueberall:
-       ein Wechsel muss dahin zurueck, wo er herkam.
+    🔴 The `finally` returns to INBOX — the same lesson as everywhere: a change
+       has to return to where it came from.
     """
     raus = {}
     try:
@@ -281,22 +282,21 @@ def mids_im_ordner(pf, name: str, ab_uid: int = 0) -> dict:
 
 
 def b_bestand(pf, melden=None) -> dict:
-    """Was liegt bei B schon? {Message-Id: Ordner} ueber ALLE Ordner.
+    """What is already at B? {Message-Id: folder} across ALL folders.
 
-    🔑 Das ist die Doppel-Sperre: eine Mail, deren Kennung bei B bereits
-       irgendwo liegt, wird nicht ein zweites Mal angelegt. Ohne das waere ein
-       abgebrochener und neu gestarteter Umzug ein Postfach mit allem doppelt —
-       und ein `uebertragen`, das man zweimal druckt, ist der Normalfall, nicht
-       die Ausnahme.
+    🔑 This is the duplicate lock: a mail whose id already lies somewhere at B is
+       not created a second time. Without it, an aborted and restarted migration
+       would be a mailbox with everything twice — and a `uebertragen` that gets
+       pressed twice is the normal case, not the exception.
 
-    🔴 Gezaehlt wird ueber alle Ordner, nicht nur ueber den geplanten Zielordner.
-       Sonst legt eine spaeter verfeinerte Regel dieselbe Mail ein zweites Mal
-       an, nur woanders — und beide Haelften sehen richtig aus.
+    🔴 Counting goes across all folders, not only the planned target folder.
+       Otherwise a later refined rule creates the same mail a second time,
+       just elsewhere — and both halves look right.
     """
     raus = {}
-    # 🔴 EINMAL fragen, nicht je Ordner. `_list_mit_flags` ist ein LIST am
-    #    Server — in der Schleife waeren das bei 132 Ordnern 132 Abfragen fuer
-    #    eine Antwort, die sich waehrend des Laufs nicht aendert.
+    # 🔴 Ask ONCE, not per folder. `_list_mit_flags` is a LIST on the server —
+    #    inside the loop that would be 132 requests for 132 folders, for an answer
+    #    that does not change during the run.
     flaggen_alle = U._list_mit_flags(pf)
     for name in sorted(pf.ordner_liste()):
         if "\\noselect" in (flaggen_alle.get(name, "") or "").lower():
@@ -339,10 +339,10 @@ def pruefen(von_id: str, nach_id: str) -> int:
                 for flagge, name in sorted(lage[marke]["sonder"].items()):
                     print("     \\%-10s %s" % (flagge.capitalize(), name))
                 if marke == "b":
-                    # 🔑 Beschreibbar? Ein Umzug, der erst bei Mail 12.000
-                    #    merkt, dass B keine Ordner anlegen darf, hat zwei
-                    #    Stunden gearbeitet und nichts erreicht. Deshalb ein
-                    #    Probeordner: anlegen, in LIST nachsehen, entfernen.
+                    # 🔑 Writable? A migration that only notices at mail 12,000
+                    #    that B may not create folders has worked for two hours
+                    #    and achieved nothing. Hence a probe folder: create it,
+                    #    look it up in LIST, remove it.
                     probe = "Postwache Probe %d" % int(time.time())
                     try:
                         U.ordner_anlegen(pf, probe)
@@ -374,15 +374,15 @@ def inv_pfad(a_id: str) -> str:
 
 
 def inventar_a(a: dict, voll: bool = False) -> dict:
-    """Kopfzeilen ALLER Mails bei A — ohne eine anzufassen.
+    """Headers of ALL mails at A — without touching one.
 
-    🔴 EIGENE Datei, nicht `inventar.json.gz`. Die gehoert dem Umbau und sagt
-       ihm, welcher Ordner FRUEHER Post hatte — ohne sie darf
-       `umbau.py ordner` keinen einzigen Ordner entfernen. Wer sie hier
-       ueberschreibt, nimmt dem Umbau sein Gedaechtnis.
+    🔴 A file of its OWN, not `inventar.json.gz`. That one belongs to the
+       restructuring and tells it which folder USED TO have post — without it
+       `umbau.py ordner` may not remove a single folder. Overwrite it here and you
+       take away the restructuring's memory.
 
-    Unveraenderte Ordner werden aus dem letzten Lauf uebernommen (Signatur aus
-    UIDVALIDITY/MESSAGES/UIDNEXT, ein Hin- und Rueckweg je Ordner).
+    Unchanged folders are carried over from the last run (signature from
+    UIDVALIDITY/MESSAGES/UIDNEXT, one round trip per folder).
     """
     alt = {}
     if not voll:
@@ -444,7 +444,7 @@ def plan(von_id: str, nach_id: str, grenze: int = 0, seit: str = "",
                     text="Inventar bei %s" % a["name"])
     inv = inventar_a(a, voll=voll)
 
-    # Wohin gehoeren die Sonderordner bei B? An der FLAGGE, nicht am Namen.
+    # Where do the special folders belong at B? By the FLAG, not by the name.
     stand_schreiben(phase="ziele", text="Sonderordner bei B werden erfragt")
     with U.verbindung(b, schreiben=False) as pfb:
         sonder_b = flaggen_karte(pfb)
@@ -453,13 +453,12 @@ def plan(von_id: str, nach_id: str, grenze: int = 0, seit: str = "",
           % (", ".join("\\%s=%s" % (k.capitalize(), v)
                        for k, v in sorted(sonder_b.items())) or "keine"))
 
-    # 🔑 Die Struktur wird mit DEMSELBEN Lehrer gelernt wie im Umbau — nichts
-    #    neu erfunden. 🔴 Nur eine Kleinigkeit muss anders sein: `umbau`
-    #    ueberspringt beim Lernen den Posteingang, weil dort im gewachsenen
-    #    Postfach nur der Rest liegt. Bei einem UMZUG kann der Posteingang der
-    #    ganze Bestand sein (ein Anbieter ohne Ordner) — dann haette der Lehrer
-    #    nichts zu lesen. Deshalb bekommt er den Posteingang unter neutralem
-    #    Namen zu sehen; an den Mails aendert das nichts.
+    # 🔑 The structure is learned with THE SAME teacher as in the restructuring —
+    #    nothing reinvented. 🔴 Only one detail has to differ: when learning,
+    #    `umbau` skips the inbox, because in a grown mailbox only the remainder
+    #    lies there. In a MIGRATION the inbox can be the entire stock (a provider
+    #    without folders) — and then the teacher would have nothing to read. So it
+    #    gets to see the inbox under a neutral name; nothing changes for the mails.
     lehr_ordner = {}
     for name, v in inv["ordner"].items():
         schluessel = "Posteingang (Umzug)" if name.upper() == "INBOX" else name
@@ -477,8 +476,8 @@ def plan(von_id: str, nach_id: str, grenze: int = 0, seit: str = "",
         sonder_ziel = ""
         for marke in UNSORTIERT_UEBER:
             if ("\\" + marke.lower()) in flaggen:
-                # Bei B der gleichflaggige Ordner; hat B keinen, behaelt der
-                # Ordner seinen Namen — ein neuer „Gesendet" waere geraten.
+                # At B the folder with the same flag; if B has none, the folder
+                # keeps its name — a new „Gesendet“ would be a guess.
                 sonder_ziel = sonder_b.get(marke.lower(), ordner)
                 break
         for m in v["mails"]:
@@ -548,14 +547,14 @@ def plan(von_id: str, nach_id: str, grenze: int = 0, seit: str = "",
 
 # ── Stufe 3: uebertragen ─────────────────────────────────────────────────────
 def praefix_b(pf) -> str:
-    """Wo legt DIESER Server Ordner an: an der Wurzel oder unter INBOX?
+    """Where does THIS server create folders: at the root or under INBOX?
 
-    🔴 Mancher Anbieter antwortet mit dem persoenlichen Namensraum `""` — Ordner gehoeren
-       an die WURZEL. Andere Anbieter antworten `"INBOX."`, und dort ist ein
-       Ordner an der Wurzel nicht sichtbar. Der Namensraum wird deshalb
-       ERFRAGT (NAMESPACE) und nicht geraten; antwortet der Server nicht,
-       bleibt es die Wurzel — das ist an einem fehlenden Ordner sofort zu
-       sehen, waehrend ein falsches „INBOX." still einen Ordner im Ordner baut.
+    🔴 Some providers answer with the personal namespace `""` — folders belong at
+       the ROOT. Others answer `"INBOX."`, and there a folder at the root is not
+       visible. So the namespace is ASKED FOR (NAMESPACE) and not guessed; if the
+       server does not answer, the root stands — which is immediately visible as a
+       missing folder, while a wrong „INBOX.“ silently builds a folder inside a
+       folder.
     """
     try:
         typ, daten = pf.m.namespace()
@@ -570,12 +569,12 @@ def praefix_b(pf) -> str:
 
 
 def bei_b_name(ziel: str, trenner: str, praefix: str) -> str:
-    """Der kanonische Pfad `Banking.PayPal` in der Schreibweise DIESES Servers.
+    """The canonical path `Banking.PayPal` in THIS server's spelling.
 
-    🔴 Der Punkt ist im Umbau der TRENNER, nicht Teil eines Namens
-       (`marke_aus_domain` wirft Punkte aus Ordnernamen heraus). Wer den Pfad
-       unveraendert an einen Server mit Trenner „/" gibt, legt EINEN Ordner
-       namens „Banking.PayPal" an statt „PayPal" unter „Banking".
+    🔴 In the restructuring the dot is the SEPARATOR, not part of a name
+       (`marke_aus_domain` throws dots out of folder names). Pass the path unchanged
+       to a server whose separator is „/“ and you create ONE folder called
+       „Banking.PayPal“ instead of „PayPal“ under „Banking“.
     """
     teile = [t for t in (ziel or "").split(".") if t]
     voll = trenner.join(teile)
@@ -585,12 +584,12 @@ def bei_b_name(ziel: str, trenner: str, praefix: str) -> str:
 
 
 def mail_holen(pf, uid: int):
-    """(Rohmail, Marken, Zeitpunkt) einer Mail — mit PEEK, damit sie bei A
-    ungelesen bleibt. Gibt (None, None, None), wenn die UID nichts liefert.
+    """(raw mail, flags, timestamp) of a mail — with PEEK, so that it stays unread
+    at A. Returns (None, None, None) when the UID delivers nothing.
 
-    🔴 Zeilenenden werden auf CRLF gebracht. Das Netz-Format verlangt es, und
-       ein Server, der eine Mail mit blossem LF annimmt, haengt die naechste
-       Kopfzeile an den Rumpf — der Fehler faellt erst Wochen spaeter auf.
+    🔴 Line endings are brought to CRLF. The wire format demands it, and a server
+       that accepts a mail with bare LF appends the next header to the body — a
+       mistake that only shows up weeks later.
     """
     try:
         typ, daten = pf.m.uid("fetch", str(uid), "(FLAGS INTERNALDATE BODY.PEEK[])")
@@ -621,11 +620,11 @@ def mail_holen(pf, uid: int):
 
 
 def fingerabdruck_plan() -> str:
-    """Der Abdruck des aktuellen Umzugsplans — die Freigabe zum Uebertragen.
+    """The print of the current migration plan — the approval to transfer.
 
-    Eigene Funktion, damit die Seite und die Kommandozeile DIESELBE Zahl
-    benutzen. Zwei Stellen, die denselben Abdruck selbst berechnen, sind zwei
-    Gelegenheiten, ihn unterschiedlich zu berechnen.
+    A function of its own, so that the page and the command line use THE SAME
+    number. Two places computing the same print themselves are two chances to
+    compute it differently.
     """
     return U.fingerabdruck(out_pfad("umzug_plan.json.gz"))
 
@@ -677,8 +676,8 @@ def uebertragen(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
                     print("   angelegt: %s" % U.ordner_anlegen(pfb, voll))
                     vorhanden.add(voll)
 
-            # 🔑 Was liegt bei B schon? Ohne diese Liste ist ein zweiter Lauf
-            #    ein Postfach mit allem doppelt.
+            # 🔑 What is already at B? Without this list a second run is a
+            #    mailbox with everything twice.
             stand_schreiben(phase="bestand", text="Bestand bei B wird gelesen")
             bestand = b_bestand(pfb, melden=lambda n: stand_schreiben(
                 text="Bestand bei B: %s" % n))
@@ -691,9 +690,9 @@ def uebertragen(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
                     print("   ! %s bei A nicht waehlbar — uebersprungen" % quelle)
                     fehl += len(liste)
                     continue
-                # 🔴 UIDVALIDITY-Sperre: hat der Ordner einen neuen Nummernkreis,
-                #    zeigen die UIDs des Plans auf andere Mails. Dann wird
-                #    NICHTS uebertragen, sondern gemeldet.
+                # 🔴 UIDVALIDITY lock: if the folder has a new number space, the
+                #    plan's UIDs point at different mails. Then NOTHING is
+                #    transferred but reported.
                 jetzt = pfa.uidvalidity(quelle)
                 soll = int(liste[0].get("uidvalidity") or 0)
                 if soll and jetzt and jetzt != soll:
@@ -745,11 +744,11 @@ def uebertragen(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
                                     uebertragen=getan + len(angelegt), schon_dort=schon,
                                     text="%s → %s" % (quelle[:24], satz["ziel"][:24]))
 
-                # ── NACHSEHEN ────────────────────────────────────────────────
-                # 🔴 Erst jetzt gilt eine Mail als angekommen. Der Rueckgabewert
-                #    des APPEND sagt nur, dass der Server den Auftrag ANGENOMMEN
-                #    hat. Bestaetigt ist sie, wenn ihre Kennung bei B GELESEN
-                #    wurde — leere Antwort ist keine Bestaetigung (27.09.).
+                # ── CHECK ─────────────────────────────────────
+                # 🔴 Only now does a mail count as arrived. The APPEND's return
+                #    value only says the server ACCEPTED the order. It is
+                #    confirmed once its id has been READ at B — an empty answer
+                #    is no confirmation (2026-09-27).
                 gefunden = {}
                 for ziel_voll, uidnext in uidnext_vorher.items():
                     gefunden.update(mids_im_ordner(pfb, ziel_voll,
@@ -796,12 +795,11 @@ def uebertragen(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
 
 # ── Stufe 4: abgleich ────────────────────────────────────────────────────────
 def abgleich(von_id: str, nach_id: str) -> int:
-    """Ist bei B wirklich alles angekommen? LIVE gezaehlt, nicht aus dem Journal.
+    """Has everything really arrived at B? Counted LIVE, not from the journal.
 
-    🔑 Das Journal sagt, was das Programm GETAN hat. Diese Stufe sagt, was
-       WIRKLICH DA IST. Nur die zweite Frage darf ueber „bei A loeschen"
-       entscheiden — ein Journal ueberlebt auch ein Postfach, das inzwischen
-       zurueckgesetzt wurde.
+    🔑 The journal says what the program DID. This stage says what IS REALLY
+       THERE. Only the second question may decide about „delete at A“ — a journal
+       also survives a mailbox that has been reset in the meantime.
     """
     a, b, fehler = paar(von_id, nach_id)
     if fehler:
@@ -861,14 +859,14 @@ def abgleich(von_id: str, nach_id: str) -> int:
 
 # ── Stufe 5: bei A leeren ────────────────────────────────────────────────────
 def loeschliste(a: dict, b: dict):
-    """Welche Mails bei A duerfen weg? (Liste, Grundzaehler)
+    """Which mails at A may go? (list, reason counters)
 
-    🔴 DREI Sperren, alle drei muessen zustimmen:
-       1. die Message-Id liegt bei B — LIVE nachgesehen, nicht aus dem Journal
-       2. der Nummernkreis des Ordners bei A ist unveraendert
-       3. die UID bei A traegt HEUTE noch genau diese Message-Id
-       Faellt eine weg, bleibt die Mail liegen. Eine Mail ohne Message-Id
-       kommt hier nie vor — sie hat Sperre 1 nie bestanden.
+    🔴 THREE locks, all three have to agree:
+       1. the Message-Id lies at B — checked LIVE, not from the journal
+       2. the folder's number space at A is unchanged
+       3. the UID at A still carries exactly this Message-Id TODAY
+       If one fails, the mail stays. A mail without a Message-Id never appears
+       here — it never passed lock 1.
     """
     with U.verbindung(b, schreiben=False) as pfb:
         bei_b = b_bestand(pfb, melden=lambda n: stand_schreiben(text="B: %s" % n))
@@ -959,9 +957,9 @@ def quelle_leeren(von_id: str, nach_id: str, freigabe: str = "",
                 print("   ! %s: Nummernkreis geaendert — bleibt unberuehrt" % name)
                 uebersprungen += len(v["uids"])
                 continue
-            # 🔴 LETZTE Sperre: traegt die UID noch dieselbe Mail? Zwischen dem
-            #    Lesen der Liste und diesem Augenblick kann bei A etwas passiert
-            #    sein. Verglichen wird Kennung gegen Kennung, nicht Zahl gegen Zahl.
+            # 🔴 LAST lock: does the UID still carry the same mail? Between
+            #    reading the list and this moment something may have happened at
+            #    A. Id is compared against id, not number against number.
             jetzt = {u: m for m, u in mids_im_ordner(pfa, name).items()}
             typ, _ = pfa.m.select(pfa._zitat(name), readonly=False)
             sicher = []
@@ -993,21 +991,19 @@ def quelle_leeren(von_id: str, nach_id: str, freigabe: str = "",
     return 0
 
 
-# ── Stufe 6: staendige Umleitung ─────────────────────────────────────────────
-# der Besitzer: „oder eine staendige umleitung der mails ueber die postwache
-# einrichten. so das anbieter a keine mails mehr behaelt aber alles bei
-# anbieter b ankommt und einsortiert wird"
+# ── Stage 6: permanent redirection ────────────────────────────
+# der Besitzer — or set up a permanent redirection of the mail through the Postwache, so
+# that provider A keeps no mail but everything arrives at provider B and is filed
+# there.
 #
-# 🔑 Das ist keine Weiterleitung beim ANBIETER. Eine anbieterseitige
-#    Weiterleitung kann die Postwache nicht einsortieren und nicht nachsehen —
-#    sie schickt eine Kopie los und vergisst sie. Hier holt der Waechter die
-#    Post bei A ab, legt sie bei B in den RICHTIGEN Ordner, sieht nach, dass sie
-#    dort liegt, und raeumt erst dann bei A ab. Derselbe Dreischritt wie beim
-#    Umzug, nur jede Minute statt einmal.
+# 🔑 This is not a forward at the PROVIDER. A provider-side forward cannot be
+#    filed and cannot be checked by the Postwache — it sends a copy off and
+#    forgets it. Here the watchman collects the post at A, puts it into the RIGHT
+#    folder at B, checks that it is there, and only then clears up at A. The same
+#    three steps as in the migration, only every minute instead of once.
 #
-# 🔴 Die Umleitung ist GLOBAL, nicht je Postfach: sie beschreibt ein PAAR.
-#    Als Einstellung eines Postfachs waere sie zweimal vorhanden und koennte
-#    sich widersprechen.
+# 🔴 The redirection is GLOBAL, not per mailbox: it describes a PAIR. As a
+#    setting of one mailbox it would exist twice and could contradict itself.
 UMLEITUNG = "umleitung.json"
 DECKEL_STANDARD = 200
 
@@ -1031,11 +1027,11 @@ def umleitung_lesen() -> dict:
 def umleitung_setzen(an: bool, von: str = "", nach: str = "",
                      loeschen: bool = True, deckel: int = DECKEL_STANDARD,
                      ziel: str = "posteingang") -> str:
-    """Umleitung ein- oder ausschalten. Gibt eine Fehlermeldung zurueck oder "".
+    """Switch the redirection on or off. Returns an error message or "".
 
-    🔴 Eingeschaltet wird nur, was auch pruefbar ist: beide Postfaecher muessen
-       existieren und verschieden sein. Eine Umleitung auf sich selbst waere
-       eine Schleife, die jede Minute jede Mail neu anlegt.
+    🔴 Only what can be verified is switched on: both mailboxes have to exist and
+       be different. A redirection onto itself would be a loop creating every mail
+       anew every minute.
     """
     alt = umleitung_lesen()
     if not an:
@@ -1057,15 +1053,15 @@ def umleitung_setzen(an: bool, von: str = "", nach: str = "",
 
 
 def umleitung_lauf(melden=None) -> dict:
-    """Ein Durchgang der Umleitung: Posteingang bei A -> einsortiert bei B.
+    """One pass of the redirection: inbox at A -> filed at B.
 
-    Wird vom Waechter bei JEDEM Lauf aufgerufen, also jede Minute. Deshalb:
-    kein Inventar, kein Plan, kein Journal je Mail — nur der Posteingang, und
-    nur bis zum Deckel. Was heute nicht mitkommt, kommt in der naechsten Minute.
+    Called by the watchman on EVERY run, that is every minute. Hence: no inventory,
+    no plan, no journal per mail — only the inbox, and only up to the cap. What does
+    not come along today comes along in the next minute.
 
-    🔴 Die Reihenfolge ist nicht vertauschbar: anlegen, NACHSEHEN, dann bei A
-       loeschen. Wer das Loeschen an den Rueckgabewert des APPEND haengt,
-       loescht Post, die nie angekommen ist.
+    🔴 The order cannot be swapped: create, CHECK, then delete at A. Hang the
+       deletion on the APPEND's return value and you delete post that never
+       arrived.
     """
     e = umleitung_lesen()
     if not e["an"]:
@@ -1088,25 +1084,25 @@ def umleitung_lauf(melden=None) -> dict:
             with U.verbindung(b, schreiben=True) as pfb:
                 praefix = praefix_b(pfb)
                 vorhanden = set(pfb.ordner_liste())
-                sicher = {}        # {Ordner bei A: [UIDs]} — erst nach dem Nachsehen
+                sicher = {}        # {folder at A: [UIDs]} — only after the check
                 angelegt = []
                 for m in saetze:
-                    # 🔑 ZWEI WEGE, und der Unterschied ist wichtig:
+                    # 🔑 TWO ROUTES, and the difference matters:
                     #
-                    #    „posteingang" (Vorgabe) legt die Mail in den
-                    #    POSTEINGANG bei B — genau so, als haette B sie selbst
-                    #    empfangen. Den Rest macht der Waechter bei B: melden,
-                    #    einsortieren, Dokumente an DocuSort, Statistik. Das ist
-                    #    die ganze Maschinerie, die es schon gibt.
+                    #    „posteingang“ (the default) puts the mail into B's
+                    #    INBOX — exactly as if B had received it itself. The rest
+                    #    is done by the watchman at B: report, file, documents to
+                    #    DocuSort, statistics. That is the whole machinery that
+                    #    already exists.
                     #
-                    #    „sortiert" legt sie gleich in den richtigen Ordner —
-                    #    fuer den Fall, dass bei B gar kein Waechter laeuft.
+                    #    „sortiert“ puts it straight into the right folder — for
+                    #    the case where no watchman runs at B at all.
                     #
-                    # 🔴 Der Unterschied ist kein Geschmack: eine Mail, die
-                    #    direkt in „Banking.PayPal" gelegt wird, sieht der
-                    #    Waechter bei B NIE — er sieht den Posteingang. Kein
-                    #    Telegram, keine Dokumentenuebergabe, keine Statistik.
-                    #    Darum ist die Vorgabe der Posteingang.
+                    # 🔴 The difference is not a matter of taste: a mail put
+                    #    directly into „Banking.PayPal“ is NEVER seen by the
+                    #    watchman at B — it looks at the inbox. No Telegram, no
+                    #    document handover, no statistics. That is why the default
+                    #    is the inbox.
                     if e["ziel"] == "sortiert":
                         ziel, _grund, _neu = U.ziel_fuer_neue(m)
                         voll = bei_b_name(ziel or U.AUFFANG, pfb.trenner, praefix)
@@ -1129,8 +1125,8 @@ def umleitung_lauf(melden=None) -> dict:
                         ziele_gesehen[voll] = {"uidnext": sig[2] if sig else 1,
                                                "vorher": mids_im_ordner(pfb, voll)}
                     if mid and mid in ziele_gesehen[voll]["vorher"]:
-                        # Liegt dort schon — dann darf sie bei A weg, ohne dass
-                        # sie noch einmal angelegt wird.
+                        # Already lies there — then it may go at A without
+                        # being created again.
                         sicher.setdefault("INBOX", []).append((m["uid"], mid))
                         bestaetigt += 1
                         continue
@@ -1147,7 +1143,7 @@ def umleitung_lauf(melden=None) -> dict:
                         liegen += 1
                         continue
                     angelegt.append((m["uid"], mid, voll))
-                # ── NACHSEHEN, erst dann loeschen ─────────────────────────────
+                # ── CHECK, and only then delete ──────────────────────
                 gefunden = {}
                 for voll, d in ziele_gesehen.items():
                     gefunden.update(mids_im_ordner(
@@ -1183,11 +1179,11 @@ def umleitung_lauf(melden=None) -> dict:
 
 
 def betriebsart() -> dict:
-    """Wie laufen die Postfaecher gerade? Fuer die Seite und fuer `lage`.
+    """How are the mailboxes running right now? For the page and for `lage`.
 
-    „parallel" ist keine Einstellung, sondern die ABWESENHEIT einer Umleitung
-    bei mehreren eingeschalteten Postfaechern — jedes wird fuer sich geprueft
-    und sortiert. Das war schon in 3.0.0 so und bleibt der Normalfall.
+    „parallel“ is not a setting but the ABSENCE of a redirection with several
+    mailboxes switched on — each is checked and sorted for itself. That was already
+    so in 3.0.0 and remains the normal case.
     """
     faecher = pw.postfaecher()
     an = [f for f in faecher if f.get("an")]
@@ -1260,8 +1256,8 @@ def main(argv) -> int:
     if argv[1] == "abgleich":
         return abgleich(von, nach)
     if argv[1] == "quelle-leeren":
-        # 🔴 Vorgabe ist TROCKEN. Wer bei A loescht, sagt es ausdruecklich —
-        #    und braucht dazu den Fingerabdruck der Liste, die er gelesen hat.
+        # 🔴 The default is DRY. Whoever deletes at A says so expressly — and
+        #    needs the fingerprint of the list they have read to do it.
         return quelle_leeren(von, nach, args.get("freigabe", ""), "scharf" in args)
     if argv[1] == "umleitung":
         if "aus" in args:

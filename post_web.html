@@ -10,9 +10,9 @@
   color-scheme: dark;
   --grund:#12100c;
   --karte:rgba(255,255,255,.045); --karte2:rgba(255,255,255,.075);
-  /* Dieselbe Farbe wie eine Karte, aber DECKEND. Wird gebraucht, wo etwas
-     ueber Inhalt klebt (die Auswahlleiste der Trefferliste): --karte ist
-     durchscheinend, dahinter laege sonst lesbar die naechste Zeile. */
+  /* The same colour as a card, but OPAQUE. Needed wherever something sticks
+     over content (the selection bar of the result list): --karte is
+     translucent, and the next line would otherwise be readable behind it. */
   --karte-voll:#1d1b17;
   --rand:rgba(255,255,255,.10);
   --text:#f4efe6; --leise:#a99c88;
@@ -21,8 +21,8 @@
   --r:1.1rem;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-/* overflow-x nur auf body genuegt nicht: laeuft ein Kind ueber, waechst das
-   html-Element mit und die ganze Seite wird breiter als das Fenster. */
+/* overflow-x on body alone is not enough: if a child overflows, the html
+   element grows with it and the whole page becomes wider than the window. */
 html{-webkit-text-size-adjust:100%;overflow-x:hidden}
 html,body{margin:0;min-height:100vh;min-height:100dvh;max-width:100%}
 body{
@@ -67,9 +67,9 @@ body.steht .wappen::after{animation:none;opacity:0}
 @media (prefers-reduced-motion: reduce){.wappen::after{animation:none;opacity:.3}}
 
 .kz{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem}
-/* ── Diagramme ─────────────────────────────────────────────────────────────
-   Reines SVG, keine Fremdbibliothek: die Seite laeuft im LAN ohne Internet,
-   und ein Diagramm, das auf ein CDN wartet, ist im Zweifel gar keins. */
+/* ── Charts ──────────────────────────────────────────────
+   Pure SVG, no third-party library: the page runs on the LAN without internet,
+   and a chart waiting for a CDN is, when it matters, no chart at all. */
 .plot{width:100%;height:auto;display:block}
 .plot .bar{fill:var(--akzent);opacity:.85}
 .plot .bar.leise{fill:var(--leise);opacity:.35}
@@ -84,10 +84,10 @@ body.steht .wappen::after{animation:none;opacity:0}
 .rang{display:flex;align-items:center;gap:.6rem;padding:.3rem 0}
 .rang .nam{flex:0 0 11rem;min-width:0;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;font-size:.84rem}
-/* 🔴 Bei mehrdeutigen Namen muss die Adresse auf eine EIGENE Zeile. In einer
-   Zeile wurde am Handy aus „eBay · ebay@ebay.de" und „eBay · ebay@info…"
-   zweimal dasselbe „eBay · ebay@eba…" — die Unterscheidung fiel genau dort
-   weg, wo sie am noetigsten war. */
+/* 🔴 With ambiguous names the address has to go on a LINE OF ITS OWN. On one
+   line, „eBay · ebay@ebay.de“ and „eBay · ebay@info…“ both became
+   „eBay · ebay@eba…“ on a phone — the distinction fell away exactly where it
+   was needed most. */
 .rang .nam small{display:block;font-size:.7rem;color:var(--leise);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rang .balken{flex:1 1 auto;height:.55rem;border-radius:999px;background:var(--karte2);
@@ -124,31 +124,31 @@ button.haupt{background:var(--akzent);border-color:var(--akzent);color:#2a1d0a;f
 button.haupt:hover{filter:brightness(1.08);background:var(--akzent)}
 button.leisetaste{background:transparent;color:var(--leise)}
 button:disabled{opacity:.45;cursor:not-allowed}
-/* 🔴 Der Regelsatz oben heisst `button.leisetaste` — ein <a> mit derselben
-   Klasse waere sonst ein blauer Link zwischen zwei Knoepfen. Ein Download
-   MUSS aber ein <a download> sein, ein Knopf kann keine Datei holen. */
+/* 🔴 The rule set above is called `button.leisetaste` — an <a> with the same
+   class would otherwise be a blue link between two buttons. But a download MUST
+   be an <a download>; a button cannot fetch a file. */
 a.leisetaste{display:inline-block;text-decoration:none;font:inherit;
   color:var(--leise);background:transparent;border:1px solid var(--rand);
   border-radius:.7rem;padding:.5rem .9rem;
   transition:background .15s ease,border-color .15s ease}
 a.leisetaste:hover{background:rgba(255,255,255,.12)}
-/* Eine Karte in der Karte: abgesetzt, aber nicht noch einmal aufgeschlagen. */
+/* A card inside the card: set apart, but not opened up a second time. */
 .unterkarte{background:rgba(255,255,255,.04);border:1px solid var(--rand);
   border-radius:.9rem;padding:.85rem .9rem}
 input,select{font:inherit;color:var(--text);background:rgba(255,255,255,.06);
   border:1px solid var(--rand);border-radius:.7rem;padding:.55rem .7rem;width:100%}
 input:focus,select:focus{outline:2px solid var(--akzent);outline-offset:1px}
-/* 🔴 Ohne diese Zeile nimmt der Browser sein eigenes Grau (gemessen
-   rgb(169,169,169)) — dieselbe Klasse Fehler wie bei Mikes Eingabefeld,
-   wo die Schrift beim Tippen hell wurde. Eine Farbe muss gewaehlt sein. */
+/* 🔴 Without this line the browser takes its own grey (measured
+   rgb(169,169,169)) — the same class of bug as with Mike's input field, where the
+   text turned pale while typing. A colour has to be chosen. */
 input::placeholder{color:var(--leise);opacity:.8}
 label{display:block;font-size:.8rem;color:var(--leise);margin:.6rem 0 .25rem}
 .feldpaar{display:flex;gap:.6rem;flex-wrap:wrap}
 .feldpaar > div{flex:1 1 12rem}
 .knopfreihe{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem}
-/* Reiter. Bewusst KEINE Leiste, die am Rand klebt: die Seite ist lang, aber
-   man wechselt die Ansicht selten — eine klebende Leiste kostet auf dem Telefon
-   dauerhaft Hoehe fuer etwas, das man zweimal am Tag braucht. */
+/* Tabs. Deliberately NOT a bar stuck to the edge: the page is long, but you
+   change view rarely — a sticky bar permanently costs height on a phone for
+   something you need twice a day. */
 .reiter{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:1rem}
 .reitertaste{flex:1 1 9rem;padding:.62rem .9rem;border-radius:.8rem;
   border:1px solid var(--rand);background:var(--karte);color:var(--leise);
@@ -435,33 +435,33 @@ details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem
 
 <script>
 /*SPRACHE*/
-/* Faellt die Einsetzung aus (Seite direkt aus dem Dateisystem geoeffnet),
-   bleibt die Seite bedienbar und zeigt die Schluessel. Ein leerer Bildschirm
-   waere die schlechtere Antwort auf ein fehlendes Woerterbuch.
+/* If the substitution fails (the page opened straight from the file system),
+   the page stays usable and shows the keys. An empty screen would be the worse
+   answer to a missing dictionary.
 
-   🔴 `globalThis.T = …` und NICHT `var T = …`: `var` wird hochgezogen und
-   kollidiert mit dem eingesetzten `const T` — „Identifier 'T' has already been
-   declared". Das ist ein PARSE-Fehler, also laeuft keine einzige Zeile des
-   Skripts mehr. Die Seite sieht dabei fast normal aus, weil das statische HTML
-   ja steht; man merkt es erst daran, dass die Knoepfe leer bleiben. Ein
-   Rueckfall, der den Normalfall zerstoert, ist schlimmer als gar keiner. */
+   🔴 `globalThis.T = …` and NOT `var T = …`: `var` is hoisted and collides with
+   the substituted `const T` — „Identifier 'T' has already been declared“. That is
+   a PARSE error, so not a single line of the script runs any more. The page looks
+   almost normal doing it, because the static HTML is there; you only notice
+   because the buttons stay empty. A fallback that destroys the normal case is
+   worse than none at all. */
 if (typeof T === "undefined") {
   globalThis.T = {};
   globalThis.LANG = "de";
   globalThis.SPRACHEN = [["de", "Deutsch"]];
 }
 
-/* Ein Text. `txt("pf.titel")` — fehlt er, kommt der SCHLUESSEL zurueck und faellt
-   damit sofort auf, statt still eine Luecke zu hinterlassen. Platzhalter in
-   geschweiften Klammern: txt("dok.treffer", {n: 12}). */
+/* One text. `txt("pf.titel")` — if it is missing, the KEY comes back and stands
+   out at once instead of silently leaving a gap. Placeholders in braces:
+   txt("dok.treffer", {n: 12}). */
 function txt(schluessel, werte){
   let s = T[schluessel];
   if(s === undefined) return schluessel;
   if(werte) for(const k in werte) s = s.split("{" + k + "}").join(werte[k]);
   return s;
 }
-/* Statisches Markup: ein Element mit data-t wird einmal gefuellt.
-   Bei data-t-titel/-platzhalter wandert der Text ins Attribut. */
+/* Static markup: an element with data-t is filled once.
+   With data-t-titel/-platzhalter the text moves into the attribute. */
 function textenSetzen(wurzel){
   (wurzel || document).querySelectorAll("[data-t]").forEach(el => {
     el.textContent = txt(el.dataset.t);
@@ -480,11 +480,10 @@ function textenSetzen(wurzel){
 const $ = s => document.querySelector(s);
 let L = null, laden_laeuft = false;
 
-/* 🔴 Die Seite holt alle 30 s neu. Wuerde sie dabei jedes Mal ALLES neu
-   zeichnen, ist jede halb getippte Eingabe weg — der Besitzer konnte am 11.09.2026
-   seine Zugangsdaten gar nicht erst eintragen. Deshalb dasselbe Verfahren wie
-   dieselbe Regel wie ueberall hier: ein Block wird nur angefasst, wenn sich seine
-   NUTZDATEN wirklich geaendert haben. Die Signatur wird VOR dem Bauen gesetzt. */
+/* 🔴 The page refetches every 30 s. Were it to redraw EVERYTHING each time,
+   every half-typed entry would be gone — on 2026-09-11 he could not even enter his
+   credentials. Hence the same rule as everywhere here: a block is only touched
+   when its PAYLOAD has really changed. The signature is set BEFORE building. */
 const sig = {};
 function male(id, daten, bauen){
   const s = JSON.stringify(daten);
@@ -494,20 +493,20 @@ function male(id, daten, bauen){
   return true;
 }
 
-/* 🔴 Zweiter, unabhaengiger Riegel fuer die Einrichtungskarte. Die Signatur
-   allein genuegt nicht: es reicht EIN Neuzeichnen aus irgendeinem Grund, und
-   das Passwort ist weg. Solange dort ein Feld den Fokus hat ODER etwas
-   darinsteht, wird die Karte gar nicht erst angefasst. */
+/* 🔴 A second, independent bolt for the setup card. The signature alone is not
+   enough: ONE redraw for any reason is all it takes and the password is gone. As
+   long as a field there has the focus OR something is in it, the card is not
+   touched at all. */
 function tippt(){
   const k = $("#einrichtung");
   if(!k) return false;
   if(k.contains(document.activeElement)) return true;
-  /* 🔴 NICHT „irgendein Feld hat Inhalt" pruefen: Port steht immer auf 993 und
-     Server immer auf imap.beispiel.example — der Riegel haette damit dauerhaft
-     festgehangen und die Karte sich nie wieder gezeichnet (gemessen am
-     11.09.2026, direkt nachdem er den ersten Fehler behoben hatte).
-     Geschuetzt wird genau das, was verloren gehen KANN: ein angefangenes
-     Passwort, und eine Adresse, die noch nicht die gespeicherte ist. */
+  /* 🔴 Do NOT check „some field has content“: the port is always 993 and the
+     server always imap.beispiel.example — the bolt would have been stuck for
+     good and the card would never have redrawn itself (measured 2026-09-11,
+     right after he had fixed the first bug).
+     What is protected is exactly what CAN be lost: a password being typed, and
+     an address that is not yet the stored one. */
   const pass = $("#f_pass"), adr = $("#f_adresse");
   if(pass && pass.value !== "") return true;
   if(adr && adr.value.trim() !== "" && adr.value.trim() !== (L.adresse || "")) return true;
@@ -545,7 +544,7 @@ async function tu(aktion, daten){
 function esc(s){ return String(s == null ? "" : s)
   .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-/* „vor 2 Min" statt „15:15" — die Frage ist nicht wann, sondern wie lange her. */
+/* „2 min ago“ instead of „15:15“ — the question is not when but how long ago. */
 function herKurz(sek){
   sek = Math.round(sek);
   if(sek < 90)     return txt("zeit.vor_sek",  {n: sek});
@@ -564,8 +563,8 @@ function zeit(s){
   if(!s) return "";
   const d = new Date(s);
   if(isNaN(d)) return String(s).slice(0,16).replace("T"," ");
-  /* 🔴 Nicht fest "de-DE": ein englischer Text mit deutschem Datumsformat
-     sieht aus wie ein halb fertiges Programm. Die Ortsangabe folgt der Sprache. */
+  /* 🔴 Not hard-wired "de-DE": an English text with a German date format looks
+     like a half-finished program. The locale follows the language. */
   return d.toLocaleString(LANG, {day:"2-digit", month:"2-digit",
     hour:"2-digit", minute:"2-digit"});
 }
@@ -575,12 +574,13 @@ function zeichneKopf(){
   const steht = L.notaus_datei || L.schalter === "off";
   document.body.classList.toggle("steht", steht);
   const lauf = L.lauf || {};
-  /* 🔑 der Besitzer am 12.09.2026: „kann nirgends sehen wann und wie oft die läuft."
-     Hier stand nur ein absoluter Zeitstempel — daraus liest niemand ab, ob der
-     Wächter noch tickt. Jetzt: wie lange her, in welchem Takt, wie oft heute —
-     und eine Warnung, wenn der letzte Lauf zu lange her ist. Der Takt ist
-     GEMESSEN (Median der letzten Laufabstände), nicht aus dem Cron-Eintrag
-     abgeschrieben: ein eingetragener Takt beweist keine Ausführung. */
+  /* 🔑 der Besitzer, 2026-09-12: „kann nirgends sehen wann und wie oft die läuft.“
+     (I cannot see anywhere when and how often it runs.) There used to be only an
+     absolute timestamp here — nobody can read from that whether the watchman is
+     still ticking. Now: how long ago, at what interval, how often today — and a
+     warning when the last run is too long ago. The interval is MEASURED (median
+     of the last run gaps), not copied from the cron entry: a configured interval
+     proves no execution. */
   const alterS = lauf.zeit ? Math.max(0, (Date.now() - new Date(lauf.zeit)) / 1000) : null;
   const takt = Number(lauf.takt_s || 0);
   const ueberfaellig = takt > 0 && alterS !== null && alterS > takt * 3 + 60;
@@ -614,9 +614,9 @@ function zeichneKopf(){
 }
 
 /* ── Einrichtung ───────────────────────────────────────────────────────────── */
-/* Die alte Einrichtungskarte ist in die Postfachkarte aufgegangen — ein
-   Formular fuer „das eine Postfach" waere neben einer Liste mit mehreren die
-   zweite Wahrheit darueber, welches gemeint ist. */
+/* The old setup card has been absorbed into the mailbox card — a form for „the
+   one mailbox“ next to a list of several would be the second truth about which
+   one is meant. */
 
 /* ── Steuerung ─────────────────────────────────────────────────────────────── */
 function bauSteuerung(){
@@ -655,8 +655,8 @@ function bauSteuerung(){
 }
 
 /* ── Telegram ──────────────────────────────────────────────────────────────── */
-/* Derselbe Riegel wie bei der Einrichtungskarte: ein Bot-Token ist genauso
-   laestig neu zu tippen wie ein Passwort. */
+/* The same bolt as with the setup card: a bot token is just as annoying to retype
+   as a password. */
 function tgTippt(){
   const k = $("#tgkarte");
   if(!k) return false;
@@ -691,7 +691,7 @@ async function tgSpeichern(){
   const knopf = document.activeElement;
   if(knopf && knopf.tagName === "BUTTON") knopf.disabled = true;
   const daten = {token: $("#tg_token").value.trim(), chat: $("#tg_chat").value.trim()};
-  $("#tg_token").value = "";        /* ein Token hat im DOM nichts verloren */
+  $("#tg_token").value = "";        /* a token has no business in the DOM */
   melde(txt("tg.frage"), true);
   let a = {ok:false, text: txt("allg.keine_antwort")};
   try{ a = await sende("telegram_zugang", daten); }catch(e){}
@@ -736,9 +736,8 @@ function bauMails(){
     else if(e.wuerde_nach)
       wohin = `<div class="wuerde">🗂 ${txt("mail.kaeme", {ordner: "<b>" + esc(e.wuerde_nach) + "</b>"})} — ${esc(e.ziel_grund||"")}</div>`;
     else if(e.ziel && !e.ziel_darf && !eigene)
-      /* Er hat eine Vermutung, ist sich aber nicht sicher genug, um selbst zu
-         handeln. Ein Tipp macht daraus eine Dauerregel — genau hier lohnt sich
-         dessen Blick am meisten. */
+      /* It has a guess but is not sure enough to act on its own. One tap turns
+         that into a standing rule — this is where his glance is worth the most. */
       wohin = `<div class="wuerde">🗂 ${txt("mail.vermutlich", {ordner: "<b>" + esc(e.ziel) + "</b>"})} — ${esc(e.ziel_grund||"")}
         <button class="leisetaste" style="padding:.15rem .5rem;font-size:.76rem;margin-left:.3rem"
           onclick="absenderRegel('${esc((k.adresse||"").toLowerCase())}','${esc(e.ziel)}')">
@@ -768,9 +767,9 @@ async function absenderRegel(adresse, ordner){
   await tu("einstellung", {absender:{adresse, ordner}});
 }
 
-/* ── Dokumente in der Post ──────────────────────────────────────────────────── */
-/* Die Zustaende einer Uebergabe. Der Text kommt aus der Sprachtabelle, die
-   Farbe steht hier — eine Farbe braucht keine Uebersetzung. */
+/* ── Documents in the post ────────────────────────────────────── */
+/* The states of a handover. The text comes from the language table, the colour
+   stands here — a colour needs no translation. */
 const DS_FARBE = {
   uebergeben:"info", abgelegt:"ok", pruefen:"warnung", doppelt:"info",
   finanzen:"ok", fehler:"kritisch", zu_gross:"warnung",
@@ -783,7 +782,7 @@ function gr(b){
   b = Number(b) || 0;
   if(b >= 1048576) return (b/1048576).toFixed(1) + " MB";
   if(b >= 1024) return Math.round(b/1024) + " kB";
-  return b + " B";   /* Einheiten sind international, die bleiben */
+  return b + " B";   /* units are international, they stay */
 }
 
 function bauDokKopf(){
@@ -802,11 +801,10 @@ function bauDokKopf(){
   return teile.join(" · ") + "<br>" + txt("dok.nachgetragen", {zeit: zeit(n.zeit || d.zeit)});
 }
 
-/* 🔑 „Lässt sich hier noch etwas übergeben?" beantwortet der SERVER — an
-   derselben Stelle, an der er auch die Übergabe entscheidet (`ds_offen`). Der
-   Browser zeichnet nur noch. Vorher stand dieselbe Regel hier ein zweites Mal,
-   und zwei Meinungen darüber sind zwei Gelegenheiten, dasselbe Dokument ein
-   zweites Mal hochzuladen. */
+/* 🔑 „Can anything still be handed over here?“ is answered by the SERVER — at the
+   same place where it also decides the handover (`ds_offen`). The browser only
+   draws. The same rule used to stand here a second time, and two opinions about
+   it are two chances to upload the same document a second time. */
 function dokGebbar(e){
   return !!(e.gebbar && (L.docusort || {}).eingerichtet);
 }
@@ -821,7 +819,7 @@ function dokZaehlen(){
   const haken = $("#dok_alle");
   if(haken){
     haken.checked = n > 0 && n === alle.length;
-    /* Teilauswahl sichtbar machen — sonst sieht „keins" aus wie „ein paar". */
+    /* Show a partial selection — otherwise „none“ looks like „a few“. */
     haken.indeterminate = n > 0 && n < alle.length;
   }
 }
@@ -831,16 +829,16 @@ function dokAlle(an){
   dokZaehlen();
 }
 
-/* Ab hier wird gefragt. 🔴 Nicht aus Vorsicht um der Vorsicht willen: DocuSort
-   liest JEDES Dokument einzeln (OCR + Einordnung durch ein Sprachmodell), das
-   kostet dort Zeit und Geld, und wieder herausnehmen heisst dort einzeln
-   loeschen. „alle auswaehlen" kann bei einer weiten Suche dreistellig sein. */
+/* From here on it asks. 🔴 Not out of caution for caution's sake: DocuSort reads
+   EVERY document individually (OCR + classification by a language model), which
+   costs time and money there, and taking it back out means deleting it there one
+   by one. „select all“ can run into three digits on a broad search. */
 const DOK_FRAGEN_AB = 10;
 
-/* 🔑 „Hochgeladen" ist nicht „angekommen". Solange DocuSort noch an einem
-   Dokument arbeitet, fragt die Seite alle 8 s nach — bis zu 6 Minuten. Danach
-   übernimmt der Wächter (er läuft ohnehin jede Minute), damit hier nichts
-   ewig im Kreis fragt. */
+/* 🔑 „uploaded“ is not „arrived“. While DocuSort is still working on a document,
+   the page asks again every 8 s — for up to 6 minutes. After that the watchman
+   takes over (it runs every minute anyway), so that nothing here keeps asking in
+   circles for ever. */
 const DOK_WACHE_TAKT = 8000, DOK_WACHE_MAX = 45;
 let dokWacheLaeuft = false;
 
@@ -856,7 +854,7 @@ async function dokWache(){
       await hole();
       if(!r.unterwegs) break;
     }
-  }catch(e){ /* eine Nachfrage, die scheitert, darf die Seite nicht anhalten */ }
+  }catch(e){ /* a follow-up question that fails must not stop the page */ }
   finally{ dokWacheLaeuft = false; }
 }
 
@@ -873,7 +871,7 @@ async function dokSammel(){
   melde(r.text || "", r.ok);
   await dokSuche();
   await hole();
-  dokWache();          // nicht abwarten — sie läuft im Hintergrund weiter
+  dokWache();          // do not await it — it keeps running in the background
 }
 
 async function dokSuche(){
@@ -889,14 +887,14 @@ async function dokSuche(){
     return;
   }
   const url = (L.docusort || {}).url || "";
-  /* Erst zaehlen, dann zeichnen: Kaestchen gibt es nur, wenn es wirklich etwas
-     auszuwaehlen gibt. Bei EINER Mail genuegt der Knopf an der Zeile. */
+  /* Count first, then draw: there are checkboxes only when there is really
+     something to select. With ONE mail the button on the row is enough. */
   const waehlbar = tr.filter(dokGebbar).length;
   const sammeln = waehlbar >= 2;
-  /* 🔴 Die Leiste bleibt oben KLEBEN. Die Trefferliste scrollt in sich (26 rem);
-     ohne sticky ist „alle auswählen" und der Knopf beim dritten Treffer aus dem
-     Bild — und man hakt Zeilen an, deren Knopf man nicht mehr sieht.
-     Im Bild gesehen, nicht im Code. */
+  /* 🔴 The bar STICKS to the top. The result list scrolls inside itself (26 rem);
+     without sticky, „select all“ and the button are out of view by the third hit —
+     and you tick rows whose button you can no longer see.
+     Seen in the image, not in the code. */
   const leiste = sammeln ? `<div class="reihe" style="border-top:0;gap:.7rem;
         flex-wrap:wrap;padding:.35rem 0;position:sticky;top:0;z-index:2;
         background:var(--karte-voll);box-shadow:0 6px 10px -8px rgba(0,0,0,.8)">
@@ -920,8 +918,8 @@ async function dokSuche(){
       const link = (doc && url)
         ? ` · <a href="${esc(url)}/document/${esc(doc)}" target="_blank"
              rel="noopener">${txt("dok.ansehen")}</a>` : "";
-      /* Dieselbe Datei hing schon an einer anderen Mail und ist längst drüben —
-         sie wird benannt, damit man sie nicht ein zweites Mal exportiert. */
+      /* The same file already hung on another mail and is long over there — it is
+         named so that you do not export it a second time. */
       const zwilling = z ? `<span class="chip ok" style="margin-left:.3rem"
           title="${txt("dok.zwilling_titel", {datum: esc(zeit(z.datum))})}"
           >${txt("dok.zwilling")}</span>` : "";
@@ -1043,15 +1041,15 @@ function bauRegeln(){
   }).join("");
 }
 
-/* ── Statistik ─────────────────────────────────────────────────────────────
-   der Besitzer, 12.09.2026: „bau mal in die postwache eine kleine statistik ein,
-   wieviel mails pro tag kommen, zu welcher zeit wer am haeufigsten schreibt".
-   Gerechnet wird auf den ECHTEN Kopfzeilen im Postfach (Date/From), nicht auf
-   dem, was die Postwache seit ihrer Einrichtung gesehen hat — sonst gaebe es
-   erst in Wochen etwas zu sehen. */
+/* ── Statistics ─────────────────────────────────────────────
+   der Besitzer, 2026-09-12: „bau mal in die postwache eine kleine statistik ein,
+   wieviel mails pro tag kommen, zu welcher zeit wer am haeufigsten schreibt“.
+   The numbers are computed on the REAL headers in the mailbox (Date/From), not on
+   what the Postwache has seen since it was set up — otherwise there would be
+   nothing to look at for weeks. */
 
-/* Ein Saeulendiagramm als reines SVG. Keine Fremdbibliothek: die Seite laeuft
-   im LAN, und ein Diagramm, das auf ein CDN wartet, ist im Zweifel keins. */
+/* A bar chart as pure SVG. No third-party library: the page runs on the LAN, and
+   a chart waiting for a CDN is, when it matters, no chart. */
 function saeulen(werte, titelFn, beschreibung, schnitt){
   const B = 1000, H = 150, unten = 14, oben = 6;
   const n = werte.length || 1;
@@ -1078,15 +1076,14 @@ function saeulen(werte, titelFn, beschreibung, schnitt){
     + stuecke + linie + '</svg>';
 }
 
-/* Achsenbeschriftung als HTML unter das Bild — NICHT ins SVG. Das SVG wird in
-   der Breite gestreckt (preserveAspectRatio="none") und wuerde Schrift
-   mitverzerren. */
+/* Axis labels as HTML below the image — NOT inside the SVG. The SVG is stretched
+   in width (preserveAspectRatio="none") and would distort text along with it. */
 function achse(marken){
   return '<div class="leise klein" style="display:flex;justify-content:space-between;'
     + 'margin-top:.15rem">' + marken.map(m => '<span>' + esc(m) + '</span>').join("") + '</div>';
 }
 
-/* Nur Tag und Monat — im Diagramm zaehlt Lesbarkeit, nicht das Jahr. */
+/* Day and month only — in a chart readability counts, not the year. */
 function zeitTag(iso){
   const d = new Date(iso + "T12:00:00");
   return isNaN(d) ? String(iso)
@@ -1120,10 +1117,10 @@ function bauStatistik(){
   const spitze = tage.reduce((a, e) => (a === null || e.n > a.n) ? e : a, null);
   const top = k.top_absender || [];
   const tmax = Math.max(1, ...top.map(e => e.n));
-  /* 🔴 Anzeigenamen sind nicht eindeutig: „eBay" stand zweimal in der Liste
-     (212 und 108) — zwei verschiedene Absenderadressen. Der Hover-Text hilft
-     auf dem Handy und im Screenshot nicht. Also wird der Name nur dort ergänzt,
-     wo er mehrdeutig IST — sonst bliebe die Liste unnötig technisch. */
+  /* 🔴 Display names are not unique: „eBay“ appeared twice in the list (212 and
+     108) — two different sender addresses. Hover text does not help on a phone or
+     in a screenshot. So the name is only extended where it IS ambiguous —
+     otherwise the list would be needlessly technical. */
   const wieOft = {};
   top.forEach(e => { const nm = e.name || e.adresse; wieOft[nm] = (wieOft[nm] || 0) + 1; });
   const rang = top.slice(0, 10).map(e => {
@@ -1170,12 +1167,12 @@ function bauStatistik(){
 }
 
 /* ── Ablage ────────────────────────────────────────────────────────────────── */
-/* 🔑 Die Antwort auf „der Bot hat ja gar nichts sortiert".
-   Gemessen am 12.09.2026 am echten Posteingang: von 22 Mails scheiterten nur
-   ZWEI an einer Schwelle. Bei 20 gab es kein Ziel — kein Ordner, in dem je
-   Post von diesem Absender lag. Schwellen zu lockern haette daran nichts
-   geaendert (am Rueckhalt gemessen: +3,5 Punkte Abdeckung fuer 1,4 Punkte
-   Genauigkeit). Was fehlt, ist eine ENTSCHEIDUNG — und die trifft der Besitzer. */
+/* 🔑 The answer to „the bot has not sorted anything at all“.
+   Measured 2026-09-12 against the real inbox: of 22 mails only TWO failed at a
+   threshold. For 20 there was no target — no folder that had ever held post from
+   that sender. Loosening thresholds would have changed nothing (measured against
+   the held-back set: +3.5 points of coverage for 1.4 points of accuracy). What is
+   missing is a DECISION — and he makes that. */
 function bauHeimatlos(){
   const liste = L.heimatlos || [];
   if(!liste.length){
@@ -1194,12 +1191,12 @@ function bauHeimatlos(){
         <div class="leise klein">${txt("heimat.zeile", {n: e.anzahl, zeit: esc(zeit(e.zuletzt))})}
           ${e.vorschlag_grund ? ` · ${esc(e.vorschlag_grund)}` : ""}</div>
       </div>
-      <!-- 🔴 27.09.2026, der Besitzer: „logischere anordnung der button zum verschieben
-           oder neu erstellen von ordnern". Vorher standen Auswahl, Knopf,
-           Textfeld und Knopf mit GLEICHEM Abstand in einer Reihe — man sah
-           nicht, welcher Knopf zu welchem Feld gehört. Jetzt zwei Gruppen mit
-           eigener Beschriftung und einem „oder" dazwischen: innen eng
-           (.25rem), außen weit (.9rem). Der Abstand IST die Gruppierung. -->
+      <!-- 🔴 2026-09-27, his words: a more logical arrangement of the buttons for
+           moving or creating folders. Before, the select, a button, a text field
+           and another button stood in a row with EQUAL spacing — you could not
+           see which button belonged to which field. Now two groups with their own
+           labels and an „or“ between them: tight inside (.25rem), wide outside
+           (.9rem). The spacing IS the grouping. -->
       <div style="display:flex;gap:.9rem;flex-wrap:wrap;align-items:flex-end">
         <div style="display:flex;flex-direction:column;gap:.15rem">
           <span class="klein leise">${txt("heimat.gruppe_vorhanden")}</span>
@@ -1222,12 +1219,12 @@ function bauHeimatlos(){
   }).join("");
 }
 
-/* Ein Klick, zwei Wege: in einen vorhandenen Ordner einreihen, oder einen neuen
-   anlegen. Beides endet in DERSELBEN Absenderregel — die gab es schon und sie
-   schlaegt jede gelernte Stufe. */
-/* 🔴 Aufraeumen bewegt echte Post in einem Rutsch. Das ist die einzige Aktion
-   der Seite, die viele Mails auf einmal anfasst — deshalb eine Rueckfrage, und
-   in der Frage steht, was danach hilft (das Journal). */
+/* One click, two routes: slot into an existing folder, or create a new one. Both
+   end in THE SAME sender rule — which already existed and beats every learned
+   stage. */
+/* 🔴 Tidying up moves real post in one go. It is the page's only action that
+   touches many mails at once — hence a confirmation, and the question says what
+   helps afterwards (the journal). */
 async function aufraeumenFragen(){
   if(!confirm(txt("ablage.aufraeumen_frage"))) return;
   await tu("aufraeumen");
@@ -1247,9 +1244,9 @@ async function heimGeben(i, neu){
   }
 }
 
-/* ═══ Aufträge in der Werkstatt ═══════════════════════════════════════════ */
-/* 🔴 Die Zustände AUSGESCHRIEBEN, nicht `txt("auftrag.zustand." + z)`: ein
-   zusammengebauter Schlüssel ist für den Sprach-Prüfstand unsichtbar. */
+/* ═══ Tasks in the workshop ═══════════════════════════════════ */
+/* 🔴 The states SPELLED OUT, not `txt("auftrag.zustand." + z)`: an assembled
+   key is invisible to the language test bench. */
 function auftragZustand(z){
   if(z === "angelegt")  return txt("auftrag.zustand.angelegt");
   if(z === "queued")    return txt("auftrag.zustand.queued");
@@ -1264,8 +1261,8 @@ function auftragZustand(z){
 function bauAuftraege(){
   const a = L.auftraege || {};
   const karte = $("#auftragkarte");
-  /* Ohne Werkstatt gibt es diese Karte nicht — sie wäre eine leere Aussage
-     über ein Ding, das dieser Nutzer nicht hat. */
+  /* Without a workshop this card does not exist — it would be an empty statement
+     about a thing this user does not have. */
   if(karte) karte.hidden = !a.an;
   if(!a.an) return "";
   const liste = a.liste || [];
@@ -1291,11 +1288,11 @@ function bauAuftraege(){
   }).join("");
 }
 
-/* 🔴 Eigener Tippriegel — dieselbe Lehre wie bei der Einrichtungskarte, nur
-   fuer diese Karte: hier stehen Textfelder mit VORAUSGEFUELLTEN Vorschlaegen.
-   Deshalb wird NICHT auf „Feld hat Inhalt" geprueft (das waere immer wahr und
-   die Karte wuerde sich nie wieder zeichnen), sondern nur darauf, ob ein Feld
-   dieser Karte gerade den Fokus hat. */
+/* 🔴 A typing bolt of its own — the same lesson as with the setup card, only for
+   this card: here there are text fields with PRE-FILLED suggestions. So it does
+   NOT check „field has content“ (that would always be true and the card would
+   never redraw itself), only whether a field of this card currently has the
+   focus. */
 function heimTippt(){
   const k = $("#heimatkarte");
   return !!(k && k.contains(document.activeElement));
@@ -1377,17 +1374,17 @@ function bauChronik(){
     ? c.map(e => `<div class="reihe"><div class="txt">
         <b>${esc(e.titel || e.art)}${e.anzahl > 1 ? " ×" + e.anzahl : ""}</b>
         <span>${esc(zeit(e.zeit))} · ${esc(e.detail||"")}</span></div></div>`).join("")
-    /* 🔴 Stand seit 2.x deutsch im JavaScript. Gefunden erst, als der
-       Sprach-Prüfstand am 27.09. um „nichts" erweitert wurde — `\bnicht\b`
-       trifft „nichts" nicht. */
+    /* 🔴 Stood here in German inside the JavaScript since 2.x. Only found when
+       the language test bench was widened to „nichts“ on 2026-09-27 — `\bnicht\b`
+       does not match „nichts“. */
     : `<div class="leise">${txt("chronik.leer")}</div>`;
 }
 
 /* ── Laden ─────────────────────────────────────────────────────────────────── */
-/* ═══ Sprache ══════════════════════════════════════════════════════════════
-   Die Wahl geht an den Server, nicht in den Browser: die Postwache schreibt
-   auch dann Texte, wenn niemand hinsieht (Telegram, Chronik). Nach dem
-   Speichern wird die Seite neu geladen — die Texttabelle steckt im Markup. */
+/* ═══ Language ═════════════════════════════════════════════
+   The choice goes to the server, not into the browser: the Postwache also writes
+   texts when nobody is looking (Telegram, history). After saving, the page is
+   reloaded — the text table is inside the markup. */
 function bauSprachen(){
   return (typeof SPRACHEN !== "undefined" ? SPRACHEN : []).map(([code, name]) =>
     `<button class="${code === LANG ? "haupt" : "leisetaste"}"
@@ -1400,22 +1397,21 @@ async function spracheWaehlen(code){
   else melde(txt("sprache.fehler"), false);
 }
 
-/* ═══ Ansichten ═══════════════════════════════════════════════════════════
-   Zwei Ansichten statt eines Onepagers. Die Wahl liegt im Browser, nicht auf
-   dem Server: sie gilt fuer DIESES Geraet — wer am Telefon Einstellungen
-   offen hatte, soll am Schreibtisch trotzdem die Uebersicht sehen. */
-/* 🔴 EINE Liste der Ansichten, nicht zwei. Hier stand bis 4.5.0 eine zweite,
-   hartkodierte Aufzählung für den Hash — beim vierten Reiter („umzug") wurde nur
-   die untere gepflegt, und ein geteilter Link `…/#umzug` landete still auf der
-   Übersicht. Eine zweite Stelle, die dieselbe Frage beantwortet, ist eine zu
-   viel; sie muss oben stehen, weil `ANSICHT` sie beim Laden schon braucht. */
+/* ═══ Views ════════════════════════════════════════════════
+   Two views instead of one long page. The choice lives in the browser, not on the
+   server: it applies to THIS device — someone who had settings open on the phone
+   should still see the overview at the desk. */
+/* 🔴 ONE list of the views, not two. Up to 4.5.0 there was a second, hard-coded
+   enumeration here for the hash — with the fourth tab („umzug“) only the lower one
+   was maintained, and a shared link `…/#umzug` landed silently on the overview. A
+   second place answering the same question is one too many; it has to stand at the
+   top, because `ANSICHT` already needs it while loading. */
 const ANSICHTEN = ["uebersicht", "umbau", "umzug", "einstellungen"];
 
 let ANSICHT = (() => {
-  /* Ein Hash in der Adresse gewinnt: so ist ein Reiter verlinkbar (und beim
-     Nachsehen von aussen erreichbar). 🔴 Geschrieben wird der Hash nur bei
-     einer echten Wahl — wer ihn beim Laden stempelt, macht aus „ich habe
-     nichts gewählt" ein „ich will das hier". */
+  /* A hash in the address wins: that makes a tab linkable (and reachable when
+     checking from outside). 🔴 The hash is only written on a real choice — stamp it
+     while loading and you turn „I chose nothing“ into „I want this one“. */
   const h = (location.hash || "").replace("#", "");
   if(ANSICHTEN.includes(h)) return h;
   try{ return localStorage.getItem("pw_ansicht") || "uebersicht"; }
@@ -1429,10 +1425,10 @@ function zeigeAnsicht(name, gewaehlt){
   ANSICHTEN.forEach(n => { const el = $("#ansicht_" + n); if(el) el.hidden = ANSICHT !== n; });
   document.querySelectorAll(".reitertaste").forEach(b =>
     b.classList.toggle("an", b.dataset.ansicht === ANSICHT));
-  /* 🔴 Ein Reiter nach vorn zu holen ist Markup — sichtbar WERDEN ist es nicht.
-     Die alte Übersicht füllte `hole()` ohnehin; dieser Reiter hat seinen eigenen
-     Lader, und ohne diesen Aufruf stünde er leer mit korrekt markiertem Reiter
-     da (dieselbe Falle wie in der Frequenzwache 1.34). */
+  /* 🔴 Bringing a tab to the front is markup — BECOMING visible is not. The old
+     overview was filled by `hole()` anyway; this tab has a loader of its own, and
+     without this call it would stand there empty with the tab correctly marked
+     (the same trap as in the Frequenzwache 1.34). */
   if(ANSICHT === "umbau") umbauLage();
   if(ANSICHT === "umzug") umzugLage();
   if(gewaehlt && location.hash.replace("#", "") !== ANSICHT){
@@ -1444,10 +1440,10 @@ function zeigeAnsicht(name, gewaehlt){
 /* ═══ Umbau ═══════════════════════════════════════════════════════════════ */
 let U_ABDRUCK = "", U_TAKT = null;
 
-/* 🔴 Die drei Phasennamen AUSGESCHRIEBEN, nicht `txt("u.phase." + s.phase)`.
-   Ein zusammengebauter Schlüssel ist für den Sprach-Prüfstand unsichtbar — er
-   meldete sie als „verwaist", und genauso unsichtbar wäre ein Schlüssel, der in
-   einer der fünf Sprachen fehlt. */
+/* 🔴 The three phase names SPELLED OUT, not `txt("u.phase." + s.phase)`. An
+   assembled key is invisible to the language test bench — it reported them as
+   „orphaned“, and a key missing in one of the five languages would be just as
+   invisible. */
 function phaseText(p){
   if(p === "pruefen")   return txt("u.phase.pruefen");
   if(p === "entfernen") return txt("u.phase.entfernen");
@@ -1467,9 +1463,8 @@ async function umbauLage(){
   const zeilen = [];
   zeilen.push(`<div class="zeile"><div class="wachs">${esc(s.text || txt("u.nie_gelaufen"))}</div></div>`);
   if(s.laeuft){
-    /* 🔴 Laufzeit UND Alter der letzten Rückmeldung. Ohne beides sieht jede
-       lange Stufe aus wie ein hängender Dienst — das Lernen der Landkarte
-       dauert über vier Minuten. */
+    /* 🔴 Runtime AND the age of the last feedback. Without both, every long stage
+       looks like a hanging service — learning the map takes over four minutes. */
     const jetzt = Date.now() / 1000;
     const seit  = s.begonnen ? dauerKurz(jetzt - s.begonnen) : "";
     const still = s.zeit ? (jetzt - Date.parse(s.zeit) / 1000) : 0;
@@ -1483,14 +1478,14 @@ async function umbauLage(){
         background:var(--karte2)"><div style="width:${Math.max(2,anteil)}%;height:100%;
         border-radius:.3rem;background:var(--akzent)"></div></div>`;
     zeilen.push(zeile + `</div>`);
-    /* Zwei Minuten ohne ein Lebenszeichen sind ein Befund, kein Schweigen. */
+    /* Two minutes without a sign of life is a finding, not silence. */
     if(still > 120) zeilen.push(`<div class="zeile"><div class="wachs"
       style="color:var(--kritisch)">${txt("u.still", {dauer: dauerKurz(still)})}</div></div>`);
   }
   if(s.fehler) zeilen.push(`<div class="zeile"><div class="wachs" style="color:var(--kritisch)">${esc(s.fehler)}</div></div>`);
-  /* 🔑 Die GEMESSENE Trefferquote des gelernten Wortschatzes gehört auf die
-     Seite, nicht nur ins Protokoll. Ein Einordner, der seine Quote nicht nennt,
-     ist eine Behauptung — und der Besitzer wollte „zu 100% nachverfolgen können". */
+  /* 🔑 The MEASURED hit rate of the learned vocabulary belongs on the page, not
+     only in the log. A classifier that does not name its rate is making a claim —
+     and he wanted to be able to follow 100 % of it. */
   const w = s.wortschatz;
   if(w) zeilen.push(`<div class="zeile"><div class="wachs klein">`
     + `${txt("u.wortschatz", {kategorien: w.kategorien, woerter: w.woerter})} · `
@@ -1529,7 +1524,7 @@ async function umbauLage(){
     `<div class="zeile"><div class="wachs"><code>${esc(e[0])}</code></div>
        <div class="klein leise">${e[1]}</div></div>`).join("");
 
-  /* Solange etwas läuft, selbst nachfragen — aber nur EIN Takt gleichzeitig. */
+  /* While something is running, ask on our own — but only ONE beat at a time. */
   if(s.laeuft && !U_TAKT) U_TAKT = setInterval(umbauLage, 3000);
   if(!s.laeuft && U_TAKT){ clearInterval(U_TAKT); U_TAKT = null; }
 }
@@ -1542,15 +1537,15 @@ async function umbauStart(schritt, zusatz){
 async function umbauAnwenden(){
   if(!U_ABDRUCK){ melde(txt("u.kein_plan"), false); return; }
   if(!confirm(txt("u.sicher"))) return;
-  /* 🔴 Der ANGEZEIGTE Abdruck geht mit: wurde zwischendurch neu geplant, lehnt
-     der Wächter ab, statt etwas auszuführen, das niemand gesehen hat. */
+  /* 🔴 The DISPLAYED print goes along: if a new plan was made in between, the
+     watchman refuses instead of running something nobody has seen. */
   const a = await sende("umbau", {schritt:"anwenden", abdruck:U_ABDRUCK});
   melde(a.text || "", a.ok);
   umbauLage();
 }
 async function umbauOrdner(){
-  /* 🔴 „nicht mehr gebraucht" ist nicht „leer": vorher schon leere Ordner hat
-     der Besitzer selbst angelegt und wartet vielleicht auf Post. Die bleiben. */
+  /* 🔴 „no longer needed“ is not „empty“: folders that were empty before were
+     created by him and may be waiting for post. Those stay. */
   if(!confirm(txt("u.sicher_ordner"))) return;
   const a = await sende("umbau", {schritt:"ordner", trocken:false});
   melde(a.text || "", a.ok);
@@ -1563,12 +1558,12 @@ async function umbauZurueck(){
   umbauLage();
 }
 
-/* ═══ Umzug zu einem anderen Anbieter ═════════════════════════════════════ */
+/* ═══ Migration to another provider ═════════════════════════════ */
 let Z_ABDRUCK = "", Z_TAKT = null, Z_VON = "", Z_NACH = "";
 
-/* 🔴 Wie beim Umbau: die Phasennamen AUSGESCHRIEBEN. Ein zusammengebauter
-   Schlüssel (`txt("z.phase." + s.phase)`) ist für den Sprach-Prüfstand
-   unsichtbar — und ebenso unsichtbar wäre eine fehlende Übersetzung. */
+/* 🔴 As with the restructuring: the phase names SPELLED OUT. An assembled key
+   (`txt("z.phase." + s.phase)`) is invisible to the language test bench — and a
+   missing translation would be just as invisible. */
 function zPhaseText(p){
   if(p === "verbinden")   return txt("z.phase.verbinden");
   if(p === "inventar")    return txt("z.phase.inventar");
@@ -1594,8 +1589,8 @@ async function umzugLage(){
   if(!a || !a.ok) return;
   const s = a.stand || {}, faecher = a.postfaecher || [], e = a.umleitung || {};
   Z_ABDRUCK = a.abdruck || "";
-  /* Die Wahl nur EINMAL vorbelegen — sonst springt sie bei jedem Takt zurück,
-     während der Besitzer noch auswählt. */
+  /* Preselect the choice only ONCE — otherwise it jumps back on every beat while
+     he is still choosing. */
   if(!Z_VON)  Z_VON  = s.von  || e.von  || (faecher[0] ? faecher[0].id : "");
   if(!Z_NACH) Z_NACH = s.nach || e.nach || (faecher[1] ? faecher[1].id : "");
   const wahl = o => faecher.map(f =>
@@ -1604,9 +1599,9 @@ async function umzugLage(){
     $("#z_wahl").innerHTML = `<div class="zeile"><div class="wachs"
       style="color:var(--kritisch)">${txt("z.zwei_postfaecher")}</div></div>`;
   } else {
-    /* 🔴 Die beiden Auswahlfelder nebeneinander, nicht gestapelt: `.zeile`
-       streckt ein <select> sonst über die ganze Breite und aus zwei Feldern
-       werden vier Zeilen. Auf dem Telefon bricht `flex-wrap` sie trotzdem um. */
+    /* 🔴 The two select fields side by side, not stacked: `.zeile` would
+       otherwise stretch a <select> across the full width and two fields become
+       four rows. On a phone `flex-wrap` still breaks them. */
     $("#z_wahl").innerHTML = `<div class="zeile" style="flex-wrap:wrap;gap:.5rem">
       <div class="klein leise" style="flex:0 0 auto">${txt("z.von")}</div>
       <select id="z_von" style="flex:1 1 11rem;min-width:9rem"
@@ -1634,8 +1629,8 @@ async function umzugLage(){
         background:var(--karte2)"><div style="width:${Math.max(2,anteil)}%;height:100%;
         border-radius:.3rem;background:var(--akzent)"></div></div>`;
     zeilen.push(zeile + `</div>`);
-    /* Ein Umzug kann Stunden dauern — zwei Minuten Schweigen sind trotzdem ein
-       Befund, weil jede Stufe je Ordner etwas meldet. */
+    /* A migration can take hours — two minutes of silence are still a finding,
+       because every stage reports something per folder. */
     if(still > 120) zeilen.push(`<div class="zeile"><div class="wachs"
       style="color:var(--kritisch)">${txt("z.still", {dauer: dauerKurz(still)})}</div></div>`);
   }
@@ -1709,8 +1704,8 @@ async function umzugUebertragen(){
   umzugStart("uebertragen", {abdruck: Z_ABDRUCK, trocken: false});
 }
 async function umzugLeeren(){
-  /* 🔴 Der Abdruck kommt aus der TROCKENEN Vorschau, die der Besitzer gesehen hat.
-     Ohne ihn lehnt der Wächter ab — und das ist richtig: hier wird gelöscht. */
+  /* 🔴 The print comes from the DRY preview he has seen. Without it the watchman
+     refuses — and rightly so: this deletes. */
   const s = (await sende("umzug_lage", {})).stand || {};
   if(!s.abdruck){ melde(txt("z.kein_plan"), false); return; }
   if(!confirm(txt("z.sicher_leeren"))) return;
@@ -1729,15 +1724,15 @@ async function umleitungSetzen(an){
 /* ═══ Postfächer ══════════════════════════════════════════════════════════ */
 function bauPfWahl(){
   const liste = L.postfaecher || [];
-  /* Bei EINEM Postfach gibt es nichts zu wählen — dann ist die Leiste nur
-     Lärm. Sie erscheint, sobald ein zweites da ist. */
+  /* With ONE mailbox there is nothing to choose — then the bar is just noise. It
+     appears as soon as a second one is there. */
   if(liste.length < 2) return "";
   return liste.map(f => `<button class="pftaste ${f.id===L.pf?"an":""} ${f.an?"":"ruht"}"
       onclick="pfWechseln('${esc(f.id)}')"
       title="${esc(f.adresse)}${f.an?"":" — ruht"}">${esc(f.name)}</button>`).join("");
 }
 async function pfWechseln(id){
-  await tu("dokumente_stand", {pf:id});   /* leichte Aktion, setzt die Auswahl */
+  await tu("dokumente_stand", {pf:id});   /* a light action, sets the selection */
   await hole();
 }
 
@@ -1855,9 +1850,9 @@ function bauKI(){
     ${(eigen || k.anbieter === "aus") ? bauKILokal() : ""}`;
 }
 
-/* ── Lokales Modell in einem Klick ─────────────────────────────────────────
-   Zwei Wege, und beide enden an derselben Stelle: „such es" fuer den, der
-   schon eine Ollama hat, „richte es ein" fuer den, der keine hat. */
+/* ── A local model in one click ─────────────────────────────────
+   Two routes, and both end at the same place: „find it“ for someone who already
+   has an Ollama, „set it up“ for someone who has none. */
 function bauKILokal(){
   return `
   <div class="unterkarte" style="margin-top:1rem">
@@ -1879,9 +1874,9 @@ function bauKILokal(){
   </div>`;
 }
 
-/* 🔴 Die Funde stehen NICHT in L — sonst zeichnete sie die Signaturpruefung
-   beim naechsten Abruf wieder weg. Sie werden direkt in ihr Feld gesetzt und
-   verschwinden genau dann, wenn sich die Urteilshilfe wirklich aendert. */
+/* 🔴 The findings are NOT kept in L — otherwise the signature check would draw
+   them away again on the next fetch. They are put straight into their field and
+   disappear exactly when the judgement aid really changes. */
 async function kiSuchen(){
   const knopf = $("#ki_suchknopf");
   const feld  = $("#ki_funde");
@@ -1988,8 +1983,8 @@ async function hole(){
     if(!tgTippt()) male("#tgkarte", [L.tg], bauTelegram);
     male("#verteilung", [L.heute, L.heute_gesamt], bauVerteilung);
     male("#mails", [L.mails, L.absender_regeln], bauMails);
-    /* Vor der Einrichtung gibt es nichts zu zeigen — eine leere Karte ueber
-       dem Formular, das man zuerst braucht, waere im Weg. */
+    /* Before setup there is nothing to show — an empty card above the form you
+       need first would be in the way. */
     const zeigStat = !!L.eingerichtet;
     $("#statistikkarte").hidden = !zeigStat;
     if(zeigStat){
@@ -1997,13 +1992,13 @@ async function hole(){
       zeichneStatKopf();
     }
     male("#dok_kopf", [L.dokumente], bauDokKopf);
-    /* Steht beim Laden noch etwas bei DocuSort in Arbeit, wird auch ohne
-       vorherigen Klick nachgefragt — sonst bliebe „unterwegs" stehen, bis der
-       Wächter das nächste Mal läuft. */
+    /* If something is still being worked on at DocuSort while loading, it is asked
+       about even without a prior click — otherwise „in transit“ would stand there
+       until the watchman next runs. */
     if(((L.dokumente || {}).unterwegs || 0) > 0) dokWache();
-    /* 🔴 Nur der KOPF wird nachgezogen, nicht die Trefferliste: ein Auffrischen
-       alle 30 s wuerde sonst jede Suche wieder wegwischen — dieselbe Falle wie
-       beim Einrichtungsformular am 11.09.2026. */
+    /* 🔴 Only the HEADER is refreshed, not the result list: a refresh every 30 s
+       would otherwise wipe every search away again — the same trap as with the
+       setup form on 2026-09-11. */
     if(!dsTippt()) male("#dskarte", [L.docusort], bauDocuSort);
     male("#ablage", [L.ablage], bauAblage);
     if(!heimTippt()) male("#heimatlos", [L.heimatlos, L.ablage?.ordner], bauHeimatlos);
@@ -2027,13 +2022,13 @@ async function hole(){
 }
 
 textenSetzen();
-zeigeAnsicht(ANSICHT, false);   /* Start ist keine Wahl — kein Hash stempeln */
+zeigeAnsicht(ANSICHT, false);   /* the start is not a choice — stamp no hash */
 hole();
-/* 🔑 `?standbild=1` hält die Seite nach dem ersten Laden an. Das ist für
-   Bildschirmfotos der Dokumentation: ein Browser, der alle 30 s nachfragt,
-   erreicht in einer kopflosen Aufnahme NIE den Zustand „fertig geladen", und
-   das Bild entsteht gar nicht. Bedient wird damit nichts anders — es werden nur
-   keine Takte gestartet. Ohne den Parameter ist alles wie vorher. */
+/* 🔑 `?standbild=1` freezes the page after the first load. That is for
+   screenshots of the documentation: a browser that asks again every 30 s NEVER
+   reaches the state „finished loading“ in a headless capture, and the image is
+   never taken. Nothing is operated differently by it — only no beats are started.
+   Without the parameter everything is as before. */
 if(!new URLSearchParams(location.search).has("standbild")){
   setInterval(hole, 30000);
 }

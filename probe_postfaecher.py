@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Prueft das Fundament von 3.0.0: Konfiguration, mehrere Postfaecher, Migration.
+"""Checks the foundation of 3.0.0: configuration, several mailboxes, migration.
 
-Laeuft gegen einen WEGWERF-Zustandsordner, nie gegen einen echten. Der Waechter
-liest seine Pfade beim Import aus `~/scripts/postwache` — die werden hier
-umgebogen, bevor irgendetwas geschrieben wird.
+Runs against a THROWAWAY state folder, never against a real one. The watchman
+reads its paths from `~/scripts/postwache` at import time — those are bent here
+before anything is written.
 """
 import io, json, os, shutil, sys, tempfile
 
@@ -37,7 +37,7 @@ def schreib(name, daten):
         json.dump(daten, fh)
 
 
-# ── 1. Wohin eine Datei gehoert ──────────────────────────────────────────
+# ── 1. Where a file belongs ────────────────────────────────
 print("\n── 1. Global bleibt global, Postfach-Zustand wandert ──")
 d = frischer_ordner()
 probe("global ohne Postfach", W.state_pfad("einstellungen.json") == os.path.join(W.STATE, "einstellungen.json"))
@@ -86,14 +86,14 @@ W.pf_waehlen("")
 probe("zweiter Aufruf migriert NICHT noch einmal", len(W.postfaecher()) == 1)
 shutil.rmtree(d, ignore_errors=True)
 
-# ── 3. Die Liste ist streng ──────────────────────────────────────────────
+# ── 3. The list is strict ──────────────────────────────────
 print("\n── 3. Was die Liste annimmt und was nicht ──")
 d = frischer_ordner()
 schreib("postfaecher.json", {"liste": [
     {"id": "a", "adresse": "eins@beispiel.de", "passwort": "x"},
-    {"id": "a", "adresse": "doppelt@beispiel.de"},          # gleiche Kennung
-    {"id": "b", "adresse": "", "passwort": "x"},            # ohne Adresse
-    {"id": "c/../d", "adresse": "drei@beispiel.de"},        # Pfadtrick
+    {"id": "a", "adresse": "doppelt@beispiel.de"},          # same id
+    {"id": "b", "adresse": "", "passwort": "x"},            # no address
+    {"id": "c/../d", "adresse": "drei@beispiel.de"},        # path trick
     {"id": "d", "adresse": "vier@beispiel.de", "an": False},
 ]})
 f = W.postfaecher()
@@ -113,7 +113,7 @@ probe("zugang() folgt der Auswahl", W.zugang()["id"] == "cd")
 W.pf_waehlen("")
 shutil.rmtree(d, ignore_errors=True)
 
-# ── 4. Umgebung: erkannt, aber ueberschreibbar ───────────────────────────
+# ── 4. Environment: detected, but overridable ───────────────────
 print("\n── 4. Umgebung erkennen statt einprogrammieren ──")
 d = frischer_ordner()
 k = W.konfig()

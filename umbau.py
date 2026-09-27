@@ -1,34 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Postwache — Umbau: das ganze Postfach neu ordnen.
+"""Postwache — restructuring: reorder the whole mailbox.
 
-Der Besitzer, 27.09.2026: „ich moechte das du die so baust das mein gesamtes postfach
-komplett neu strukturiert wird, es soll jede mail analysieren und in einer
-sinnvollen postfach/ordnerstrucktur sortiert werden, niemals mails loeschen nur
-verschieben innerhalb des postfaches, aktuelle strucktur ist doof … auch
-archivierte mails sortieren und aus dem archiv holen."
+Der Besitzer, 2026-09-27 — build it so that his entire mailbox is restructured
+completely; it should analyse every mail and sort it into a sensible folder
+structure, never delete mail but only move it within the mailbox; the current
+structure is silly, and archived mail should be sorted too and taken out of the
+archive:
+„ich moechte das du die so baust das mein gesamtes postfach komplett neu
+strukturiert wird … niemals mails loeschen nur verschieben innerhalb des
+postfaches … auch archivierte mails sortieren und aus dem archiv holen.“
 
-Das ist die **Phase 2**, die seit 11.09. im Bauplan stand („meine ordner sind
-auch nicht perfekt, aber das soll ja der agent spaeter fuer mich neu sortieren").
-Phase 1 hat dafuer bereits die Schwaechen der Ablage gemessen.
+This is **phase 2**, which has been in the plan since 2026-09-11 („meine ordner
+sind auch nicht perfekt, aber das soll ja der agent spaeter fuer mich neu
+sortieren“). Phase 1 has already measured the weaknesses of the filing.
 
-🔑 DREI STUFEN, GETRENNT UND IN DIESER REIHENFOLGE
-   1. `inventar`  — liest JEDE Mail-Kopfzeile. Nur lesend, `BODY.PEEK`.
-   2. `plan`      — rechnet aus dem Inventar einen Vorschlag. Beruehrt kein Postfach.
-   3. `anwenden`  — verschiebt, aber nur was im freigegebenen Plan steht.
+🔑 THREE STAGES, SEPARATE AND IN THIS ORDER
+   1. `inventar`  — reads EVERY mail header. Read-only, `BODY.PEEK`.
+   2. `plan`      — computes a proposal from the inventory. Touches no mailbox.
+   3. `anwenden`  — moves, but only what stands in the approved plan.
 
-   Wer die Stufen vermischt, verschiebt auf Verdacht. Der Plan ist eine Datei,
-   die man lesen kann, BEVOR eine Mail wandert.
+   Mix the stages and you move on suspicion. The plan is a file you can read
+   BEFORE a single mail travels.
 
-🔴 GELOESCHT WIRD NIE. Es gibt in dieser Datei keinen Aufruf, der eine Mail
-   entfernt: `bewegen()` kopiert zuerst, hakt erst nach BESTAETIGTER Kopie ab
-   und schreibt jede Bewegung ins Journal. Schlaegt die Kopie fehl, bleibt die
-   Mail unberuehrt liegen.
+🔴 NOTHING IS EVER DELETED. There is not one call in this file that removes a
+   mail: `bewegen()` copies first, ticks off only after a CONFIRMED copy and
+   writes every move into the journal. If the copy fails, the mail is left
+   untouched.
 
-🔴 DER SCHLUESSEL IST DIE MESSAGE-ID, NICHT DIE UID. Eine UID gilt nur zusammen
-   mit Ordner UND `UIDVALIDITY`. Vor jeder Verschiebung wird die Message-Id der
-   UID gegen den Plan geprueft — sonst wandert nach einer Umnummerierung die
-   falsche Mail (dieselbe Lehre wie bei den Dokumenten, 2.6.0).
+🔴 THE KEY IS THE MESSAGE-ID, NOT THE UID. A UID is only valid together with
+   its folder AND `UIDVALIDITY`. Before every move the Message-Id of the UID is
+   checked against the plan — otherwise, after a renumbering, the wrong mail
+   travels (the same lesson as with the documents, 2.6.0).
 """
 
 import contextlib
@@ -45,10 +48,10 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import postwache as pw  # noqa: E402  — bewaehrtes IMAP, dekodieren(), normal()
 
-# ── Was der Umbau NIE anfasst ────────────────────────────────────────────────
-# Gesendetes ist dessen eigener Nachweis, Entwuerfe sind unfertig, Papierkorb
-# und Spam sind Absicht. Ein Sortierer, der hier hineingreift, zerstoert
-# Belege statt Ordnung zu schaffen.
+# ── What the restructuring NEVER touches ──────────────────────────
+# Sent items are his own record, drafts are unfinished, trash and spam are
+# deliberate. A sorter that reaches in here destroys evidence instead of creating
+# order.
 TABU = {
     "sent items", "sent", "gesendet", "gesendete objekte",
     "drafts", "entwuerfe", "entwürfe",
@@ -58,44 +61,44 @@ TABU = {
 KOPFZEILEN = ("FROM TO SUBJECT DATE MESSAGE-ID LIST-ID LIST-UNSUBSCRIBE "
               "X-MAILER REPLY-TO")
 
-# 🔴 Die Fassung des LESERS, nicht der Datei. Das Inventar uebernimmt
-#    unveraenderte Ordner aus dem letzten Lauf — der Fingerabdruck aus
-#    UIDVALIDITY/MESSAGES/UIDNEXT sagt aber nur, dass sich die POST nicht
-#    geaendert hat, nicht dass wir sie gleich LESEN. Am 27.09.2026 wurde die
-#    Absender-Zerlegung repariert (11 Booking-Mails hatten keine erkennbare
-#    Adresse); ohne diese Zahl haette das Inventar die alten, falschen Werte
-#    weiterbenutzt und die Reparatur waere unsichtbar geblieben — ein Lauf, der
-#    Erfolg meldet und das Alte behaelt. Wer `kopf_saetze()` aendert, erhoeht sie.
+# 🔴 The version of the READER, not of the file. The inventory carries
+#    unchanged folders over from the last run — but the fingerprint from
+#    UIDVALIDITY/MESSAGES/UIDNEXT only says that the POST has not changed, not
+#    that we READ it the same way. On 2026-09-27 the sender split was repaired
+#    (11 Booking mails had no recognisable address); without this number the
+#    inventory would have kept using the old, wrong values and the repair would
+#    have stayed invisible — a run that reports success and keeps the old state.
+#    Whoever changes `kopf_saetze()` raises it.
 LESER_FASSUNG = 2
 
 
 def tabu(name: str) -> bool:
-    """Tabu gilt fuer den Ordner UND alles darunter."""
+    """Taboo applies to the folder AND everything below it."""
     n = name.lower()
     return any(n == t or n.startswith(t + ".") for t in TABU)
 
 
 def out_pfad(name: str) -> str:
-    """Wo der Umbau seine Dateien ablegt.
+    """Where the restructuring puts its files.
 
-    🔴 27.09.2026: hier stand ein fester Pfad mit Rueckfall auf den
-    Programmordner — `POSTWACHE_HOME` wurde ignoriert. In der Demo blieben damit
-    alle neuen Karten leer, obwohl die Dateien geschrieben waren: der Waechter
-    schrieb in `$POSTWACHE_HOME/out`, der Umbau las im Programmordner. Zwei
-    Stellen, die denselben Ort anders bestimmen, sind eine zu viel — es gilt
-    `pw.OUT`, und das kennt die Umgebungsvariable.
+    🔴 2026-09-27: a fixed path with a fallback to the program folder stood here —
+    `POSTWACHE_HOME` was ignored. In the demo all the new cards therefore stayed
+    empty although the files had been written: the watchman wrote into
+    `$POSTWACHE_HOME/out`, the restructuring read in the program folder. Two
+    places that determine the same location differently are one too many —
+    `pw.OUT` applies, and that one knows the environment variable.
     """
     return os.path.join(pw.OUT, name)
 
 
-# ── Stand fuer die Seite ─────────────────────────────────────────────────────
-# 🔑 Ein Lauf ueber 17.600 Mails dauert Minuten. Ohne Stand sitzt der Besitzer vor
-#    einer Seite, die nichts sagt — und drueckt noch einmal. Deshalb schreibt
-#    jede Stufe mit, wo sie steht, und die Seite liest nur diese Datei.
+# ── Status for the page ────────────────────────────────────────
+# 🔑 A run over 17,600 mails takes minutes. Without a status he sits in front
+#    of a page that says nothing — and presses again. So every stage writes down
+#    where it stands, and the page reads only this file.
 def stand_schreiben(**felder) -> None:
     d = stand_lesen()
-    # 🔑 Beginn merken: ohne Laufzeit sieht jede laengere Stufe aus wie ein
-    #    haengender Dienst. Mit „laeuft seit 3:20" ist Warten Warten.
+    # 🔑 Remember the start: without a runtime, every longer stage looks like a
+    #    hanging service. With „running for 3:20“, waiting is just waiting.
     if felder.get("laeuft") and not d.get("laeuft"):
         felder.setdefault("begonnen", time.time())
     d.update(felder)
@@ -116,11 +119,11 @@ def stand_lesen() -> dict:
 
 # ── Stufe 1: Inventar ────────────────────────────────────────────────────────
 def kopf_saetze(pf, ordner: str, block: int = 300):
-    """Alle Kopfzeilen eines Ordners. readonly, BODY.PEEK, in Bloecken.
+    """All headers of a folder. Read-only, BODY.PEEK, in blocks.
 
-    🔴 Das `finally` stellt auf INBOX zurueck. Ohne das bleibt der Server auf
-    dem zuletzt gelesenen Ordner stehen und jeder folgende Abruf greift ins
-    Leere — genau dieser Fehler meldete am 11.09. Erfolg und las nichts.
+    🔴 The `finally` returns to INBOX. Without it the server stays on the folder
+    last read and every following fetch grasps at nothing — exactly that mistake
+    reported success on 2026-09-11 and read nothing.
     """
     raus = []
     uidval = 0
@@ -151,8 +154,8 @@ def kopf_saetze(pf, ordner: str, block: int = 300):
                 t = re.search(rb"UID (\d+)", st[0] or b"")
                 uid = int(t.group(1)) if t else uid_jetzt
                 msg = email.message_from_bytes(st[1])
-                # 🔴 Ueber `pw.absender_teile()`: es kennt den Rueckfall fuer
-                # kodierte Anzeigenamen (11 Booking-Mails, 27.09.).
+                # 🔴 Through `pw.absender_teile()`: it knows the fallback for
+                # encoded display names (11 Booking mails, 2026-09-27).
                 name, adr = pw.absender_teile(msg.get("From", ""))
                 ts = ""
                 try:
@@ -163,7 +166,7 @@ def kopf_saetze(pf, ordner: str, block: int = 300):
                 raus.append({
                     "uid": uid,
                     "von": (adr or "").strip().lower(),
-                    # `absender_teile()` dekodiert den Namen schon.
+                    # `absender_teile()` already decodes the name.
                     "name": name,
                     "betreff": pw.dekodieren(msg.get("Subject", "")),
                     "an": pw.dekodieren(msg.get("To", ""))[:200],
@@ -182,13 +185,13 @@ def kopf_saetze(pf, ordner: str, block: int = 300):
 
 
 def ordner_signatur(pf, name: str):
-    """(uidvalidity, anzahl, uidnext) in EINER Abfrage.
+    """(uidvalidity, count, uidnext) in ONE query.
 
-    🔑 Aendert sich keiner der drei Werte, ist der Ordner unveraeandert: UIDNEXT
-    waechst bei jeder neuen Mail und schrumpft nie. Wurde eine geloescht und
-    eine neue gelegt, bleibt die ANZAHL gleich — aber UIDNEXT ist hoeher. Die
-    drei zusammen sind deshalb ein verlaesslicher Fingerabdruck, und er kostet
-    einen einzigen Hin- und Rueckweg statt SELECT + SEARCH + FETCH.
+    🔑 If none of the three values changes, the folder is unchanged: UIDNEXT
+    grows with every new mail and never shrinks. If one was deleted and a new one
+    added, the COUNT stays the same — but UIDNEXT is higher. The three together
+    are therefore a reliable fingerprint, and it costs a single round trip instead
+    of SELECT + SEARCH + FETCH.
     """
     try:
         typ, d = pf.m.status(pf._zitat(name), "(UIDVALIDITY MESSAGES UIDNEXT)")
@@ -199,7 +202,7 @@ def ordner_signatur(pf, name: str):
         for feld in (b"UIDVALIDITY", b"MESSAGES", b"UIDNEXT"):
             m = re.search(feld + rb"\s+(\d+)", roh)
             if not m:
-                return None            # unvollstaendig = kein Fingerabdruck
+                return None            # incomplete = no fingerprint
             werte.append(int(m.group(1)))
         return tuple(werte)
     except Exception:
@@ -209,11 +212,11 @@ def ordner_signatur(pf, name: str):
 def inventar(nur: str = "", voll: bool = False) -> int:
     zug = pw.zugang()
     t0 = time.time()
-    # Was beim letzten Mal drinstand — daraus wird uebernommen, was sich nicht
-    # geaendert hat. 🔴 der Besitzer, 27.09.: das Postfach hat nach dem Umbau 132
-    # statt 53 Ordner, und ein volles Inventar dauerte dadurch 7 Minuten statt
-    # 27 Sekunden. Dieselben Mails, nur feiner verteilt — die Kosten stecken im
-    # Ordner, nicht in der Post.
+    # What was in it last time — from that, everything that has not changed is
+    # carried over. 🔴 der Besitzer, 2026-09-27: after the restructuring the mailbox has
+    # 132 folders instead of 53, and a full inventory therefore took 7 minutes
+    # instead of 27 seconds. The same mails, only spread more finely — the cost
+    # sits in the folder, not in the post.
     alt = {}
     if not voll:
         try:
@@ -231,7 +234,7 @@ def inventar(nur: str = "", voll: bool = False) -> int:
             if nur and nur.lower() not in o.lower():
                 continue
             if o.upper() == "INBOX":
-                pass  # Posteingang wird mitgezaehlt, aber nie geraeumt
+                pass  # the inbox is counted, but never cleared
             sig = ordner_signatur(pf, o)
             frueher = alt.get(o) or {}
             uebernommen = (sig is not None and frueher.get("signatur")
@@ -267,35 +270,35 @@ def inventar(nur: str = "", voll: bool = False) -> int:
     return 0
 
 
-# ── Stufe 2: der Zielbaum ────────────────────────────────────────────────────
-# 🔑 Jede Regel steht hier mit der GEMESSENEN Zahl (Inventar 27.09.2026).
-#    Erfundene Ordner gibt es nicht — wo keine Post liegt, entsteht kein Ordner.
+# ── Stage 2: the target tree ────────────────────────────────────
+# 🔑 Every rule stands here with its MEASURED number (inventory 2026-09-27).
+#    There are no invented folders — where no post lies, no folder appears.
 #
-# 🔑 DIE REIHENFOLGE IST DER VORRANG. Die erste passende Regel gewinnt.
+# 🔑 THE ORDER IS THE PRECEDENCE. The first matching rule wins.
 #
-# 🔴 SEMANTIK, damit sie nicht geraten werden muss:
-#    Sind Absender/Domains UND ein Betreffmuster gesetzt, muessen BEIDE passen.
-#    Ist nur eins gesetzt, entscheidet das allein. Wer „oder" braucht, schreibt
-#    ZWEI Regeln — ein breites Muster wie `konto` mit „oder" verbunden saugt
-#    sonst fremde Post ein, die drei Regeln weiter unten ihr Zuhause hat.
+# 🔴 SEMANTICS, so they do not have to be guessed:
+#    If senders/domains AND a subject pattern are set, BOTH must match. If only
+#    one is set, that one decides alone. Whoever needs „or“ writes TWO rules — a
+#    broad pattern like `konto` joined by „or“ would otherwise suck in foreign
+#    post that has its home three rules further down.
 #
-# 🔴 BEIM ARCHIV ENTSCHEIDET DER BETREFF, NICHT DER ABSENDER. 6.954 Archivmails
-#    tragen dessen eigene Adresse im `From`, weil die DiskStation ueber sein
-#    Gmail-Konto verschickt hat. Deshalb stehen die Geraeteregeln GANZ VORN.
+# 🔴 FOR THE ARCHIVE THE SUBJECT DECIDES, NOT THE SENDER. 6,954 archive mails
+#    carry his own address in `From`, because the DiskStation sent through his
+#    Gmail account. That is why the device rules stand RIGHT AT THE FRONT.
 
-# ── Absender, die ALLES anbieten ────────────────────────────────────────────
-# 🔴 Das stand schon in Phase 1 (11.09.2026) und ich habe es trotzdem gebaut:
-#    „Die Hauptdomain bringt 8 Treffer und 7 Fehler — ein Muenzwurf.
-#     `check24.de` macht Hotels UND Versicherungen, `deutschepost.de` liefert
-#     Pakete UND den Steuer-Newsletter." Die Hauptdomain durfte seither
-#     VORSCHLAGEN, aber nicht HANDELN — meine Regel liess sie handeln.
+# ── Senders that offer EVERYTHING ──────────────────────────────
+# 🔴 This already stood in phase 1 (2026-09-11) and I built it anyway:
+#    „The main domain brings 8 hits and 7 misses — a coin toss. `check24.de` does
+#     hotels AND insurance, `deutschepost.de` delivers parcels AND the tax
+#     newsletter.“ The main domain has been allowed to SUGGEST ever since, but not
+#     to ACT — my rule let it act.
 #
-# 🔑 Die Information ist laengst da, nur eine Ebene tiefer: bei der Besitzer kam die
-#    Reise von `info@hotel.check24.de` („Buchungsbestaetigung Wolin"), die
-#    Versicherung von `e-scooter-versicherung@check24.de`, der Sicherheitscode
-#    von `kundenkonto@check24.de`. UNTERDOMAIN und der Teil VOR dem @ sagen es.
+# 🔑 The information has been there all along, just one level deeper: the trip
+#    came from `info@hotel.check24.de` („Buchungsbestaetigung Wolin“), the
+#    insurance from `e-scooter-versicherung@check24.de`, the security code from
+#    `kundenkonto@check24.de`. The SUBDOMAIN and the part BEFORE the @ say it.
 #
-# Je Domain: welche Kategorie fuehrt wohin, und wohin, wenn nichts passt.
+# Per domain: which category leads where, and where to when nothing matches.
 MEHRDEUTIG = {
     "check24.de": {"_rueckfall": "Versicherungen.Allgemein",
                    "Reisen": "Reisen",
@@ -311,18 +314,17 @@ MEHRDEUTIG = {
                  "Auto": "Auto.Werkstatt"},
 }
 
-# Womit der feine Blick entscheidet. Gelesen wird die GANZE Adresse (Teil vor
-# dem @, Unterdomain) UND der Betreff — die Reihenfolge ist der Vorrang.
-# 🔴 Versicherung VOR Auto: „Kfz-Versicherung" ist beides, gemeint ist das
-#    erste. Und Reisen VOR Einkauf: eine „Buchungsbestaetigung" ist keine
-#    Bestellung.
+# What the fine-grained view decides by. The WHOLE address is read (part before
+# the @, subdomain) AND the subject — the order is the precedence.
+# 🔴 Insurance BEFORE car: „Kfz-Versicherung“ is both, and the first is meant.
+#    And travel BEFORE shopping: a „Buchungsbestaetigung“ is not an order.
 FEIN_MUSTER = [
     ("Konten", r"kundenkonto|kundenbereich|\blogin\b|passwort|sicherheitscode|"
                r"anmeldung|zugangsdaten|zwei-faktor"),
     ("Reisen", r"hotel|reise|\bflug|unterkunft|ferienwohnung|urlaub|"
                r"buchungsbestaetigung|eingangsbestaetigung ihrer buchung"),
-    # 🔴 Der STAMM, nicht das Wort: „Kfz-Versicherer" enthaelt kein
-    #    „Versicherung" — zwei Mails landeten dadurch in `Auto.Werkstatt`.
+    # 🔴 The STEM, not the word: „Kfz-Versicherer“ contains no
+    #    „Versicherung“ — two mails landed in `Auto.Werkstatt` because of that.
     ("Versicherungen", r"versicher|\bpolice\b|\bevb\b|haftpflicht|"
                        r"\btarif\b|antragsnummer"),
     ("Auto", r"\bkfz\b|fahrzeug|zulassung|kennzeichen|werkstatt"),
@@ -332,10 +334,10 @@ FEIN_MUSTER = [
 
 
 def fein_entscheiden(von: str, betreff: str):
-    """Bei einem mehrdeutigen Absender entscheidet nicht die Domain.
+    """With an ambiguous sender the domain does not decide.
 
-    Gelesen wird die GANZE Adresse plus Betreff. Passt nichts, gilt der
-    Rueckfall der Domain — raten wird hier nicht.
+    The WHOLE address plus the subject is read. If nothing matches, the domain's
+    fallback applies — there is no guessing here.
     """
     von = (von or "").lower()
     dom = von.split("@")[-1]
@@ -346,7 +348,7 @@ def fein_entscheiden(von: str, betreff: str):
             break
     if karte is None:
         return "", ""
-    # Der Teil vor dem @ und die Unterdomain gehoeren zur Beweislage.
+    # The part before the @ and the subdomain are part of the evidence.
     heu = pw.normal(von.replace("@", " ").replace(".", " ") + " " + (betreff or ""))
     for kat, rx in FEIN_MUSTER:
         if kat in karte and _passt_rx(rx, heu):
@@ -354,56 +356,57 @@ def fein_entscheiden(von: str, betreff: str):
     return karte.get("_rueckfall", ""), "mehrdeutiger Absender — Rueckfall"
 
 
-# 🔴 LEER im Quelltext. Die eigenen Adressen des Besitzers stehen in
-#    `state/regeln_eigen.json` unter „eigene_adressen" — hier standen sie bis
-#    zum 27.09.2026, und damit in jedem Abbild und jedem Repo.
+# 🔴 EMPTY in the source. The owner's own addresses live in
+#    `state/regeln_eigen.json` under „eigene_adressen“ — they stood here until
+#    2026-09-27, and therefore in every image and every repository.
 EIGEN = ()
 
-# 🔴 dessen EIGENE alte Post (863 Mails 2007-2022, an andere gerichtet) gehoert
-#    nicht in Themenordner verteilt — sie ist ein Block und bleibt einer. Sie
-#    wird ABSICHTLICH nicht nach `Sent Items` gelegt: das ist sein aktueller
-#    Nachweis und tabu.
+# 🔴 His OWN old post (863 mails 2007-2022, addressed to others) does not
+#    belong spread across topic folders — it is one block and stays one. It is
+#    DELIBERATELY not put into `Sent Items`: that is his current record and
+#    taboo.
 EIGENE_POST = "Eigene Post Archiv"
 
-# Rundschreiben, die keine Regel getroffen hat. Erkannt am `List-Id` /
-# `List-Unsubscribe` — dasselbe Merkmal, an dem `einordnen()` seit 1.0
-# Newsletter erkennt. Ohne diese Stufe liegen 600 Einzelstuecke im Auffang,
-# die alle dasselbe sind.
+# Circulars that no rule has matched. Recognised by `List-Id` /
+# `List-Unsubscribe` — the same feature by which `einordnen()` has recognised
+# newsletters since 1.0. Without this stage 600 individual pieces lie in the
+# catch folder that are all the same thing.
 NEWSLETTER = "Newsletter"
 
-# Was keine Regel trifft. Der Besitzer soll SEHEN, was nicht erkannt wurde — ein
-# stiller Rest ist schlimmer als ein sichtbarer.
+# What no rule matches. He should SEE what was not recognised — a silent
+# remainder is worse than a visible one.
 AUFFANG = "Unsortiert"
 
 # (Ziel, Absender exakt, Domain-Endungen, Betreffmuster)
 REGELN = [
-    # 🔴 HIER STAND DER BESITZER PERSOENLICHER TEIL — 20 Regeln mit den echten
-    #    Adressen von Familie, Bankberaterin, Architekt, Handwerkern und
-    #    Arbeitgeber. Am 27.09.2026 standen genau solche Daten im OEFFENTLICHEN
-    #    Repo (Name und Mailadresse einer echten Person, in allen drei Commits).
+    # 🔴 HIS PERSONAL PART STOOD HERE — 20 rules with the real addresses of
+    #    family, bank adviser, architect, tradespeople and employer. On
+    #    2026-09-27 exactly that kind of data stood in the PUBLIC repository (the
+    #    name and mail address of a real person, in all three commits). The
+    #    repository was deleted and rebuilt.
     #
-    # 🔑 Sie liegen jetzt in `state/regeln_eigen.json` (0600, in KEINER
-    #    Ausrollliste) und werden von `eigen_laden()` VOR diesen Regeln
-    #    gefragt. Was niemand veroeffentlichen kann, muss niemand herausfiltern.
-    #    Aufbau der Datei steht bei `eigen_laden()`.
+    # 🔑 They now live in `state/regeln_eigen.json` (0600, on NO rollout list)
+    #    and are asked by `eigen_laden()` BEFORE these rules. What nobody can
+    #    publish, nobody has to filter out. The file layout is documented at
+    #    `eigen_laden()`.
     #
-    #    Was hier steht, gilt fuer JEDEN: PayPal, Amazon, Telekom, Behoerden.
-    #    Wer eine Regel mit einem echten Namen hier eintraegt, macht denselben
-    #    Fehler noch einmal.
+    #    What stands here applies to EVERYONE: PayPal, Amazon, Telekom,
+    #    authorities. Whoever enters a rule with a real name here makes the same
+    #    mistake all over again.
 
-    # ── Geraetemeldungen: der Schluessel zum Archiv (~6.900 Mails) ───────────
+    # ── Device reports: the key to the archive (~6,900 mails) ───────────
     ("Technik.Synology", (), ("synology.com", "synologynotification.com"), r""),
     ("Technik.Netzwerk", (), (), r"fritz!?|powerline|heimnetz|portfreigaben|"
      r"wlan-gastzugang|archer c\d|änderungsnotiz|internet-adresse|"
      r"communication (establish|lost)|self test (start|end)"),
-    # `sponionpi` ist kein Anbieter, sondern der HOSTNAME eines Pi — solche
-    # Absender haben keine Domain, nur einen Rechnernamen.
+    # `sponionpi` is not a provider but the HOSTNAME of a Pi — senders like that
+    # have no domain, only a machine name.
     ("Technik.Netzwerk", (), ("avm.de", "no-ip.com", "sponionpi"), r""),
 
-    # ── Hausbau: das Bauvorhaben des Besitzers ─────────────
+    # ── House building: the owner's building project ──────
     ("Hausbau.Statik", (), ("heinze-statik.de",), r""),
-    # 🔴 Die Beraterin der Sparkasse VOR der Bank-Regel: ihre Post ist Hausbau,
-    #    nicht Banking. Deshalb Adresse UND Muster.
+    # 🔴 The bank adviser BEFORE the banking rule: her post is house building,
+    #    not banking. Hence address AND pattern.
 
     # ── Banking ─────────────────────────────────────────────────────────────
     ("Banking.DKB", (), ("dkb.de",), r""),
@@ -417,9 +420,10 @@ REGELN = [
     # ── Auto ────────────────────────────────────────────────────────────────
     ("Auto.KIA", (), ("kia.com", "kia.de", "m8mit.de"), r""),
 
-    # ── Konten (Sicherheit/Anmeldung) VOR Einkauf (Belege) ───────────────────
-    # 🔴 Apple zweimal: Sicherheitspost ist etwas anderes als ein Kaufbeleg. Die
-    #    ENGE Regel muss vorn stehen, sonst frisst sie alle 761 Belege mit.
+    # ── Accounts (security/login) BEFORE shopping (receipts) ─────────────
+    # 🔴 Apple twice: security post is something different from a purchase
+    #    receipt. The NARROW rule has to stand first, otherwise it eats all 761
+    #    receipts with it.
     ("Konten.Apple", (), ("apple.com", "itunes.com", "icloud.com", "me.com"),
      r"apple[- ]?id|anmeldung|sicherheitscode|passwort|zwei-faktor|verifizierung"),
     ("Konten.Google", (), ("google.com", "googleplay.com", "accounts.google.com"), r""),
@@ -463,11 +467,11 @@ REGELN = [
 
     # ── Arbeit ──────────────────────────────────────────────────────────────
 
-    # ── Menschen: nur wer wirklich oft schreibt ─────────────────────────────
+    # ── People: only those who really write often ────────────────────
 
-    # ── Mobilitaet & Auto (zweiter Regelsatz, aus dem Auffang gelernt) ──────
-    # `m8mit.de` (120 Mails) sind die KIA-Leistungsnachweise — sie lagen alle
-    # in `Shopping.KIA`, der Name verrät es aber nicht.
+    # ── Mobility & car (second rule set, learned from the catch folder) ───
+    # `m8mit.de` (120 mails) are the KIA service records — they all lay in
+    # `Shopping.KIA`, but the name does not give it away.
     ("Auto.Laden", (), ("enbw.com", "kiacharge.com", "maingau-energie.de",
                         "chargemap.com", "plugsurfing.com", "ionity.eu"), r""),
     ("Fahrrad", (), ("collos.de", "bikeleasing.de", "fantic26.de",
@@ -481,8 +485,8 @@ REGELN = [
                     "lufthansa.com", "bahn.de", "flixbus.de", "trivago.de",
                     "leipzig-halle-airport.de", "hotsplots.de"), r""),
 
-    # ── Kinder ──────────────────────────────────────────────────────────────
-    # 33 von 34 lagen in `Shopping.Rechnungen Hort` — Betreuungsrechnungen.
+    # ── Children ───────────────────────────────────────────────
+    # 33 of 34 lay in `Shopping.Rechnungen Hort` — childcare invoices.
     ("Kinder.Hort", (), ("lernsax.de", "hgr-web.lernsax.de"), r""),
     ("Kinder.Schule", (), (), r"elternabend|elterninformation|klassenstufe|"
      r"schulanmeldung|zeugnis"),
@@ -504,7 +508,7 @@ REGELN = [
                                 "tubeampdoctor.com", "play-dresden.de",
                                 "heavyweather.de"), r""),
 
-    # ── Einkauf, was oben keinen eigenen Ordner hat ──────────────────────────
+    # ── Shopping, whatever has no folder of its own above ──────────────
     ("Einkauf.Allgemein", (), ("lidl.de", "mediamarkt.de", "conrad.de",
                                "idealo.com", "de.idealo.com", "asgoodasnew.com",
                                "nike.com", "official.nike.com", "skatepro.de",
@@ -514,31 +518,31 @@ REGELN = [
     ("Gaming", (), ("playstation.com", "txn-email03.playstation.com", "ubi.com",
                     "xsolla.com", "gog.com", "nintendo.com"), r""),
     ("Steuer", (), ("wolterskluwer.com", "elster.de", "buhl.de"), r""),
-    # Wohnungs-/Haussuche gehoert zum Haus — dessen Regel „alles was mit dem
-    # haus zu tun hat kommt unter Hausbau".
+    # Looking for a flat or a house belongs to the house — his rule: everything
+    # to do with the house goes under Hausbau.
     ("Hausbau.Suche", (), ("immobilienscout24.de", "immowelt.de"), r""),
     ("Telekommunikation.Kabel", (), ("kabeldeutschland.de", "unitymedia.de"), r""),
 
-    # 🔴 dessen EIGENE Adressen muessen HIER stehen — vor `Menschen.Weitere`.
-    #    Beim ersten Messen fiel „Eigene Post Archiv" von 963 auf 14, weil
-    #    `gmail.com` in der Menschen-Regel seine 863 eigenen gesendeten Mails
-    #    mitnahm. Und sie duerfen NICHT weiter oben stehen: 6.954 Geraeteberichte
-    #    tragen dieselbe Adresse und gehoeren nach `Technik.*`.
-    # 🔑 Bleibt als PLATZHALTER stehen: die eigenen Adressen kommen zur Laufzeit
-    #    aus `eigen_laden()` (siehe `ziel_fuer`), hier steht nur der Zielordner.
+    # 🔴 His OWN addresses have to stand HERE — before `Menschen.Weitere`. At
+    #    the first measurement „Eigene Post Archiv“ fell from 963 to 14, because
+    #    `gmail.com` in the people rule took his 863 own sent mails with it. And
+    #    they must NOT stand further up: 6,954 device reports carry the same
+    #    address and belong under `Technik.*`.
+    # 🔑 Stays here as a PLACEHOLDER: the own addresses come at runtime from
+    #    `eigen_laden()` (see `ziel_fuer`), only the target folder stands here.
 
-    # ── Menschen ohne eigenen Ordner: private Postfachanbieter ──────────────
-    # 🔴 Absichtlich SPAET: erst wenn keine Firma, kein Dienst und kein Geraet
-    #    gepasst hat, ist ein gmail/gmx/web.de-Absender wahrscheinlich ein
-    #    Mensch. Weiter oben würde diese Regel Firmenpost mitnehmen, die bei
-    #    einem Freemailer sitzt.
+    # ── People without a folder of their own: consumer mail providers ─────
+    # 🔴 Deliberately LATE: only when no company, no service and no device has
+    #    matched is a gmail/gmx/web.de sender likely to be a human. Further up,
+    #    this rule would take company post with it that happens to sit at a free
+    #    mail provider.
     ("Menschen.Weitere", (), ("gmail.com", "googlemail.com", "gmx.de", "gmx.net",
                               "posteo.de",
                               "web.de", "hotmail.com", "hotmail.de", "freenet.de",
                               "me.com", "icloud.com", "t-online.de", "arcor.de",
                               "yahoo.de", "aol.com", "mail.ru"), r""),
 
-    # ── Spaete Muster: greifen nur, wenn oben nichts passte ─────────────────
+    # ── Late patterns: they only fire when nothing above matched ────────
     ("Steuer", (), (), r"steuererklärung|lohnsteuer|elster|finanzamt|"
      r"einkommensteuer|steuerbescheid"),
     ("Behoerden", (), (), r"standesamt|meldebehörde|bürgerbüro|landratsamt"),
@@ -554,38 +558,37 @@ def _passt_rx(rx: str, text: str) -> bool:
 
 
 def mid_bestaetigt(soll: str, ist: str) -> bool:
-    """Darf diese UID bewegt werden?
+    """May this UID be moved?
 
-    🔴 NUR wenn die Message-Id am Ort GEFUNDEN wurde UND passt. Ein LEERES
-    Ergebnis ist keine Bestaetigung, sondern der Normalfall fuer „UID gibt es
-    nicht mehr" — beim Nachweis am 27.09. meldete `anwenden` „3 bewegt",
-    obwohl es nichts bewegt hatte: die Mails waren nach einem `zurueck` unter
-    NEUEN UIDs wieder da, die alte UID lieferte keinen Kopf, und die Pruefung
-    liess das durch.
+    🔴 ONLY if the Message-Id was FOUND at the location AND matches. An EMPTY
+    result is not a confirmation but the normal case for „the UID no longer
+    exists“ — during the proof on 2026-09-27 `anwenden` reported „3 moved“
+    although it had moved nothing: after a `zurueck` the mails were back under
+    NEW UIDs, the old UID returned no header, and the check let that pass.
     """
     soll = (soll or "").strip()
     ist = (ist or "").strip()
     if not ist:
-        return False          # nichts gefunden = nicht bestaetigt
+        return False          # nothing found = not confirmed
     if not soll:
-        return False          # ohne Plan-Id gibt es nichts zu bestaetigen
+        return False          # without a plan id there is nothing to confirm
     return soll == ist
 
 
 def eigene_regeln() -> dict:
-    """dessen EIGENE Absenderregeln aus den Einstellungen. {adresse: ordner}
+    """His OWN sender rules from the settings. {address: folder}
 
-    🔴 27.09.2026, teuer gelernt: der Umbau entfernte `Auto.Autohaus-nord`, weil er
-    ihn fuer leer und entbehrlich hielt — dabei hatte der Besitzer ihn selbst angelegt
-    und eine Regel `j.haller@autohaus-nord.example -> Auto.Autohaus-nord` gesetzt. Der Plan
-    schob die zwei Mails nach `Auto.Allgemein`, der Ordner wurde leer, und das
-    Aufraeumen nahm ihn mit. Danach zeigte seine Regel auf einen Ordner, den es
-    nicht mehr gab.
+    🔴 2026-09-27, learned the expensive way: the restructuring removed
+    `Auto.Autohaus-nord` because it considered it empty and dispensable — when in
+    fact he had created it himself and set a rule
+    `j.haller@autohaus-nord.example -> Auto.Autohaus-nord`. The plan pushed its
+    two mails to `Auto.Allgemein`, the folder became empty, and the cleanup took
+    it with it. After that his rule pointed at a folder that no longer existed.
 
-    🔑 DER BESITZER EIGENE ZUORDNUNG SCHLAEGT ALLES. Das gilt im Waechter seit 2.3.0
-       (`absender_regel()` vor der gelernten Ablage) — der Umbau wusste es nur
-       nicht. Eine zweite Stelle, die dieselbe Frage anders beantwortet, ist eine
-       zu viel.
+    🔑 HIS OWN ASSIGNMENT BEATS EVERYTHING. That has held in the watchman since
+       2.3.0 (`absender_regel()` before the learned filing) — the restructuring
+       simply did not know it. A second place that answers the same question
+       differently is one too many.
     """
     try:
         e = pw.einstellungen()
@@ -598,34 +601,34 @@ def eigene_regeln() -> dict:
             for k, v in ar.items() if str(v).strip()}
 
 
-# ── Der persoenliche Teil des Katalogs gehoert NICHT in den Quelltext ────────
-# 🔴 27.09.2026, der teuerste Fund des Tages: im OEFFENTLICHEN Repo standen in
-#    allen drei Commits der Name und die Mailadresse einer echten Person
-#    (`k.ivanov@autogruppe.example`, aus einem Beispiel in einer
-#    Dokumentationszeile), dazu Geraetenamen und der Mailanbieter. Das Repo
-#    wurde geloescht und neu aufgebaut.
+# ── The personal part of the catalogue does NOT belong in the source ──────
+# 🔴 2026-09-27, the most expensive finding of the day: the PUBLIC repository
+#    carried, in all three commits, the name and mail address of a real person
+#    (`k.ivanov@autogruppe.example`, from an example in a documentation line),
+#    plus device names and the mail provider. The repository was deleted and
+#    rebuilt.
 #
-#    Der Schrubber beim Veroeffentlichen war die falsche Antwort: er ist ein
-#    NETZ, keine Mauer. 20 von 74 Regeln trugen echte Adressen — Familie,
-#    Bankberaterin, Architekt, Handwerker, Arbeitgeber. Solange die im Quelltext
-#    stehen, entscheidet eine Regex darueber, ob sie oeffentlich werden.
+#    Scrubbing at publish time was the wrong answer: it is a NET, not a wall.
+#    20 of 74 rules carried real addresses — family, bank adviser, architect,
+#    tradespeople, employer. As long as those stand in the source, a regular
+#    expression decides whether they become public.
 #
-# 🔑 DIE MAUER: der persoenliche Teil liegt in `state/regeln_eigen.json` —
-#    dieselbe Schublade wie die Zugangsdaten, 0600, in KEINER Ausrollliste.
-#    Im Quelltext stehen nur noch Regeln, die fuer jeden gelten (PayPal, Amazon,
-#    Telekom). Was niemand veroeffentlichen kann, muss niemand herausfiltern.
+# 🔑 THE WALL: the personal part lives in `state/regeln_eigen.json` — the same
+#    drawer as the credentials, 0600, on NO rollout list. Only rules that apply
+#    to everyone remain in the source (PayPal, Amazon, Telekom). What nobody can
+#    publish, nobody has to filter out.
 EIGEN_DATEI = "regeln_eigen.json"
 
 
 def eigen_laden() -> dict:
-    """Der persoenliche Katalog dieser Installation. Fehlt er, ist er leer.
+    """The personal catalogue of this installation. If it is absent, it is empty.
 
-    Aufbau:
+    Layout:
       {"eigene_adressen": ["..."],
-       "regeln": [["Ziel", ["adresse", ...], ["domain", ...], "muster"], ...]}
+       "regeln": [["Target", ["address", ...], ["domain", ...], "pattern"], ...]}
 
-    🔴 Leer ist ein gueltiger Zustand, kein Fehler: eine frische Installation
-       hat keinen persoenlichen Teil, und der Waechter muss trotzdem laufen.
+    🔴 Empty is a valid state, not an error: a fresh installation has no
+       personal part, and the watchman still has to run.
     """
     if "katalog" in _EIGEN_ZWISCHEN:
         return _EIGEN_ZWISCHEN["katalog"]
@@ -636,11 +639,11 @@ def eigen_laden() -> dict:
         if isinstance(adr, list):
             raus["eigene_adressen"] = [str(a).strip().lower() for a in adr if str(a).strip()]
         for r in v.get("regeln") or []:
-            # 🔴 Jeder Eintrag traegt seine urspruengliche POSITION im Katalog.
-            #    Ohne sie standen beim ersten Anlauf alle persoenlichen Regeln
-            #    vorn — damit kam „Eigene Post Archiv" VOR den Geraeteregeln,
-            #    und 823 FRITZ!-Meldungen von der eigenen Adresse landeten im
-            #    Archiv statt unter Technik. Die Reihenfolge IST die Logik.
+            # 🔴 Every entry carries its original POSITION in the catalogue.
+            #    Without it, all personal rules stood at the front on the first
+            #    attempt — which put „Eigene Post Archiv“ BEFORE the device rules,
+            #    and 823 FRITZ! reports from his own address landed in the archive
+            #    instead of under Technik. The order IS the logic.
             if not isinstance(r, dict) or not str(r.get("ziel") or "").strip():
                 continue
             raus["regeln"].append({
@@ -656,12 +659,12 @@ def eigen_laden() -> dict:
 
 
 def katalog():
-    """Persoenlicher und allgemeiner Teil in der URSPRUENGLICHEN Reihenfolge.
+    """Personal and general part in their ORIGINAL order.
 
-    🔑 Die persoenlichen Regeln kommen an ihre gemerkte Position zurueck —
-       zwischen die allgemeinen, nicht davor. „Meine Bankberaterin" muss vor
-       „irgendeine Bank" stehen, die Geraeteregeln aber vor „meine eigene Post".
-       Beides gleichzeitig geht nur ueber die Position.
+    🔑 The personal rules return to their remembered position — between the
+       general ones, not in front of them. „My bank adviser“ has to stand before
+       „some bank“, but the device rules before „my own post“. Both at once is
+       only possible via the position.
     """
     if "katalog_voll" in _EIGEN_ZWISCHEN:
         return _EIGEN_ZWISCHEN["katalog_voll"]
@@ -669,18 +672,18 @@ def katalog():
     nach_nr = {e["nr"]: e["regel"] for e in eigen}
     rest = list(REGELN)
     raus = []
-    # 🔴 Der Bereich muss die HOECHSTE Position fassen, nicht nur die Summe der
-    #    Laengen. Sonst fiel eine Regel mit hoher Nummer still heraus — genau so
-    #    verschwand im Pruefstand „Eigene Post Archiv" (Position 68) aus einem
-    #    Katalog mit 60 Eintraegen, und niemand haette es gemerkt.
+    # 🔴 The range has to hold the HIGHEST position, not just the sum of the
+    #    lengths. Otherwise a rule with a high number silently dropped out — that
+    #    is exactly how „Eigene Post Archiv“ (position 68) vanished from a
+    #    catalogue of 60 entries in the test bench, and nobody would have noticed.
     hoechste = max(nach_nr) if nach_nr else -1
     for i in range(max(hoechste + 1, len(eigen) + len(REGELN))):
         if i in nach_nr:
             raus.append(nach_nr[i])
         elif rest:
             raus.append(rest.pop(0))
-    raus.extend(rest)          # was uebrig ist, geht nie verloren
-    # 🔴 Gegenprobe im Betrieb: keine Regel darf beim Verzahnen abhandenkommen.
+    raus.extend(rest)          # whatever is left over is never lost
+    # 🔴 A counter-check in operation: no rule may go missing while interleaving.
     if len(raus) != len(eigen) + len(REGELN):
         pw.log("Katalog unvollstaendig: %d statt %d Regeln"
                % (len(raus), len(eigen) + len(REGELN)))
@@ -692,10 +695,10 @@ _EIGEN_ZWISCHEN = {}
 
 
 def ziel_fuer(m: dict):
-    """Erste passende Regel gewinnt. Gibt (Ziel, Begruendung) zurueck.
+    """The first matching rule wins. Returns (target, reason).
 
-    🔑 GANZ VORN stehen dessen eigene Absenderregeln. Sie sind seine
-       Entscheidung, nicht meine Ableitung — nichts darf sie ueberstimmen.
+    🔑 RIGHT AT THE FRONT stand his own sender rules. They are his decision, not
+       my derivation — nothing may override them.
     """
     von = (m.get("von") or "").lower()
     if "absender" not in _EIGEN_ZWISCHEN:
@@ -704,24 +707,23 @@ def ziel_fuer(m: dict):
     if eigen:
         return eigen, "deine eigene Regel"
     dom = von.split("@")[-1]
-    # Der Betreff wird normalisiert (klein, Umlaut+Umschrift gleich) — dieselbe
-    # Funktion, die 11.09. den Umlaut-Fehler an der Wurzel behoben hat.
+    # The subject is normalised (lower case, umlaut and transcription alike) —
+    # the same function that fixed the umlaut bug at its root on 2026-09-11.
     heu = pw.normal(m.get("betreff") or "")
     roh = (m.get("betreff") or "").lower()
-    # 🔑 Der PERSOENLICHE Katalog zuerst, dann der allgemeine. Er ist genauer:
-    #    „meine Bankberaterin" schlaegt „irgendeine Bank". Und er liegt in
-    #    `state/`, nicht im Quelltext — siehe `eigen_laden()`.
+    # 🔑 The PERSONAL catalogue first, then the general one. It is more precise:
+    #    „my bank adviser“ beats „some bank“. And it lives in `state/`, not in the
+    #    source — see `eigen_laden()`.
     for ziel, adressen, domains, rx in katalog():
-        # Der Platzhalter fuer die eigene Post bekommt seine Adressen zur
-        # Laufzeit — im Quelltext steht dort ein leeres Tupel.
+        # The placeholder for his own post gets its addresses at runtime — in
+        # the source there is an empty tuple.
         #
-        # 🔴 27.09.2026: die Zustandsdatei fuehrte DIESELBE Liste zweimal — als
-        #    `eigene_adressen` UND in der Regel selbst. Geroutet wurde nach der
-        #    Regel, also blieb eine neu eingetragene eigene Adresse ohne
-        #    Wirkung: kein Fehler, keine Spur, nur eine Mail im Auffang.
-        #    Deshalb gilt jetzt die VEREINIGUNG beider Listen — eine zweite
-        #    Liste kann die erste nicht mehr aushebeln. `sorted`, damit die
-        #    Reihenfolge nicht von der Menge abhaengt.
+        # 🔴 2026-09-27: the state file carried the SAME list twice — as
+        #    `eigene_adressen` AND inside the rule itself. Routing went by the
+        #    rule, so a newly entered own address had no effect: no error, no
+        #    trace, just one mail in the catch folder. So now the UNION of both
+        #    lists applies — a second list can no longer override the first.
+        #    `sorted`, so that the order does not depend on the set.
         if ziel == EIGENE_POST:
             adressen = tuple(sorted(set(adressen or ())
                                     | set(eigen_laden()["eigene_adressen"])))
@@ -734,9 +736,9 @@ def ziel_fuer(m: dict):
             if (adr_tr or dom_tr) and rx_tr:
                 return ziel, "Absender+Betreff"
         elif hat_wer:
-            # 🔴 Eine Regel auf die genaue ADRESSE bleibt unangetastet — sie ist
-            #    schon so genau, wie es geht. Nur wo die DOMAIN zieht, wird
-            #    nachgesehen, ob dieser Absender alles Moegliche verschickt.
+            # 🔴 A rule on the exact ADDRESS stays untouched — it is already as
+            #    precise as it gets. Only where the DOMAIN pulls is it worth
+            #    looking at whether this sender sends all sorts of things.
             if adr_tr:
                 return ziel, "Absender %s" % von
             if dom_tr:
@@ -746,32 +748,32 @@ def ziel_fuer(m: dict):
                 return ziel, "Absender %s" % dom
         elif rx and rx_tr:
             return ziel, "Betreff"
-    # 🔴 Erst NACH allen Regeln: ein Absender mit eigenem Ordner soll dort
-    #    landen, auch wenn er seine Post als Rundschreiben verschickt.
+    # 🔴 Only AFTER all rules: a sender with a folder of their own should land
+    #    there, even when they send their post as a circular.
     if m.get("liste"):
         return NEWSLETTER, "List-Id"
     return AUFFANG, ""
 
 
-# ── Stufe 2b: Struktur AUS DEN INHALTEN ableiten ─────────────────────────────
-# der Besitzer, 27.09.2026: „er soll alle mails analysieren und sortieren und die neue
-# ordnerstrucktur basierent auf die mailinhalte bauen".
+# ── Stage 2b: derive structure FROM THE CONTENT ────────────────────
+# der Besitzer, 2026-09-27 — it should analyse and sort all mails and build the new
+# folder structure based on the mail contents.
 #
-# 🔑 Die Regeln oben decken das ab, was der Besitzer AUSDRUECKLICH genannt hat
-#    (Banking, Hausbau) und was gemessen gross ist. Alles andere soll der Umbau
-#    SELBST herausfinden — sonst muss jede neue Firma von Hand eingetragen
-#    werden und der Auffang waechst still mit.
+# 🔑 The rules above cover what he named EXPLICITLY (banking, house building)
+#    and what is measurably large. Everything else the restructuring should work
+#    out BY ITSELF — otherwise every new company has to be entered by hand and
+#    the catch folder quietly grows along.
 #
-# 🔴 Abgeleitet wird NUR ein Ordnername, nie eine Verschiebung ohne Ordner. Wo
-#    die Ableitung nichts erkennt, bleibt es beim Auffang — ein falsch benannter
-#    Ordner ist schlimmer als ein sichtbarer Rest.
+# 🔴 Only a folder NAME is derived, never a move without a folder. Where the
+#    derivation recognises nothing, the catch folder stands — a wrongly named
+#    folder is worse than a visible remainder.
 
-# Wie viele Mails ein Absender braucht, damit ein eigener Ordner entsteht.
-# Darunter lohnt der Ordner nicht: er kostet einen Klick und spart keinen.
+# How many mails a sender needs before a folder of their own appears. Below that
+# the folder is not worth it: it costs a click and saves none.
 SCHWELLE_EIGENER_ORDNER = 4
 
-# Was der Betreff ueber die Art der Post sagt. Reihenfolge = Vorrang.
-# Die Muster sind ASCII — `normal()` macht vorher ae/oe/ue daraus.
+# What the subject says about the kind of post. Order = precedence.
+# The patterns are ASCII — `normal()` turns umlauts into ae/oe/ue beforehand.
 INHALT_MUSTER = [
     ("Konten", r"anmeldung|passwort|kennwort|sicherheitscode|verifizier|"
                r"zwei-faktor|bestaetige (deine|ihre) e-?mail|konto (gesperrt|"
@@ -793,13 +795,12 @@ INHALT_MUSTER = [
 
 
 def marke_aus_domain(dom: str) -> str:
-    """Aus `meine.steuertipps.de` wird `Steuertipps`.
+    """`meine.steuertipps.de` becomes `Steuertipps`.
 
-    🔴 Die MARKE steht nicht vorn. `news.miele.de`, `mail.anthropic.com`,
-    `txn-email03.playstation.com` — wer das erste Stueck nimmt, legt Ordner
-    namens „News", „Mail" und „Txn-email03" an. Genommen wird das Stueck VOR
-    der oeffentlichen Endung, und mehrteilige Endungen (`co.uk`) zaehlen als
-    eine.
+    🔴 The BRAND is not at the front. `news.miele.de`, `mail.anthropic.com`,
+    `txn-email03.playstation.com` — take the first piece and you create folders
+    called „News“, „Mail“ and „Txn-email03“. What is taken is the piece BEFORE
+    the public suffix, and multi-part suffixes (`co.uk`) count as one.
     """
     mehrteilig = ("co.uk", "com.au", "co.jp", "com.br", "co.nz")
     teile = [x for x in (dom or "").lower().split(".") if x]
@@ -811,7 +812,7 @@ def marke_aus_domain(dom: str) -> str:
         kern = teile[-2]
     else:
         kern = teile[0]
-    # Technische Vorsilben, die keine Marke sind
+    # Technical prefixes that are not a brand
     for weg in ("mail", "email", "e", "news", "newsletter", "info", "no-reply",
                 "noreply", "smtp", "mx", "web", "my", "meine", "mein"):
         if kern == weg and len(teile) >= 3:
@@ -823,11 +824,11 @@ def marke_aus_domain(dom: str) -> str:
 
 
 def kategorie_aus_inhalt(betreffe: list) -> str:
-    """Welche oberste Schublade passt zu DIESEN Betreffen?
+    """Which top-level drawer fits THESE subjects?
 
-    Gezaehlt wird, nicht beim ersten Treffer abgebrochen: ein Absender schickt
-    Bestellungen UND Newsletter, und dann entscheidet die Mehrheit, nicht die
-    erste Mail, die man zufaellig zuerst liest.
+    Counting happens; it does not stop at the first hit: a sender sends orders AND
+    newsletters, and then the majority decides, not whichever mail you happen to
+    read first.
     """
     punkte = {}
     for b in betreffe:
@@ -839,50 +840,50 @@ def kategorie_aus_inhalt(betreffe: list) -> str:
     if not punkte:
         return ""
     best = max(punkte, key=lambda k: punkte[k])
-    # Eine Mehrheit muss eine sein: bei einem einzigen Treffer unter vielen
-    # Mails ist das Raten, nicht Erkennen.
+    # A majority has to be one: with a single hit among many mails that is
+    # guessing, not recognising.
     if punkte[best] * 3 < len(betreffe):
         return ""
     return best
 
 
-# ── Der Wortschatz: aus dessen EIGENEN Ordnern lernen ───────────────────────
-# der Besitzer, 27.09.2026: „warum wird unsortiert eigentlich nicht sortiert? sind doch
-# klare mails mit klaren inhalten die sich super einsortieren lassen, baue die app
-# so das auch diese sauber erkannt werden, nicht du sollst das machen sondern
-# immer die postwache, die nutzt doch ki oder?"
+# ── The vocabulary: learning from his OWN folders ───────────────────
+# der Besitzer, 2026-09-27 — why is the catch folder not being sorted? These are clear
+# mails with clear content that could be filed beautifully; build the app so that
+# these are recognised properly too — and not by me but always by the Postwache,
+# which uses AI, doesn't it?
 #
-# Gemessen an den 489 Mails im Auffang: 234 verschiedene Absender-Domains, davon
-# 202 mit weniger als 4 Mails. Eine Regel je Domain waere eine Liste, die ich
-# schreibe — genau das, was der Besitzer NICHT will, und sie waere morgen wieder zu
-# kurz. Die Muster (`INHALT_MUSTER`) trafen bei 14 von 15 der groessten Absender
-# NICHT, weil sie auf Rechnungs- und Vertragswoerter gebaut sind.
+# Measured against the 489 mails in the catch folder: 234 different sender
+# domains, 202 of them with fewer than 4 mails. One rule per domain would be a
+# list written by me — exactly what he does NOT want, and it would be too short
+# again tomorrow. The patterns (`INHALT_MUSTER`) did NOT match for 14 of the 15
+# biggest senders, because they are built on invoice and contract words.
 #
-# 🔑 Die Postwache hat aber etwas viel Besseres als jede Liste: 17.500 Mails, die
-#    der Besitzer SELBST in 132 Ordner einsortiert hat. Das ist ein beschrifteter
-#    Lehrstoff. Daraus laesst sich lernen, welche WOERTER zu welcher Kategorie
-#    gehoeren — und eine unbekannte Booking-Mail landet dann unter „Reisen",
-#    weil „hotel", „buchung" und „check" dort gehaeuft vorkommen. Das ist genau
-#    der Grundsatz der Postwache, nur auf den Betreff angewandt statt auf den
-#    Absender: SIE KANN NUR NACHAHMEN.
+# 🔑 But the Postwache has something far better than any list: 17,500 mails that
+#    he sorted into 132 folders HIMSELF. That is labelled teaching material. From
+#    it one can learn which WORDS belong to which category — and an unknown
+#    Booking mail then lands under „Reisen“, because „hotel“, „buchung“ and
+#    „check“ cluster there. That is exactly the Postwache's principle, only
+#    applied to the subject instead of the sender: IT CAN ONLY IMITATE.
 WORTSCHATZ = "umbau_wortschatz.json"
-WORT_MIN_TREFFER = 2      # so viele bekannte Woerter muss ein Betreff haben
-# 🔑 GEMESSEN am 27.09.2026 am ganzen Bestand (16.000 Mails, Kreuzprobe):
-#      Abstand 1,6 -> 93,9 % Treffer bei 78,0 % Abdeckung, 770 Fehler
-#      Abstand 2,5 -> 98,3 % Treffer bei 69,4 % Abdeckung, 190 Fehler
-#      Abstand 3,5 -> 99,0 % Treffer bei 65,4 % Abdeckung, 103 Fehler
-#    2,5 ist der Knick: drei Viertel der Fehler weg fuer neun Punkte Abdeckung.
-#    Darueber wird es teuer und bringt kaum noch etwas. 🔴 Eine falsche
-#    Einsortierung ist teurer als eine offene: im Auffang SIEHT der Besitzer, dass
-#    etwas aussteht — in der falschen Schublade sieht er nichts.
-WORT_ABSTAND = 2.5        # so weit muss der Erste vor dem Zweiten liegen
-# Diese Ordner lehren NICHT: der Auffang ist die Frage selbst, und dessen eigene
-# gesendete Post traegt die Betreffe ALLER Kategorien (63 % des Archivs) — sie
-# wuerde jede Kategorie mit jedem Wort verbinden.
+WORT_MIN_TREFFER = 2      # this many known words a subject must have
+# 🔑 MEASURED on 2026-09-27 against the whole stock (16,000 mails,
+#    cross-check):
+#      margin 1.6 -> 93.9 % right at 78.0 % coverage, 770 mistakes
+#      margin 2.5 -> 98.3 % right at 69.4 % coverage, 190 mistakes
+#      margin 3.5 -> 99.0 % right at 65.4 % coverage, 103 mistakes
+#    2.5 is the knee: three quarters of the mistakes gone for nine points of
+#    coverage. Above that it gets expensive and brings almost nothing. 🔴 A wrong
+#    filing costs more than an open one: in the catch folder he SEES that
+#    something is pending — in the wrong drawer he sees nothing.
+WORT_ABSTAND = 2.5        # this far the first must be ahead of the second
+# These folders do NOT teach: the catch folder is the question itself, and his own
+# sent post carries the subjects of ALL categories (63 % of the archive) — it
+# would connect every category with every word.
 KEIN_WORTLEHRER = ("Unsortiert", "Eigene Post Archiv")
 
-# Fuellwoerter. 🔴 Eine Stoppwortliste ist SPRACHE, nicht Logik — sie gehoert
-# neben die Muster und nicht in eine Sprachdatei: sie wird nie angezeigt.
+# Filler words. 🔴 A stop-word list is LANGUAGE, not logic — it belongs next to
+# the patterns and not in a language file: it is never displayed.
 STOPP = set("""
 und der die das den dem des ein eine einen einem eines fuer mit von vom bei
 ist sind war waren wird werden wurde wurden hat haben hatte sie ihr ihre ihren
@@ -895,24 +896,24 @@ guten tag herr frau sehr geehrte geehrter geehrtes team support service
 
 
 def worte(text: str) -> list:
-    """Einen Betreff in vergleichbare Woerter zerlegen.
+    """Split a subject into comparable words.
 
-    `pw.normal()` schreibt klein und loest Umlaute auf — dieselbe Umschrift, die
-    die Muster benutzen, damit „Rueckfrage" und „Rückfrage" dasselbe Wort sind.
-    Reine Zahlen fallen weg: eine Bestellnummer ist kein Wort, sie kommt genau
-    einmal vor und waere fuer jede Kategorie gleich wertlos.
+    `pw.normal()` lower-cases and resolves umlauts — the same transcription the
+    patterns use, so that „Rueckfrage“ and „Rückfrage“ are the same word. Pure
+    numbers drop out: an order number is not a word, it occurs exactly once and
+    would be equally worthless for every category.
     """
     h = pw.normal(text or "")
     return [w for w in re.findall(r"[a-z][a-z0-9]{2,}", h) if w not in STOPP]
 
 
 def kategorie_des_ordners(ordner: str) -> str:
-    """Die oberste Stufe — `Banking.PayPal` lehrt fuer `Banking`.
+    """The top level — `Banking.PayPal` teaches for `Banking`.
 
-    🔑 Gelernt wird ueber ALLE seine Ordner, nicht nur ueber die Kategorien aus
-       `REGELN`: `Fahrrad`, `Hausbau`, `Menschen` sind genauso seine Schubladen.
-       Wer nur die eigenen Kategorien lernt, bringt dem Programm bei, was es
-       schon weiss.
+    🔑 Learning happens across ALL his folders, not only the categories from
+       `REGELN`: `Fahrrad`, `Hausbau`, `Menschen` are just as much his drawers.
+       Learn only our own categories and you teach the program what it already
+       knows.
     """
     erste = (ordner or "").split(".")[0].strip()
     if not erste or erste.upper() == "INBOX":
@@ -923,10 +924,10 @@ def kategorie_des_ordners(ordner: str) -> str:
 
 
 def wortschatz_lernen(inv: dict, sichern: bool = True) -> dict:
-    """Welche Woerter gehoeren zu welcher Kategorie? Aus dem Inventar gezaehlt.
+    """Which words belong to which category? Counted from the inventory.
 
-    Gezaehlt wird je Mail die MENGE ihrer Woerter, nicht jedes Vorkommen: ein
-    Betreff, der „rechnung" dreimal sagt, ist nicht dreimal so aussagekraeftig.
+    What is counted per mail is the SET of its words, not every occurrence: a
+    subject that says „rechnung“ three times is not three times as telling.
     """
     kats, mails = {}, {}
     for ordner, v in (inv.get("ordner") or {}).items():
@@ -943,8 +944,8 @@ def wortschatz_lernen(inv: dict, sichern: bool = True) -> dict:
             d = kats.setdefault(kat, {})
             for w in menge:
                 d[w] = d.get(w, 0) + 1
-    # Woerter, die nur EINMAL in ihrer Kategorie vorkommen, sind Rauschen und
-    # blaehen die Datei auf (gemessen: 60 % der Eintraege, kaum Wirkung).
+    # Words that occur only ONCE in their category are noise and bloat the file
+    # (measured: 60 % of the entries, hardly any effect).
     for kat, d in list(kats.items()):
         kats[kat] = {w: n for w, n in d.items() if n >= 2}
     ws = {"gelernt": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -969,10 +970,10 @@ def wortschatz_laden() -> dict:
 
 
 def _wort_gesamt(ws: dict) -> dict:
-    """{wort: in wie vielen Mails insgesamt} und die Gesamtzahl der Mails.
+    """{word: in how many mails in total} and the total number of mails.
 
-    Einmal je Wortschatz berechnet und am Wortschatz gemerkt — die Kreuzprobe
-    ruft die Einordnung 16.000-mal auf.
+    Computed once per vocabulary and remembered on it — the cross-check calls the
+    classification 16,000 times.
     """
     if "_gesamt" not in ws:
         c = {}
@@ -986,28 +987,26 @@ def _wort_gesamt(ws: dict) -> dict:
 
 def kategorie_aus_wortschatz(betreffe: list, ws: dict = None,
                              ohne: dict = None, modus: str = "pmi"):
-    """(Kategorie, Abstand) aus den Woertern — oder ("", Abstand) bei Unsicherheit.
+    """(category, margin) from the words — or ("", margin) when uncertain.
 
-    🔴 ERSTER VERSUCH WAR FALSCH, und die Kreuzprobe hat ihn erlegt. Ich hatte
-       das Vorwissen ueber die Groesse der Kategorien absichtlich weggelassen
-       („die Frage ist, WESSEN Wortschatz das ist, nicht welche Kategorie die
-       haeufigste ist"). Gemessen: **25,7 % Treffer** — und die
-       Verwechslungstabelle zeigte, warum: 2.519 Technik-Mails wanderten nach
-       `Gesundheit` (15 Mails, 10 Woerter). Bei Add-1-Glaettung ist ein
-       UNBEKANNTES Wort in einer winzigen Kategorie billig, weil dort durch eine
-       winzige Summe geteilt wird. Also gewinnt die kleinste Kategorie fast
-       jede Abstimmung.
+    🔴 THE FIRST ATTEMPT WAS WRONG, and the cross-check killed it. I had
+       deliberately left out the prior knowledge about the size of the categories
+       („the question is WHOSE vocabulary this is, not which category is the most
+       frequent“). Measured: **25.7 % right** — and the confusion table showed
+       why: 2,519 Technik mails wandered into `Gesundheit` (15 mails, 10 words).
+       With add-1 smoothing an UNKNOWN word is cheap in a tiny category, because
+       there you divide by a tiny sum. So the smallest category wins almost every
+       vote.
 
-    🔑 Richtig ist, nur POSITIVE Belege zu summieren und sie gegen den
-       Gesamtbestand zu normieren — je Wort
-       `log( p(Wort|Kategorie) / p(Wort|alle) )`. Ein Wort, das ueberall
-       vorkommt („rechnung"), traegt fast nichts; ein Wort, das fast nur in
-       einer Kategorie steht („statik", „diskstation"), traegt viel. Woerter,
-       die eine Kategorie NICHT kennt, zaehlen nicht mit — sonst entscheidet
-       wieder die Groesse des Nenners statt der Inhalt.
+    🔑 The right way is to sum only POSITIVE evidence and normalise it against
+       the whole stock — per word `log( p(word|category) / p(word|all) )`. A word
+       that occurs everywhere („rechnung“) carries almost nothing; a word that
+       stands almost only in one category („statik“, „diskstation“) carries a lot.
+       Words a category does NOT know do not count — otherwise the size of the
+       denominator decides again instead of the content.
 
-    `ohne` zieht die Woerter EINER Mail von ihrer eigenen Kategorie ab — nur
-    fuer die Kreuzprobe, damit sich dort niemand selbst beantwortet.
+    `ohne` subtracts the words of ONE mail from its own category — only for the
+    cross-check, so that nothing answers itself there.
     """
     ws = ws if ws is not None else wortschatz_laden()
     kats = ws.get("kategorien") or {}
@@ -1029,7 +1028,7 @@ def kategorie_aus_wortschatz(betreffe: list, ws: dict = None,
         n_kat = mails.get(kat, 0)
         weg = ohne.get(kat) if isinstance(ohne, dict) else None
         if weg:
-            n_kat -= 1                      # die eigene Mail zaehlt nicht mit
+            n_kat -= 1                      # the mail's own words do not count
         if n_kat < 1:
             continue
         wert, treffer = 0.0, 0
@@ -1040,7 +1039,7 @@ def kategorie_aus_wortschatz(betreffe: list, ws: dict = None,
                 c -= 1
                 c_alle -= 1
             if c < 1 or c_alle < 1:
-                continue                    # kennt die Kategorie nicht -> kein Beleg
+                continue                    # the category does not know the word -> no evidence
             treffer += 1
             wert += math.log((c / float(n_kat)) /
                              (c_alle / float(max(1, n_alle - (1 if weg else 0)))))
@@ -1051,8 +1050,8 @@ def kategorie_aus_wortschatz(betreffe: list, ws: dict = None,
         return "", 0.0
     rang = sorted(punkte.items(), key=lambda x: -x[1])
     erster = rang[0][0]
-    # 🔴 Der Sieger muss die Woerter auch KENNEN. Ein Treffer aus einem
-    #    einzigen Wort ist ein Zufall, nicht ein Urteil.
+    # 🔴 The winner also has to KNOW the words. A hit built on a single word is
+    #    an accident, not a verdict.
     if belege.get(erster, 0) < WORT_MIN_TREFFER:
         return "", 0.0
     if len(rang) < 2:
@@ -1063,12 +1062,13 @@ def kategorie_aus_wortschatz(betreffe: list, ws: dict = None,
     return erster, abstand
 
 def wortschatz_pruefen(inv: dict, ws: dict = None) -> dict:
-    """Kreuzprobe am eigenen Bestand: wie oft trifft der Wortschatz?
+    """Cross-check against our own stock: how often does the vocabulary get it
+    right?
 
-    🔑 Jede Mail wird beurteilt, NACHDEM ihre eigenen Woerter aus ihrer
-       Kategorie abgezogen wurden. Ohne das beantwortet sich jede Mail selbst,
-       und die Trefferquote waere eine Selbstauskunft. Das ist derselbe Fehler
-       wie ein Pruefstand, der das eigene Gedaechtnis misst.
+    🔑 Every mail is judged AFTER its own words have been subtracted from its
+       category. Without that, every mail answers itself and the hit rate would be
+       a self-report. That is the same mistake as a test bench measuring its own
+       memory.
     """
     ws = ws if ws is not None else wortschatz_laden()
     richtig = falsch = offen = 0
@@ -1114,23 +1114,23 @@ def domain_karte_sichern(k: dict) -> None:
 
 
 def ki_kategorien(offen: dict, karte: dict):
-    """Das eingestellte Modell einordnen lassen, was die Muster nicht erkannten.
+    """Let the configured model classify what the patterns did not recognise.
 
-    🔴 Faellt aus, ohne den Umbau zu kosten: kein Modell, kein Netz, kaputte
-    Antwort — dann bleibt es bei der Ableitung aus den Mustern. Eine
-    Urteilshilfe darf den Postlauf nie aufhalten (dieselbe Regel wie bei
+    🔴 Fails without costing the restructuring: no model, no network, a broken
+    answer — then the derivation from the patterns stands. A judgement aid must
+    never hold up the mail run (the same rule as with
     `ki_regeln_vorschlagen`).
     """
-    # 🔴 Gibt (Anzahl, Grund) zurueck. Vorher war es eine blanke 0 — und genau
-    #    deshalb stand am 27.09. KEINE der 234 Domains aus dem Auffang in der
-    #    Karte, obwohl die Seite „KI bereit" meldete: der Anbieter ist
-    #    „werkstatt", und die arbeitet ueber Weckrufe, also ASYNCHRON. Hier
-    #    braucht es eine Antwort im selben Augenblick. Ein stilles 0 sieht aus
-    #    wie „das Modell wusste nichts" und ist „das Modell wurde nie gefragt".
-    # 🔴 Zurueck kommt (Anzahl, CODE, Text). Der Code ist fuer die Verzweigung,
-    #    der Text fuer den Menschen. Wer an einem deutschen Satz verzweigt
-    #    („'Werkstatt' in grund"), baut einen Fehler in die naechste
-    #    Umformulierung ein — und in jede Uebersetzung.
+    # 🔴 Returns (count, reason). Before it was a bare 0 — and that is exactly
+    #    why on 2026-09-27 NONE of the 234 domains from the catch folder appeared
+    #    in the map although the page reported „AI ready“: the provider is
+    #    „werkstatt“, and that works through wake-up calls, that is ASYNCHRONOUSLY.
+    #    Here an answer is needed in the same moment. A silent 0 looks like „the
+    #    model knew nothing“ and means „the model was never asked“.
+    # 🔴 What comes back is (count, CODE, text). The code is for the branching,
+    #    the text for the human. Branch on a German sentence
+    #    („'Werkstatt' in grund“) and you build a bug into the next rewording —
+    #    and into every translation.
     try:
         ok, grund = pw.ki_bereit()
         if not ok:
@@ -1173,27 +1173,26 @@ def ki_kategorien(offen: dict, karte: dict):
     return gefragt, "", ""
 
 
-# ── Die KI in der Werkstatt nutzen, dort wo sie laeuft ───────────────────────
-# der Besitzer, 27.09.2026: „die postwache soll die ki in der werkstatt nutzen dort wo
-# sie laeuft."
+# ── Use the AI in the workshop, where it runs ─────────────────────
+# der Besitzer, 2026-09-27: the Postwache should use the AI in the workshop, where it
+# runs.
 #
-# 🔴 Die Werkstatt ist ein AUFTRAGSBUCH, kein Modell-Endpunkt. `local_engine`
-#    kennt `create_thread` und eine Warteschlange — ein Agent nimmt den Auftrag
-#    spaeter an. Es gibt dort keine Stelle, die eine Frage im selben Augenblick
-#    beantwortet. Wer das ignoriert, baut einen Aufruf, der 60 s wartet und dann
-#    nichts hat.
+# 🔴 The workshop is a TASK BOOK, not a model endpoint. `local_engine` knows
+#    `create_thread` and a queue — an agent picks the task up later. There is no
+#    place there that answers a question in the same moment. Ignore that and you
+#    build a call that waits 60 s and then has nothing.
 #
-# 🔑 Also ein RUNDLAUF ueber zwei Laeufe, genau wie die Regelvorschlaege es seit
-#    2.x machen: Frage hinlegen -> Auftrag anlegen -> beim naechsten Mal die
-#    Antwort einsammeln. Die Postwache wartet nie, und die Antwort geht nicht
-#    verloren, wenn der Container gerade aus ist.
+# 🔑 So a ROUND TRIP over two runs, exactly as the rule suggestions have done
+#    since 2.x: put the question down -> create a task -> collect the answer next
+#    time. The Postwache never waits, and the answer is not lost when the
+#    container happens to be off.
 WERK_FRAGE = "postwache_domains.json"
 WERK_ANTWORT = "postwache_domains_antwort.json"
-WERK_DECKEL = 120          # so viele Domains je Auftrag, damit er lesbar bleibt
-# 🔴 So lange wird dieselbe Frage NICHT wiederholt. Am 27.09. legte der zweite
-#    `plan`-Lauf innerhalb einer Minute Auftrag #11 mit genau denselben 120
-#    Domains an wie #10 — ein Plan darf oefter laufen, ein Auftragsbuch mit
-#    demselben Auftrag dreimal drin ist unbrauchbar. Ein Agent braucht Zeit.
+WERK_DECKEL = 120          # this many domains per task, so it stays readable
+# 🔴 For this long the same question is NOT repeated. On 2026-09-27 the second
+#    `plan` run created task #11 within a minute with exactly the same 120 domains
+#    as #10 — a plan may run often, but a task book with the same task in it three
+#    times is useless. An agent needs time.
 WERK_WIEDERVORLAGE = 12 * 3600
 
 
@@ -1206,11 +1205,11 @@ def _werk_ordner() -> str:
 
 
 def erlaubte_kategorien() -> list:
-    """Was als Kategorie zurueckkommen DARF.
+    """What is ALLOWED to come back as a category.
 
-    🔑 Die Kategorien aus `REGELN` UND die, die der Besitzer sich selbst angelegt hat
-       (aus dem gelernten Wortschatz). Wer nur die eigenen erlaubt, laesst das
-       Modell an `Fahrrad` und `Hausbau` vorbeireden.
+    🔑 The categories from `REGELN` AND the ones he created himself (from the
+       learned vocabulary). Allow only our own and you let the model talk past
+       `Fahrrad` and `Hausbau`.
     """
     aus_regeln = {z.split(".")[0] for z, _, _, _ in REGELN}
     aus_ordnern = set((wortschatz_laden().get("kategorien") or {}).keys())
@@ -1218,19 +1217,19 @@ def erlaubte_kategorien() -> list:
 
 
 def werkstatt_fragen(offen: dict) -> int:
-    """Die offenen Domains der Werkstatt hinlegen und einen Auftrag anlegen.
+    """Put the open domains in front of the workshop and create a task.
 
-    Gibt die Auftragsnummer zurueck, 0 wenn nichts ging. Uebergeben werden nur
-    Domain und Beispiel-BETREFFE — kein Nachrichtentext, keine Adressen von
-    Menschen. Derselbe Datenschutz wie bei `pw.uebergeben()`.
+    Returns the task number, 0 when nothing worked. Only the domain and example
+    SUBJECTS are handed over — no message body, no addresses of people. The same
+    data protection as with `pw.uebergeben()`.
     """
     ordner = _werk_ordner()
     if not ordner or not offen:
         return 0
     erlaubt = erlaubte_kategorien()
     namen = sorted(offen, key=lambda d: -len(offen[d]))[:WERK_DECKEL]
-    # 🔴 Schon gefragt und noch keine Antwort? Dann warten, nicht noch einmal
-    #    fragen. Verglichen wird die MENGE der Domains, nicht die Reihenfolge.
+    # 🔴 Already asked and no answer yet? Then wait, do not ask again. The SET
+    #    of domains is compared, not their order.
     vorher = os.path.join(ordner, WERK_FRAGE)
     try:
         with open(vorher, encoding="utf-8") as f:
@@ -1259,9 +1258,9 @@ def werkstatt_fragen(offen: dict) -> int:
     except OSError as e:
         print("Werkstatt-Frage nicht schreibbar: %s" % str(e)[:120])
         return 0
-    # 🔴 Dieselbe Stausperre wie beim Weckruf fuer unklare Mails: liegen schon
-    #    zu viele unbearbeitet, wird die FRAGE hingelegt, aber kein neuer
-    #    Auftrag angelegt. Der Agent findet sie, sobald er den offenen abarbeitet.
+    # 🔴 The same jam bolt as with the wake-up call for unclear mails: if too
+    #    many are already untouched, the QUESTION is put down but no new task is
+    #    created. The agent finds it as soon as it works through the open one.
     stau = pw.auftrag_stau()
     if stau >= pw.MAX_OFFENE_AUFTRAEGE:
         print("Frage hinterlegt, aber KEIN neuer Auftrag: %d Auftraege liegen "
@@ -1286,14 +1285,14 @@ def werkstatt_fragen(offen: dict) -> int:
 
 
 def werkstatt_antwort_holen(karte: dict = None) -> int:
-    """Die Antwort der Werkstatt einsammeln und in die Landkarte uebernehmen.
+    """Collect the workshop's answer and take it into the map.
 
-    🔴 Jede Zeile wird gegen `erlaubte_kategorien()` geprueft. Eine Antwort aus
-       einem Auftragsbuch ist FREMDER TEXT — sie darf keine Kategorie erfinden
-       und keinen Ordner bestimmen, den es nicht geben soll.
+    🔴 Every line is checked against `erlaubte_kategorien()`. An answer out of a
+       task book is FOREIGN TEXT — it may not invent a category and may not
+       determine a folder that should not exist.
 
-    Die Datei wird nach dem Einlesen umbenannt, nicht geloescht: wer sie
-    loescht, kann hinterher nicht mehr nachsehen, was der Agent gesagt hat.
+    The file is renamed after being read, not deleted: delete it and you can no
+    longer look up afterwards what the agent said.
     """
     ordner = _werk_ordner()
     if not ordner:
@@ -1322,7 +1321,7 @@ def werkstatt_antwort_holen(karte: dict = None) -> int:
         if not d or "." not in d:
             continue
         if not kat:
-            continue                     # „passt keine" ist eine gueltige Antwort
+            continue                     # „none fits“ is a valid answer
         if kat not in erlaubt:
             verworfen += 1
             continue
@@ -1343,11 +1342,11 @@ def werkstatt_antwort_holen(karte: dict = None) -> int:
 
 
 def struktur_lernen(inv: dict, mit_ki: bool = True) -> dict:
-    """Aus dem Inventar Ordner fuer die Absender ableiten, die keine Regel trifft.
+    """Derive folders from the inventory for the senders no rule matches.
 
-    Gibt {domain: "Kategorie.Marke"} zurueck. Das Ergebnis wird gemerkt, damit
-    dieselbe Domain beim naechsten Plan nicht neu beurteilt wird — und damit
-    der Besitzer nachlesen kann, WARUM ein Ordner so heisst.
+    Returns {domain: "Category.Brand"}. The result is remembered, so that the same
+    domain is not judged anew on the next plan — and so that he can read up WHY a
+    folder is called what it is called.
     """
     offen = {}
     for ordner, v in inv["ordner"].items():
@@ -1363,25 +1362,25 @@ def struktur_lernen(inv: dict, mit_ki: bool = True) -> dict:
             offen.setdefault(d, []).append(m.get("betreff") or "")
 
     karte = domain_karte_laden()
-    # 🔴 DIE REIHENFOLGE IST NICHT VERTAUSCHBAR, und zwar aus einem Grund:
-    #    Genauigkeit vor Abdeckung.
-    #    1. `kategorie_aus_inhalt` — von Hand geschriebene Muster, eng gefasst
-    #       und am Bestand gegengemessen („Kfz-Versicherer" -> Versicherungen).
-    #    2. `kategorie_aus_wortschatz` — aus dessen eigenen Ordnern GELERNT,
-    #       breit, aber statistisch: ein einzelnes haeufiges Wort kann ziehen.
-    #    3. das Modell — nur, wenn ein Anbieter synchron antwortet.
-    #    Stuende der Wortschatz vorn, wuerde er die geprueften Muster
-    #    ueberstimmen; stuende er hinten, kaeme er nie zum Zug, weil die KI
-    #    (Anbieter „werkstatt") nie antwortet.
+    # 🔴 THE ORDER CANNOT BE SWAPPED, and for one reason: precision before
+    #    coverage.
+    #    1. `kategorie_aus_inhalt` — hand-written patterns, narrowly framed and
+    #       measured against the stock („Kfz-Versicherer“ -> insurance).
+    #    2. `kategorie_aus_wortschatz` — LEARNED from his own folders, broad but
+    #       statistical: a single frequent word can pull.
+    #    3. the model — only when a provider answers synchronously.
+    #    With the vocabulary in front it would override the checked patterns; at
+    #    the back it would never get a turn, because the AI (provider
+    #    „werkstatt“) never answers.
     ws = wortschatz_laden()
-    # 1) aus den Betreffen ableiten
+    # 1) derive from the subjects
     for d, betreffe in offen.items():
         if d in karte:
             continue
         kat = kategorie_aus_inhalt(betreffe)
         if kat:
             karte[d] = {"kategorie": kat, "quelle": "muster"}
-    # 2) was uebrig ist: der gelernte Wortschatz
+    # 2) what is left: the learned vocabulary
     aus_wort = 0
     for d, betreffe in offen.items():
         if d in karte:
@@ -1393,19 +1392,19 @@ def struktur_lernen(inv: dict, mit_ki: bool = True) -> dict:
             aus_wort += 1
     if aus_wort:
         print("aus dem gelernten Wortschatz: %d Domains" % aus_wort)
-    # 3) was DANN noch uebrig ist, dem Modell zeigen
+    # 3) what is STILL left after that, show to the model
     #
-    # 🔑 Genau hier liegt die Grenze des Nachahmens, gemessen am 27.09.: der
-    #    Wortschatz holte 45 der 234 offenen Domains, weil er nur Woerter kennt,
-    #    die in dessen Ordnern VORKOMMEN. „Please rejoin Test4Theory" oder
-    #    „Mafia Wars jetzt auch auf Deutsch" hat er nie einsortiert — dafuer
-    #    braucht es Weltwissen, und das hat nur ein Modell.
+    # 🔑 This is exactly where imitation reaches its limit, measured on
+    #    2026-09-27: the vocabulary got 45 of the 234 open domains, because it only
+    #    knows words that OCCUR in his folders. „Please rejoin Test4Theory“ or
+    #    „Mafia Wars jetzt auch auf Deutsch“ he never filed — that needs knowledge
+    #    of the world, and only a model has that.
     rest = {d: b for d, b in offen.items() if d not in karte}
     if mit_ki and rest:
         gefragt, code, grund = ki_kategorien(rest, karte)
         if code == "werkstatt":
-            # Der Rundlauf: ERST einsammeln, was beim letzten Mal gefragt wurde,
-            # DANN das Uebrige fragen. Umgekehrt fragt man dasselbe zweimal.
+            # The round trip: FIRST collect what was asked last time, THEN ask
+            # about the rest. The other way round you ask the same thing twice.
             genommen = werkstatt_antwort_holen(karte)
             if genommen:
                 rest = {d: b for d, b in offen.items() if d not in karte}
@@ -1416,16 +1415,15 @@ def struktur_lernen(inv: dict, mit_ki: bool = True) -> dict:
         elif gefragt:
             print("vom Modell eingeordnet: %d Domains" % gefragt)
 
-    # 3) Ordnernamen bauen — nur ab der Schwelle ein EIGENER Ordner
+    # 3) build folder names — a folder of its OWN only from the threshold up
     #
-    # 🔴 UND NIE aus einer Wortschatz-Entscheidung. Gemessen am 27.09. nach dem
-    #    ersten scharfen Lauf: der Wortschatz erzeugte `Reisen.Samsung`,
+    # 🔴 AND NEVER from a vocabulary decision. Measured on 2026-09-27 after the
+    #    first armed run: the vocabulary produced `Reisen.Samsung`,
     #    `Kinder.Endomondo`, `Versicherungen.Fastspring`, `Gaming.Highresaudio`.
-    #    Der Wortschatz SCHAETZT die Kategorie aus Woertern — er kennt die Marke
-    #    nicht. `Reisen.Allgemein` ist eine falsche Schublade und faellt beim
-    #    naechsten Verfeinern auf; `Reisen.Samsung` ist ein falsch BENANNTER
-    #    Ordner und bleibt fuer immer stehen. Ein geratener Name ist schlimmer
-    #    als eine geratene Schublade.
+    #    The vocabulary GUESSES the category from words — it does not know the
+    #    brand. `Reisen.Allgemein` is a wrong drawer and shows up at the next
+    #    refinement; `Reisen.Samsung` is a wrongly NAMED folder and stays for ever.
+    #    A guessed name is worse than a guessed drawer.
     ziele = {}
     for d, betreffe in offen.items():
         eintrag = karte.get(d)
@@ -1445,21 +1443,20 @@ def struktur_lernen(inv: dict, mit_ki: bool = True) -> dict:
 
 
 def ziel_fuer_neue(m: dict, merken: bool = True):
-    """Wohin gehoert DIESE eine neue Mail? Fuer den Waechter, nicht fuer den Plan.
+    """Where does THIS one new mail belong? For the watchman, not for the plan.
 
-    Der Besitzer, 27.09.2026: „wenn neue mails kommen muessen die immer analysiert
-    werden und einsortiert werden und wenn es neue ordner braucht dann soll es
-    die selbstaendig erstellen."
+    Der Besitzer, 2026-09-27 — when new mail arrives it must always be analysed and
+    filed, and where new folders are needed it should create them on its own.
 
-    🔑 Die Entscheidung wird GEMERKT. `kategorie_aus_inhalt()` sieht bei einer
-       einzelnen Mail nur einen Betreff — morgen kaeme derselbe Absender
-       vielleicht anders heraus, und dann laege seine Post in zwei Ordnern.
-       Einmal entschieden, immer gleich.
+    🔑 The decision is REMEMBERED. With a single mail `kategorie_aus_inhalt()`
+       sees only one subject — tomorrow the same sender might come out differently,
+       and then his post would lie in two folders. Decided once, the same from then
+       on.
 
-    🔴 Ein eigener Ordner je Absender entsteht erst ab `SCHWELLE_EIGENER_ORDNER`
-       Mails. Sonst waechst das Postfach um einen Ordner pro Newsletter, den
-       der Besitzer einmal bekommt. Bis dahin: `Kategorie.Allgemein`.
-       Zusammengelegt wird beim naechsten `plan`/`anwenden`.
+    🔴 A folder of its own per sender only appears from `SCHWELLE_EIGENER_ORDNER`
+       mails on. Otherwise the mailbox grows by one folder per newsletter he
+       receives once. Until then: `Category.Allgemein`. Merging happens at the next
+       `plan`/`anwenden`.
     """
     ziel, grund = ziel_fuer(m)
     if ziel != AUFFANG:
@@ -1475,8 +1472,8 @@ def ziel_fuer_neue(m: dict, merken: bool = True):
         quelle = "muster-neu"
         kat = kategorie_aus_inhalt([m.get("betreff") or ""])
         if not kat:
-            # 🔑 Dieselbe Mittelstufe wie im Plan: was die Muster nicht kennen,
-            #    kann der aus dessen Ordnern gelernte Wortschatz oft trotzdem.
+            # 🔑 The same middle stage as in the plan: what the patterns do not
+            #    know, the vocabulary learned from his folders often still can.
             kat, _abstand = kategorie_aus_wortschatz([m.get("betreff") or ""])
             quelle = "wortschatz-neu"
         if not kat:
@@ -1484,7 +1481,7 @@ def ziel_fuer_neue(m: dict, merken: bool = True):
         eintrag = {"kategorie": kat, "quelle": quelle, "anzahl": 0}
     eintrag["anzahl"] = int(eintrag.get("anzahl") or 0) + 1
     marke = marke_aus_domain(dom)
-    # 🔴 Dieselbe Grenze wie im Plan: aus dem Wortschatz nie ein Markenordner.
+    # 🔴 The same limit as in the plan: never a brand folder from the vocabulary.
     darf_eigenen = (eintrag.get("quelle") or "") not in ("wortschatz", "wortschatz-neu")
     if marke and darf_eigenen and eintrag["anzahl"] >= SCHWELLE_EIGENER_ORDNER:
         ziel = "%s.%s" % (kat, marke)
@@ -1513,12 +1510,12 @@ def plan(grenze: int = 0) -> int:
     with gzip.open(quelle, "rt", encoding="utf-8") as f:
         inv = json.load(f)
 
-    # Stufe 2a: den Wortschatz aus dessen EIGENEN Ordnern lernen. 🔑 Muss VOR
-    # `struktur_lernen` stehen — das fragt ihn.
+    # Stage 2a: learn the vocabulary from his OWN folders. 🔑 Must stand BEFORE
+    # `struktur_lernen` — that one asks it.
     stand_schreiben(schritt="plan", laeuft=True, phase="wortschatz",
                     text="Wortschatz wird gelernt")
     ws = wortschatz_lernen(inv)
-    _WS_ZWISCHEN["ws"] = ws          # der Zwischenspeicher muss den neuen kennen
+    _WS_ZWISCHEN["ws"] = ws          # the cache has to know the new one
     pr = wortschatz_pruefen(inv, ws)
     print("Wortschatz: %d Kategorien, %d Woerter, Kreuzprobe %.0f%% Treffer "
           "bei %.0f%% Abdeckung"
@@ -1526,7 +1523,7 @@ def plan(grenze: int = 0) -> int:
              sum(len(d) for d in ws["kategorien"].values()),
              100 * pr["treffer"], 100 * pr["abdeckung"]))
 
-    # Stufe 2b: was keine Regel trifft, aus den Inhalten ableiten
+    # Stage 2b: derive what no rule matches from the content
     stand_schreiben(schritt="plan", laeuft=True, phase="ableiten",
                     text="Struktur wird abgeleitet")
     abgeleitet = struktur_lernen(inv)
@@ -1535,7 +1532,7 @@ def plan(grenze: int = 0) -> int:
     bewegungen, bleibt, nach_ziel, unsortiert = [], 0, {}, []
     for ordner, v in sorted(inv["ordner"].items()):
         if v["tabu"] or ordner.upper() == "INBOX":
-            continue          # Tabu und Posteingang werden nie geraeumt
+            continue          # taboo folders and the inbox are never cleared
         for m in v["mails"]:
             ziel, grund = ziel_fuer(m)
             if ziel == AUFFANG:
@@ -1597,9 +1594,9 @@ def plan(grenze: int = 0) -> int:
 
 # ── Stufe 3: anwenden ────────────────────────────────────────────────────────
 def fingerabdruck(pfad: str) -> str:
-    """Kurzer Abdruck des Plans. Anwenden verlangt ihn als Freigabe — damit
-    niemand einen Plan ausfuehrt, den er nicht gelesen hat, und kein alter Plan
-    nach einem neuen Inventar noch losgeht."""
+    """A short print of the plan. Applying it demands this as approval — so that
+    nobody executes a plan they have not read, and no old plan can still go off
+    after a new inventory."""
     import hashlib
     h = hashlib.sha256(open(pfad, "rb").read()).hexdigest()
     return h[:12]
@@ -1611,9 +1608,9 @@ def journal_schreiben(satz: dict) -> None:
 
 
 def ordner_anlegen(pf, pfad: str) -> str:
-    """Ordner an der WURZEL anlegen (Namespace ist ""), danach PRUEFEN, dass er
-    in LIST steht. Ein Ordner, den der Server anders benannt hat als gedacht,
-    ist die Vorstufe zu Post an einem Ort, den niemand findet."""
+    """Create a folder at the ROOT (the namespace is ""), then CHECK that it
+    appears in LIST. A folder the server has named differently from what was
+    intended is the first step towards post in a place nobody finds."""
     voll = pfad.replace("/", pf.trenner)
     teile = voll.split(pf.trenner)
     for i in range(1, len(teile) + 1):
@@ -1676,8 +1673,8 @@ def anwenden(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
                           % (quelle, len(liste)))
                     uebersprungen += len(liste)
                     continue
-                # 🔴 Nummernkreis pruefen: aendert sich UIDVALIDITY, sind alle
-                #    gemerkten UIDs wertlos — dann wird NICHT geraten.
+                # 🔴 Check the number space: if UIDVALIDITY changes, every
+                #    remembered UID is worthless — and then nothing is guessed.
                 jetzt = pf.uidvalidity(quelle)
                 soll = liste[0].get("uidvalidity") or 0
                 if soll and jetzt and jetzt != soll:
@@ -1686,10 +1683,10 @@ def anwenden(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
                     uebersprungen += len(liste)
                     continue
 
-                # 1) Message-Ids der geplanten UIDs holen und abgleichen.
-                # 🔴 Der Schluessel ist die Message-Id, nicht die UID. Stimmt sie
-                #    nicht, liegt dort eine ANDERE Mail als im Plan — die wird
-                #    nicht angefasst.
+                # 1) fetch the Message-Ids of the planned UIDs and compare.
+                # 🔴 The key is the Message-Id, not the UID. If it does not match,
+                #    a DIFFERENT mail lies there than in the plan — and that one is
+                #    not touched.
                 nach_mid = {}
                 uids = [str(b["uid"]) for b in liste]
                 for i in range(0, len(uids), 300):
@@ -1712,7 +1709,7 @@ def anwenden(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
                         m3 = re.search(rb"<[^>]+>", st[1] or b"")
                         nach_mid[u] = m3.group(0).decode() if m3 else ""
 
-                # 2) nach Ziel gruppieren, nur was die Message-Id bestaetigt
+                # 2) group by target, only what the Message-Id confirms
                 je_ziel = {}
                 for b in liste:
                     if not mid_bestaetigt(b.get("mid"), nach_mid.get(b["uid"], "")):
@@ -1720,10 +1717,10 @@ def anwenden(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
                         continue
                     je_ziel.setdefault(b["ziel"], []).append(b)
 
-                # 3) je Ziel als UID-Satz kopieren. Ein IMAP-COPY ueber eine
-                #    Menge ist EINE Anweisung: kommt "OK", ist ALLES kopiert —
-                #    erst danach wird abgehakt. 17.600 Einzelkopien mit je einem
-                #    expunge haetten ueber eine Stunde gebraucht.
+                # 3) copy per target as a UID set. An IMAP COPY over a set is
+                #    ONE instruction: if "OK" comes back, EVERYTHING is copied —
+                #    only then is it ticked off. 17,600 individual copies with an
+                #    expunge each would have taken over an hour.
                 etwas_abgehakt = False
                 for ziel, gruppe in sorted(je_ziel.items()):
                     ziel_voll = ziel.replace("/", pf.trenner)
@@ -1748,8 +1745,8 @@ def anwenden(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
                                 "uid": b["uid"], "mid": b["mid"],
                                 "von": b["von"], "betreff": b["betreff"]})
                         getan += len(teil)
-                # 4) EIN expunge je Ordner, erst nachdem alle Kopien bestaetigt
-                #    sind. Vorher ist keine Mail entfernt — nur markiert.
+                # 4) ONE expunge per folder, only after all copies are
+                #    confirmed. Before that no mail is removed — only marked.
                 if etwas_abgehakt:
                     pf.m.expunge()
                 print("   %-28s %5d bewegt" % (quelle, sum(len(g) for g in je_ziel.values())))
@@ -1759,8 +1756,8 @@ def anwenden(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
                     pf.m.select("INBOX", readonly=False)
                 except Exception:
                     pass
-        # 🔴 Noch INNERHALB der offenen Verbindung: nach dem Umbau zeigt die
-        #    gelernte Ablage auf Ordner, die gerade leer geworden sind.
+        # 🔴 Still INSIDE the open connection: after the restructuring the
+        #    learned filing points at folders that have just become empty.
         if getan and not trocken:
             print(ablage_erneuern(pf))
     stand_schreiben(schritt="anwenden", laeuft=False, fortschritt=getan,
@@ -1773,8 +1770,8 @@ def anwenden(freigabe: str, grenze: int = 0, trocken: bool = False) -> int:
 
 
 def zurueck(grenze: int = 0) -> int:
-    """Alles aus dem Journal zurueck an seinen Herkunftsort. Das ist der Grund,
-    warum jede Bewegung mit Quelle UND Message-Id protokolliert wird."""
+    """Everything from the journal back to where it came from. That is the reason
+    every move is logged with its source AND Message-Id."""
     jp = out_pfad("umbau_journal.jsonl")
     if not os.path.exists(jp):
         print("Kein Journal.")
@@ -1807,10 +1804,10 @@ def zurueck(grenze: int = 0) -> int:
             except Exception as e:
                 print("   ! %s: %s" % (s.get("mid", "?")[:40], str(e)[:80]))
                 fehl += 1
-    # 🔴 Erledigtes Journal beiseitelegen, nicht loeschen. Bliebe es stehen,
-    #    zeigte die Seite weiter „N Bewegungen" und ein zweites „Alles
-    #    zurueckholen" suchte Mails, die laengst zurueck sind — das sieht wie
-    #    ein Fehler aus und ist keiner.
+    # 🔴 Put a finished journal aside, do not delete it. If it stayed, the page
+    #    would keep showing „N moves“ and a second „bring everything back“ would
+    #    look for mails that have long been back — which looks like an error and
+    #    is not one.
     if getan and not grenze:
         try:
             os.rename(jp, out_pfad("umbau_journal.%s.jsonl"
@@ -1825,24 +1822,24 @@ def zurueck(grenze: int = 0) -> int:
 
 @contextlib.contextmanager
 def verbindung(zug: dict, schreiben: bool, versuche: int = 3):
-    """Eine offene Verbindung — mit Wiederholung bei einem Netzaussetzer.
+    """An open connection — with a retry on a network hiccup.
 
-    🔴 der Besitzer, 27.09.2026: „manchmal ist das postfach nicht erreichbar."
-    Gemessen: der Anbieter nimmt 8 gleichzeitige Verbindungen ohne Murren, es gibt
-    also KEINE Abfragesperre. Im Protokoll des Pi stehen aber zwei echte
-    Aussetzer („Temporary failure in name resolution", 21. und 23.09.) — ein
-    DNS-Hickser von zwei Sekunden darf keinen Lauf von sechs Minuten abbrechen.
+    🔴 der Besitzer, 2026-09-27: „manchmal ist das postfach nicht erreichbar.“
+    (sometimes the mailbox is unreachable) Measured: the provider takes 8
+    simultaneous connections without complaint, so there is NO rate limit. But the
+    Pi's log holds two genuine dropouts („Temporary failure in name resolution“,
+    2026-09-21 and -23) — a two-second DNS hiccup must not abort a six-minute run.
 
-    Wartezeit verdoppelt sich (2 s, 4 s). Beim letzten Versuch fliegt der
-    Fehler weiter — er gehoert sichtbar in den Stand, nicht verschluckt.
+    The wait doubles (2 s, 4 s). On the last attempt the error flies on — it
+    belongs visibly in the status, not swallowed.
     """
     huelle = offen = None
     for i in range(1, versuche + 1):
         try:
             huelle = pw.Postfach(zug, schreiben=schreiben)
-            # 🔴 Das Ergebnis von `__enter__()` weitergeben, nicht die Huelle.
-            #    Bei `Postfach` ist beides dasselbe — darauf verlassen sollte
-            #    sich ein Kontextmanager trotzdem nicht.
+            # 🔴 Pass on the result of `__enter__()`, not the shell. With
+            #    `Postfach` both are the same — but a context manager should not
+            #    rely on that.
             offen = huelle.__enter__()
             break
         except Exception as e:
@@ -1865,17 +1862,17 @@ def verbindung(zug: dict, schreiben: bool, versuche: int = 3):
 
 
 class postfach_gewaehlt:
-    """Fuer die Dauer des Blocks gehoert jeder Zustand DIESEM Postfach.
+    """For the duration of the block, every piece of state belongs to THIS mailbox.
 
-    🔴 `pw.state_pfad()` haengt an der globalen `_PF_ID`, und die setzt allein
-    `pw.pf_waehlen()`. Von der Kommandozeile ist sie LEER — dann liest
-    `load(ABLAGE)` die globale Datei statt `state/pf/<id>/ablage.json`, findet
-    nichts und meldet brav Erfolg fuer nichts. Genau so schlug `ablage_veralten()`
-    am 27.09. fehl (Rueckgabe `False`, Landkarte unveraendert).
+    🔴 `pw.state_pfad()` hangs on the global `_PF_ID`, and only
+    `pw.pf_waehlen()` sets that. From the command line it is EMPTY — then
+    `load(ABLAGE)` reads the global file instead of `state/pf/<id>/ablage.json`,
+    finds nothing and dutifully reports success for nothing. That is exactly how
+    `ablage_veralten()` failed on 2026-09-27 (returned `False`, map unchanged).
 
-    🔑 Das ist dieselbe Regel, die `do_POST` fuer die Seite durchsetzt: EINE
-    Stelle waehlt das Postfach, vor jeder Aktion. Die eine Aktion, die es
-    vergisst, ist genau die, die am falschen Ort arbeitet.
+    🔑 This is the same rule that `do_POST` enforces for the page: ONE place
+    chooses the mailbox, before every action. The one action that forgets it is
+    exactly the one that works in the wrong place.
     """
 
     def __init__(self, pf_id: str = ""):
@@ -1892,20 +1889,20 @@ class postfach_gewaehlt:
         return ziel
 
     def __exit__(self, *a):
-        # Zurueckstellen, nicht leeren: ein Wechsel muss dahin zurueck, wo er
-        # herkam (dieselbe Lehre wie beim Ordnerwechsel im IMAP).
+        # Restore, do not clear: a change has to return to where it came from
+        # (the same lesson as with the folder change in IMAP).
         pw.pf_waehlen(self.vorher)
 
 
 def ablage_erneuern(pf=None) -> str:
-    """Die Landkarte des Waechters SOFORT neu lernen.
+    """Relearn the watchman's map IMMEDIATELY.
 
-    🔴 Sie nur fuer ungueltig zu erklaeren reicht nicht: `ablage_frisch()` lernt
-    erst im naechsten Lauf, der ueberhaupt Post sieht. Bis dahin stuende die
-    alte Karte da — am 27.09. mit 46 Ordnern, von denen 29 nach dem Umbau leer
-    waren. Wenn die Verbindung ohnehin offen ist, wird JETZT gelernt.
+    🔴 Merely declaring it invalid is not enough: `ablage_frisch()` only learns
+    on the next run that sees any post at all. Until then the old map would stand —
+    on 2026-09-27 with 46 folders, 29 of which were empty after the restructuring.
+    When the connection is open anyway, learning happens NOW.
 
-    Klappt das nicht, wird wenigstens der Merker geloescht (Rueckfall).
+    If that fails, at least the marker is deleted (fallback).
     """
     with postfach_gewaehlt():
         if pf is not None:
@@ -1924,13 +1921,13 @@ def ablage_erneuern(pf=None) -> str:
 
 
 def ablage_veralten() -> bool:
-    """Die gelernte Landkarte des Waechters fuer ungueltig erklaeren.
+    """Declare the watchman's learned map invalid.
 
-    🔴 Ohne das sortiert der Waechter nach dem Umbau in Ordner, die es nicht
-    mehr gibt: `ablage.json` kannte 46 Ordner, 29 davon waren nach dem Lauf
-    leer und werden entfernt. `ablage_frisch()` lernt sonst erst nach 24 h neu
-    — bis dahin schlaegt jede Verschiebung fehl. Der Umbau muss die Landkarte
-    mitnehmen.
+    🔴 Without this the watchman sorts, after the restructuring, into folders
+    that no longer exist: `ablage.json` knew 46 folders, 29 of them were empty
+    after the run and get removed. Otherwise `ablage_frisch()` only relearns after
+    24 h — and until then every move fails. The restructuring has to take the map
+    with it.
     """
     try:
         with postfach_gewaehlt():
@@ -1945,29 +1942,28 @@ def ablage_veralten() -> bool:
         return False
 
 
-# ── Stufe 4: leere Ordner entfernen ──────────────────────────────────────────
-# der Besitzer, 27.09.2026: „was die postwache darf ist ordner die nicht mehr
-# gebraucht werden entfernen aber nur wenn darin keine mails mehr sind."
+# ── Stage 4: remove empty folders ───────────────────────────────
+# der Besitzer, 2026-09-27 — what the Postwache may do is remove folders that are no
+# longer needed, but only when there are no mails in them any more.
 #
-# 🔑 „NICHT MEHR GEBRAUCHT" IST NICHT DASSELBE WIE „LEER". Ein Ordner, den
-#    der Besitzer selbst angelegt hat und der auf Post wartet (`Github`, `Linkedin`,
-#    `Traderepublic`), ist leer — aber gebraucht. Entbehrlich ist ein Ordner,
-#    den DER UMBAU geleert hat. Deshalb zwei Klassen, und nur die erste wird
-#    ohne Nachfrage entfernt.
+# 🔑 „NO LONGER NEEDED“ IS NOT THE SAME AS „EMPTY“. A folder he created himself
+#    and that is waiting for post (`Github`, `Linkedin`, `Traderepublic`) is
+#    empty — but needed. Dispensable is a folder THE RESTRUCTURING emptied. Hence
+#    two classes, and only the first is removed without asking.
 #
-# 🔴 Das ist die EINZIGE Ausnahme vom Grundsatz „geloescht wird nie" — und sie
-#    gilt ausdruecklich nur fuer den ORDNER, nie fuer eine Mail. Die Zahl wird
-#    unmittelbar VOR dem Entfernen am Server geholt, nicht aus dem Inventar:
-#    zwischen Messung und Entfernen koennte Post angekommen sein.
+# 🔴 This is the ONLY exception to the principle „nothing is ever deleted“ — and
+#    it applies expressly only to the FOLDER, never to a mail. The count is
+#    fetched from the server immediately BEFORE removal, not from the inventory:
+#    post could have arrived between measuring and removing.
 
-# Sonderordner erkennt man an ihren FLAGS, nicht am Namen. Ein Postfach auf
-# Englisch nennt den Papierkorb anders — die Flagge ist dieselbe.
+# Special folders are recognised by their FLAGS, not by their name. A mailbox in
+# English calls the trash something else — the flag is the same.
 SONDER_FLAGS = ("Noselect", "Trash", "Junk", "Drafts", "Sent",
                 "Archive", "All", "Flagged", "Important")
 
 
 def _list_mit_flags(pf) -> dict:
-    """{Ordnername: Flags} — die Flags brauchen wir, `ordner_liste()` wirft sie weg."""
+    """{folder name: flags} — we need the flags, `ordner_liste()` throws them away."""
     raus = {}
     try:
         typ, zeilen = pf.m.list()
@@ -1984,16 +1980,16 @@ def _list_mit_flags(pf) -> dict:
 
 
 def sonderordner(flags: str) -> bool:
-    """Traegt dieser Ordner eine Sonderflagge? Dann nie anfassen."""
+    """Does this folder carry a special-use flag? Then never touch it."""
     f = (flags or "").lower()
     return any(("\\" + s.lower()) in f for s in SONDER_FLAGS)
 
 
 def _ordner_leer(pf, name: str):
-    """(leer?, Anzahl) — LIVE am Server, nicht aus dem Inventar.
+    """(empty?, count) — LIVE from the server, not from the inventory.
 
-    🔴 Keine Antwort heisst NICHT leer. Wer eine ausbleibende Antwort als
-    „nichts drin" liest, entfernt einen Ordner, den er nie gezaehlt hat.
+    🔴 No answer does NOT mean empty. Read a missing answer as „nothing in it“
+    and you remove a folder you never counted.
     """
     try:
         typ, d = pf.m.status(pf._zitat(name), "(MESSAGES)")
@@ -2010,13 +2006,13 @@ def _ordner_leer(pf, name: str):
 
 
 def ordner_raeumen(trocken: bool = True, auch_vorher_leere: bool = False) -> int:
-    """Leere, entbehrliche Ordner entfernen. Ohne `--scharf` passiert nichts.
+    """Remove empty, dispensable folders. Without `--scharf` nothing happens.
 
-    🔴 Ein Ordner, auf den eine EIGENE Regel zeigt, bleibt — auch leer. Genau so
-    verschwand am 27.09. `Auto.Autohaus-nord`, den der Besitzer selbst angelegt hatte;
-    danach zeigte seine Regel ins Nichts, und der Waechter haette neue Post
-    dorthin nicht mehr legen koennen. Leer heisst nicht entbehrlich, wenn jemand
-    darauf wartet.
+    🔴 A folder a rule of HIS OWN points at stays — even when empty. That is
+    exactly how `Auto.Autohaus-nord` disappeared on 2026-09-27, a folder he had
+    created himself; afterwards his rule pointed into nothing, and the watchman
+    could no longer have put new post there. Empty does not mean dispensable when
+    somebody is waiting for it.
     """
     inv = {}
     try:
@@ -2027,9 +2023,9 @@ def ordner_raeumen(trocken: bool = True, auch_vorher_leere: bool = False) -> int
               "welcher Ordner frueher Post hatte.")
         return 1
     hatte_post = {o: len(v.get("mails") or []) > 0 for o, v in inv.items()}
-    # 🔴 Ein reiner Sammelordner wie `Shopping` hatte NIE eigene Post — nur
-    #    seine 24 Kinder. Nach deren Abraeumen ist er genauso entbehrlich.
-    #    Deshalb zaehlt auch, ob ein NACHFAHRE Post hatte.
+    # 🔴 A pure collecting folder like `Shopping` NEVER had post of its own —
+    #    only its 24 children. Once those are cleared away it is just as
+    #    dispensable. So whether a DESCENDANT had post counts too.
     for o in list(hatte_post):
         if hatte_post[o]:
             for eltern in [o.rsplit(".", i)[0] for i in range(1, o.count(".") + 1)]:
@@ -2048,7 +2044,7 @@ def ordner_raeumen(trocken: bool = True, auch_vorher_leere: bool = False) -> int
     stand_schreiben(schritt="ordner", laeuft=True, fortschritt=0, gesamt=0,
                     phase="pruefen", weg=[], behalten=[],
                     text="leere Ordner werden gesucht", fehler="")
-    # dessen eigene Ziele, EINMAL gelesen — sie sind tabu wie der Papierkorb.
+    # His own targets, read ONCE — they are taboo like the trash.
     eigene_ziele = set(eigene_regeln().values())
     with verbindung(zug, schreiben=not trocken) as pf:
         flaggen = _list_mit_flags(pf)
@@ -2058,21 +2054,21 @@ def ordner_raeumen(trocken: bool = True, auch_vorher_leere: bool = False) -> int
             if eltern:
                 kinder.setdefault(eltern, set()).add(n)
 
-        # Tiefste zuerst: erst wenn die Kinder weg sind, ist der Vater kinderlos.
+        # Deepest first: only once the children are gone is the parent childless.
         reihe = sorted(flaggen, key=lambda x: (-x.count(pf.trenner), x))
         for nr, name in enumerate(reihe, 1):
-            # 🔴 Der Fortschritt muss beim PRUEFEN laufen, nicht erst beim
-            #    Entfernen: die Suche fragt jeden der 168 Ordner einzeln nach
-            #    seiner Anzahl. Wer erst beim ersten Treffer meldet, zeigt
-            #    minutenlang „0".
+            # 🔴 The progress has to run during the CHECK, not only during the
+            #    removal: the search asks each of the 168 folders separately for
+            #    its count. Report only from the first hit and you show „0“ for
+            #    minutes.
             stand_schreiben(phase="pruefen", fortschritt=nr, gesamt=len(reihe),
                             text="geprueft: %d/%d (%s)" % (nr, len(reihe), name))
             grund = ""
             if name.upper() == "INBOX" or tabu(name):
                 grund = "tabu"
             elif name in eigene_ziele:
-                # 🔴 Darauf zeigt eine EIGENE Regel. Leer heisst nicht
-                #    entbehrlich, wenn jemand darauf wartet.
+                # 🔴 A rule of HIS OWN points at this one. Empty does not mean
+                #    dispensable when somebody is waiting for it.
                 grund = "Ziel einer eigenen Absenderregel"
             elif sonderordner(flaggen.get(name, "")):
                 grund = "Sonderordner (%s)" % (flaggen.get(name) or "").strip()
@@ -2081,12 +2077,12 @@ def ordner_raeumen(trocken: bool = True, auch_vorher_leere: bool = False) -> int
             elif kinder.get(name):
                 grund = "hat noch %d Unterordner" % len(kinder[name])
             elif not hatte_post.get(name, False) and not auch_vorher_leere:
-                # 🔴 Ein Ordner in einem ZWEIG, den der Umbau abgeraeumt hat,
-                #    darf mit. `Shopping.Amazon` war schon vorher leer — aber
-                #    seine 23 Geschwister sind weg, und ein einzelner Rest
-                #    haelt den ganzen alten Baum am Leben. Ein Ordner OHNE
-                #    Vater (`Github`, `Linkedin`) bleibt: den hat der Besitzer
-                #    angelegt und wartet vielleicht auf Post.
+                # 🔴 A folder in a BRANCH the restructuring has cleared away may
+                #    go with it. `Shopping.Amazon` was already empty before — but
+                #    its 23 siblings are gone, and a single leftover keeps the
+                #    whole old tree alive. A folder with NO parent (`Github`,
+                #    `Linkedin`) stays: he created that one and may be waiting for
+                #    post.
                 eltern = (name.rsplit(pf.trenner, 1)[0]
                           if pf.trenner in name else "")
                 if not (eltern and hatte_post.get(eltern)):
@@ -2101,10 +2097,10 @@ def ordner_raeumen(trocken: bool = True, auch_vorher_leere: bool = False) -> int
                 continue
             if trocken:
                 weg.append(name)
-                # 🔴 Auch in der Vorschau mitfuehren, sonst sieht der
-                #    Trockenlauf anders aus als der scharfe Lauf: ein Vater
-                #    haette dort „noch Unterordner", die in Wahrheit mit
-                #    verschwinden.
+                # 🔴 Carry it in the preview as well, otherwise the dry run looks
+                #    different from the armed run: a parent would appear to
+                #    „still have subfolders“ there which in truth disappear with
+                #    it.
                 eltern = name.rsplit(pf.trenner, 1)[0] if pf.trenner in name else ""
                 if eltern and eltern in kinder:
                     kinder[eltern].discard(name)
@@ -2136,10 +2132,10 @@ def ordner_raeumen(trocken: bool = True, auch_vorher_leere: bool = False) -> int
                                 "waeren weg" if trocken else "entfernt"))
     for n in weg:
         print("   - %s" % n)
-    # 🔴 Erst zaehlen, dann aufzaehlen — und die erwartbaren Gruende ZULETZT.
-    #    Die erste Fassung zeigte 40 Zeilen, alle „Ziel im aktuellen Plan":
-    #    genau die Faelle, die man ohnehin erwartet. Warum `Github` bleibt, fiel
-    #    hinten raus. Eine Aufstellung, die nur das Erwartete zeigt, ist keine.
+    # 🔴 Count first, then list — and the expected reasons LAST. The first
+    #    version showed 40 lines, all „target in the current plan“: exactly the
+    #    cases one expects anyway. Why `Github` stays fell off the end. A listing
+    #    that shows only the expected is not one.
     zaehlung = {}
     for _n, g in behalten:
         zaehlung[g] = zaehlung.get(g, 0) + 1
@@ -2160,10 +2156,10 @@ def ordner_raeumen(trocken: bool = True, auch_vorher_leere: bool = False) -> int
 
 
 def wortschatz_zeigen() -> int:
-    """Lernen, gegenmessen, zeigen — ohne etwas am Postfach zu tun.
+    """Learn, cross-check, show — without doing anything to the mailbox.
 
-    🔑 Die Kreuzprobe ist der Punkt. Ein Einordner, der seine Trefferquote nicht
-       nennt, ist eine Behauptung.
+    🔑 The cross-check is the point. A classifier that does not name its hit rate
+       is making a claim.
     """
     quelle = out_pfad("inventar.json.gz")
     if not os.path.exists(quelle):
@@ -2187,8 +2183,8 @@ def wortschatz_zeigen() -> int:
     for kat in sorted(ws["kategorien"], key=lambda k: -ws["mails"].get(k, 0)):
         d = ws["kategorien"][kat]
         summe = sum(d.values()) or 1
-        # Kennzeichnend ist nicht das HAEUFIGSTE Wort, sondern das, das in
-        # DIESER Kategorie ueberproportional oft steht.
+        # What is characteristic is not the MOST FREQUENT word but the one that
+        # stands disproportionately often in THIS category.
         andere = {}
         for k2, d2 in ws["kategorien"].items():
             if k2 == kat:
@@ -2246,7 +2242,7 @@ def main(argv) -> int:
     if argv[1] == "wortschatz":
         return wortschatz_zeigen()
     if argv[1] == "ordner":
-        # 🔴 Vorgabe ist TROCKEN. Wer Ordner entfernen will, sagt es ausdruecklich.
+        # 🔴 The default is DRY. Whoever wants folders removed says so expressly.
         return ordner_raeumen(trocken="scharf" not in args,
                               auch_vorher_leere="auch-vorher-leere" in args)
     return 2
