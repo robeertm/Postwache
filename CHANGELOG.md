@@ -7,6 +7,48 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [4.5.2] – 2026-09-27
+
+### A workplace cannot report its own defect
+The agent that answers the watchman's questions reads the owner's knowledge base
+through a read-only mirror (`~/vault-mirror`) and hands its notes back through a
+drop folder (`~/vault-inbox`). Both are created when a project is provisioned.
+This project's working directory had been built **by hand** — and neither link
+was set.
+
+So the agent classified **199 senders** from nothing but their domain and subject
+lines, and it said so, in a note it wrote to the drop folder that did not exist.
+Three notes, including explicit requests to review uncertain decisions, reached
+nobody.
+
+**Now the watchman checks it from its own side** — `arbeitsplatz_pruefen()`, two
+`isdir` questions per run, reported to the journal when the finding changes, at
+most every 12 h after that, and once more when it is fixed. Texts in all five
+languages. The watchman may traverse the agent's home but not list it, so each
+path is asked for by name.
+
+### The briefing had no rollout path
+The file that makes the agent useful — what it must never touch, the two task
+shapes, how the watchman thinks — existed only on the machine it ran on,
+unversioned. The next rebuild of that working directory would have removed it
+silently, and nothing would have been missing except the quality of the answers.
+It is now part of the repository, has its own step in the deploy script (which
+also verifies the two links), and four cases in `probe_ausrollen.py`. The same
+trap as `locales/` in 3.1.0 and `umbau.py` in 4.0.0, one level up.
+
+### A right answer for the wrong reason
+The agent left one domain uncategorised because its only subject line was
+„test". That was correct — but not for that reason: the domain has **two faces**,
+some addresses belong to the owner, others to a device with 164 mails already
+filed under `Technik.Synology`. A domain→category rule would have dragged
+personal mail into the device folder. Written into the briefing as the worked
+example of why the mirror matters.
+
+### Verified
+`probe_umbau.py` **147 cases** (+7) — the new case runs against a broken **and** a
+repaired workplace, so it is a measurement rather than a promise about source
+code. `probe_ausrollen.py` green with four new cases.
+
 ## [4.5.1] – 2026-09-27
 
 ### 🔴 This repository was deleted and rebuilt

@@ -639,5 +639,56 @@ pruef("alle vier Reiter stehen in der einen Liste",
       all(('"%s"' % n) in _html.split("const ANSICHTEN = [")[1].split("]")[0]
           for n in ("uebersicht", "umbau", "umzug", "einstellungen")), True)
 
+print("\n── Der Arbeitsplatz des Agenten (27.09., die Ursache dieses Falles) ──")
+# 🔴 Der Werkstatt-Agent bekam einen von HAND gebauten Arbeitsplatz — dabei
+#    fehlten die zwei Wege, die der Provisioner sonst setzt: der VAULT-SPIEGEL
+#    (dessen Wissensstand) und der EINWURF (wohin seine Notizen gehen). Er
+#    urteilte deshalb bei 199 Absendern allein nach Domain und Betreff und
+#    schrieb das auch hin — in eine Notiz, die durch den fehlenden Einwurf
+#    niemanden erreichte.
+#    🔑 Darum laeuft dieser Fall WIRKLICH, gegen einen kaputten und einen
+#    geheilten Arbeitsplatz. Eine Quelltextzusage haette denselben Satz
+#    behauptet, ohne ihn einmal zu erleben.
+import tempfile
+
+_pw = umbau.pw
+with tempfile.TemporaryDirectory() as _tmp:
+    _heim = os.path.join(_tmp, "postwache")
+    _post = os.path.join(_heim, "post")
+    os.makedirs(_post)
+    _alt_konfig, _alt_out = _pw.konfig, _pw.OUT
+    _pw.OUT = os.path.join(_tmp, "out")
+    os.makedirs(_pw.OUT)
+    _pw.konfig = lambda: {"werkstatt": _post}
+
+    def _chronik_zeilen():
+        try:
+            return open(os.path.join(_pw.OUT, "chronik.jsonl"),
+                        encoding="utf-8").read().splitlines()
+        except OSError:
+            return []
+
+    try:
+        pruef("kaputt: BEIDE fehlenden Wege werden benannt",
+              _pw.arbeitsplatz_pruefen(), ["vault-mirror", "vault-inbox"])
+        _z = _chronik_zeilen()
+        pruef("der Mangel steht in der Chronik, nicht nur im Rueckgabewert",
+              any("arbeitsplatz" in z for z in _z), True)
+        _pw.arbeitsplatz_pruefen()
+        pruef("gemeldet wird nicht jede Minute", len(_chronik_zeilen()), len(_z))
+        os.makedirs(os.path.join(_heim, "vault-mirror"))
+        os.makedirs(os.path.join(_heim, "vault-inbox"))
+        pruef("geheilt: nichts fehlt mehr", _pw.arbeitsplatz_pruefen(), [])
+        pruef("die Heilung wird EINMAL gemeldet",
+              sum(1 for z in _chronik_zeilen() if "arbeitsplatz_ok" in z), 1)
+        _pw.arbeitsplatz_pruefen()
+        pruef("danach ist Ruhe",
+              sum(1 for z in _chronik_zeilen() if "arbeitsplatz_ok" in z), 1)
+        _pw.konfig = lambda: {"werkstatt": ""}
+        pruef("ohne Werkstatt gibt es keinen Arbeitsplatz zu pruefen",
+              _pw.arbeitsplatz_pruefen(), [])
+    finally:
+        _pw.konfig, _pw.OUT = _alt_konfig, _alt_out
+
 print("\n%d gruen, %d rot" % (GRUEN, ROT))
 sys.exit(1 if ROT else 0)
