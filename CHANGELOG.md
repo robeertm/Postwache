@@ -7,6 +7,56 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [4.5.1] – 2026-09-27
+
+### 🔴 This repository was deleted and rebuilt
+The previous history contained personal data in **all three commits** — most
+seriously the **name and email address of a real person**, used as an example in
+a documentation line, plus device names, two hard-coded private addresses and the
+owner's mail provider. Nobody had forked or starred it. The repository was
+deleted rather than rewritten, and re-published as a single commit. The container
+image at `ghcr.io/robeertm/postwache` still carries the old files and is being
+removed separately.
+
+### The fix is a different place, not a better pattern
+The publish step used to **scrub** personal data out of the source on its way to
+the public tree. That is a net, not a wall: 20 of 74 rules in the catalogue
+carried real addresses — family, advisers, tradespeople, an employer. As long as
+those live in the source, a regular expression decides whether they become public.
+
+**The personal part of the catalogue now lives in a state file** — same drawer as
+the credentials, `0600`, on no rollout list. The source contains only rules that
+apply to everyone (PayPal, Amazon, Telekom). *What nobody can publish, nobody has
+to filter out.*
+
+🔴 Order is logic, and it has to survive the move: the first attempt put all
+personal rules first, which placed "own sent mail" ahead of the device rules and
+sent **823** router reports into the archive instead of Technology. Every entry
+now carries its original **position** and the two halves are interleaved back
+together. Verified against 17,966 mails: **0 differences**.
+
+### Added: an independent leak check, as a gate
+🔑 *A filter that checks itself is not a check.* The scrubber reported "nothing
+personal left" while six real names stood in its output. The new check
+
+- has its **own** pattern list (email addresses that are not explicitly
+  invented; private and tailnet addresses; internal paths; home directories),
+- reads the **generated** tree, not the source,
+- compares it against the state file — the real data — **without a single name
+  in its own source**,
+- inspects **every version of every file in the history**, because a repository
+  does not forget,
+- and the publish step now **fails** if it finds anything, so there is nothing
+  to push.
+
+Matches are anchored at word boundaries and the project's own repository URL is
+exempt — without that it produced 14 findings, 11 of them noise. *A checker that
+cries wolf stops being read, and then the real finding goes down with it.*
+
+Counter-tested three ways: a known address planted in a file, a foreign address
+it had never seen, and a leak that exists **only in an older commit** while the
+working tree is clean — the exact shape of what happened here. All three red.
+
 ## [4.5.0] – 2026-09-27
 
 ### Added
