@@ -7,6 +7,27 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [4.5.3] – 2026-09-27
+
+### Adding an address had no effect — because the same list existed twice
+The owner's addresses were kept in **two** places in the state file: under
+`eigene_adressen`, read by the learning run, and inside the „own post" rule
+itself, read by the filing decision. The placeholder in `ziel_fuer` filled the
+rule's addresses only when the rule had **none** — and it had some. So the copy
+decided, and a newly entered address changed nothing: no error, no trace, just a
+mail left in the catch folder. Writing is not taking effect.
+
+`ziel_fuer` now uses the **union** of both lists instead of one as a fallback for
+the other, so a second list can no longer override the first even if it comes
+back. The duplicate in the state file was emptied as well — one truth, one place.
+
+**Measured:** all **17,966** mails through `ziel_fuer`, before against after —
+**exactly one** difference, the intended one. Device accounts on the same domain
+are unchanged: an address rule still beats the catch-all rule.
+
+The new case is **red against the previous code** — the original failure, not a
+restatement of the fix. `probe_umbau.py` **150 cases**.
+
 ## [4.5.2] – 2026-09-27
 
 ### A workplace cannot report its own defect
