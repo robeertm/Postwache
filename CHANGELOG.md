@@ -14,9 +14,9 @@ The previous history contained personal data in **all three commits** — most
 seriously the **name and email address of a real person**, used as an example in
 a documentation line, plus device names, two hard-coded private addresses and the
 owner's mail provider. Nobody had forked or starred it. The repository was
-deleted rather than rewritten, and re-published as a single commit. The container
-image at `ghcr.io/robeertm/postwache` still carries the old files and is being
-removed separately.
+deleted rather than rewritten, and re-published as a single commit. The container image at
+`ghcr.io/robeertm/postwache` carried the same files — deleting a repository does
+**not** remove its images — and has been deleted as well.
 
 ### The fix is a different place, not a better pattern
 The publish step used to **scrub** personal data out of the source on its way to
