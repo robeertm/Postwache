@@ -639,6 +639,29 @@ pruef("alle vier Reiter stehen in der einen Liste",
       all(('"%s"' % n) in _html.split("const ANSICHTEN = [")[1].split("]")[0]
           for n in ("uebersicht", "umbau", "umzug", "einstellungen")), True)
 
+print("\n── Eigene Adressen: EINE Wahrheit, nicht zwei Listen (27.09.) ──")
+# 🔴 In `regeln_eigen.json` stand dieselbe Adressliste zweimal: als
+#    `eigene_adressen` und in der Regel „Eigene Post Archiv" selbst. Geroutet
+#    wurde nach der Regel — eine neu eingetragene eigene Adresse blieb ohne
+#    Wirkung. Kein Fehler, keine Spur, nur eine Mail im Auffang.
+#    🔑 Genau dieser Fall: die Regel trägt EINE Adresse, `eigene_adressen`
+#    trägt eine ZWEITE — beide müssen ins Archiv finden. Gegen den alten Stand
+#    (`if ... and not adressen`) ist der zweite Fall rot.
+umbau._EIGEN_ZWISCHEN.clear()
+umbau._EIGEN_ZWISCHEN["katalog"] = {
+    "eigene_adressen": ["zweite@erfunden.example"],
+    "regeln": [{"nr": 0, "regel": (umbau.EIGENE_POST,
+                                   ("erste@erfunden.example",), (), "")}],
+}
+umbau._EIGEN_ZWISCHEN.pop("katalog_voll", None)
+pruef("die Adresse AUS DER REGEL findet ihr Archiv",
+      umbau.ziel_fuer(mail("erste@erfunden.example"))[0], umbau.EIGENE_POST)
+pruef("die Adresse aus eigene_adressen ebenso (war vorher wirkungslos)",
+      umbau.ziel_fuer(mail("zweite@erfunden.example"))[0], umbau.EIGENE_POST)
+pruef("eine fremde Adresse bleibt draußen",
+      umbau.ziel_fuer(mail("fremd@erfunden.example"))[0] == umbau.EIGENE_POST, False)
+umbau._EIGEN_ZWISCHEN.clear()
+
 print("\n── Der Arbeitsplatz des Agenten (27.09., die Ursache dieses Falles) ──")
 # 🔴 Der Werkstatt-Agent bekam einen von HAND gebauten Arbeitsplatz — dabei
 #    fehlten die zwei Wege, die der Provisioner sonst setzt: der VAULT-SPIEGEL

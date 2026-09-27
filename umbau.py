@@ -714,8 +714,17 @@ def ziel_fuer(m: dict):
     for ziel, adressen, domains, rx in katalog():
         # Der Platzhalter fuer die eigene Post bekommt seine Adressen zur
         # Laufzeit — im Quelltext steht dort ein leeres Tupel.
-        if ziel == EIGENE_POST and not adressen:
-            adressen = tuple(eigen_laden()["eigene_adressen"])
+        #
+        # 🔴 27.09.2026: die Zustandsdatei fuehrte DIESELBE Liste zweimal — als
+        #    `eigene_adressen` UND in der Regel selbst. Geroutet wurde nach der
+        #    Regel, also blieb eine neu eingetragene eigene Adresse ohne
+        #    Wirkung: kein Fehler, keine Spur, nur eine Mail im Auffang.
+        #    Deshalb gilt jetzt die VEREINIGUNG beider Listen — eine zweite
+        #    Liste kann die erste nicht mehr aushebeln. `sorted`, damit die
+        #    Reihenfolge nicht von der Menge abhaengt.
+        if ziel == EIGENE_POST:
+            adressen = tuple(sorted(set(adressen or ())
+                                    | set(eigen_laden()["eigene_adressen"])))
         adr_tr = bool(adressen) and von in adressen
         dom_tr = bool(domains) and any(dom == d or dom.endswith("." + d)
                                        for d in domains)
