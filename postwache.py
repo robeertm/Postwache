@@ -3587,6 +3587,61 @@ def auftraege_pruefen() -> dict:
     return {"offen": offen, "haengen": haengen, "gesamt": len(liste)}
 
 
+# --- Der Arbeitsplatz des Agenten ---------------------------------------------
+# Ein Werkstatt-Agent urteilt nur mit zwei Wegen gut: dem VAULT-SPIEGEL
+# (`vault-mirror`, dessen Wissensstand, nur lesen) und dem EINWURF
+# (`vault-inbox`, aus dem ein Sammler seine Notizen bis nach Obsidian traegt).
+# Beide legt der Werkstatt-Provisioner an. Wer einen Arbeitsplatz von HAND baut,
+# vergisst sie — bei der Postwache am 27.09.2026 genau so passiert: der Agent
+# ordnete 199 Absender allein nach Domain und Betreff ein und schrieb dazu
+# "Vault-Spiegel war nicht erreichbar".
+#
+# 🔑 Diese Meldung stand in einer Notiz, die im selben Moment ins Nichts lief:
+#    der Einwurf fehlte ja ebenso. Ein Arbeitsplatz kann seinen eigenen Mangel
+#    nicht melden. Also prueft es der Waechter von SEINER Seite — er sieht
+#    dieselben Pfade, und sein Meldeweg haengt nicht an dem, was fehlt.
+ARBEITSPLATZ = ("vault-mirror", "vault-inbox")
+ARBEITSPLATZ_STAND = "arbeitsplatz.json"
+ARBEITSPLATZ_FRIST = 12 * 3600
+
+
+def arbeitsplatz_pruefen() -> list:
+    """Fehlt dem Agenten ein Weg? Gibt die fehlenden Namen zurueck.
+
+    Gemeldet wird, wenn sich der Befund AENDERT, danach hoechstens alle
+    ARBEITSPLATZ_FRIST Sekunden — und einmal, wenn er behoben ist. Ohne
+    Werkstatt-Pfad gibt es keinen Arbeitsplatz zu pruefen.
+    """
+    pfad = str(konfig().get("werkstatt") or "").strip()
+    if not pfad:
+        return []
+    heim = os.path.dirname(pfad.rstrip("/"))
+    # 🔴 Der Waechter darf das Heim des Agenten nicht LESEN, nur durchqueren
+    #    (Durchgangsrecht per ACL). `isdir` auf einen GENANNTEN Pfad geht damit,
+    #    `listdir` nicht — deshalb wird jeder Weg einzeln gefragt.
+    if not heim or not os.path.isdir(heim):
+        return []
+    fehlt = [n for n in ARBEITSPLATZ if not os.path.isdir(os.path.join(heim, n))]
+    alt = load_out(ARBEITSPLATZ_STAND) or {}
+    vorher = [str(n) for n in (alt.get("fehlt") or [])]
+    try:
+        seit = time.time() - float(alt.get("gemeldet") or 0)
+    except (TypeError, ValueError):
+        seit = ARBEITSPLATZ_FRIST + 1
+    if fehlt and (fehlt != vorher or seit > ARBEITSPLATZ_FRIST):
+        chronik("arbeitsplatz", titel=txt("w.arbeitsplatz.titel"),
+                detail=txt("w.arbeitsplatz.detail",
+                           wege=", ".join(fehlt), heim=heim))
+        log("Arbeitsplatz des Agenten unvollstaendig: %s fehlt in %s"
+            % (", ".join(fehlt), heim))
+        save_out(ARBEITSPLATZ_STAND, {"fehlt": fehlt, "gemeldet": time.time()})
+    elif not fehlt and vorher:
+        chronik("arbeitsplatz_ok", titel=txt("w.arbeitsplatz.ok.titel"),
+                detail=txt("w.arbeitsplatz.ok.detail", wege=", ".join(vorher)))
+        save_out(ARBEITSPLATZ_STAND, {"fehlt": [], "gemeldet": time.time()})
+    return fehlt
+
+
 def auftrag_stau() -> int:
     """Wie viele Auftraege liegen unbearbeitet? Ab MAX_OFFENE_AUFTRAEGE kein neuer.
 
@@ -3786,6 +3841,13 @@ def main() -> int:
         auftraege_pruefen()
     except Exception as e:
         log("Auftragspruefung uebersprungen: %s" % str(e)[:140])
+
+    # 🔑 Und hat der Agent ueberhaupt seine beiden Wege? Zwei `isdir`-Fragen.
+    #    Ohne sie urteilt er blind weiter und seine Meldung darueber verschwindet.
+    try:
+        arbeitsplatz_pruefen()
+    except Exception as e:
+        log("Arbeitsplatzpruefung uebersprungen: %s" % str(e)[:140])
 
     # 🔑 Hat die Werkstatt inzwischen Domain-Kategorien beantwortet? Das ist eine
     #    Dateipruefung und kostet nichts — aber ohne sie muesste der Besitzer von Hand

@@ -73,5 +73,27 @@ unbekannt = sorted(geliefert - set(PROGRAMM))
 probe("jede ausgelieferte Datei steht auf der Liste", not unbekannt,
       ", ".join(unbekannt) if unbekannt else "%d geprueft" % len(geliefert))
 
+print("\n── 4. Das Briefing des Werkstatt-Agenten hat einen Weg ──")
+# 🔴 27.09.2026: `werkstatt/CLAUDE.md` lag NUR auf dem Pi. Es sagt dem Agenten,
+#    dass es den Vault-Spiegel gibt — ohne das Briefing urteilt er allein nach
+#    Domain und Betreff, und niemand merkt es, weil das Programm einwandfrei ist.
+#    Dieselbe Falle wie bei `locales/` und `umbau.py`, nur eine Ebene höher.
+BRIEFING = os.path.join("werkstatt", "CLAUDE.md")
+probe("%s liegt im Baum" % BRIEFING, os.path.isfile(os.path.join(HIER, BRIEFING)))
+probe("deploy.sh rollt das Briefing aus",
+      "werkstatt/CLAUDE.md" in WEGE["deploy.sh"])
+# Und es muss die beiden Wege des Agenten benennen — sonst kennt er sie nicht.
+try:
+    brief = io.open(os.path.join(HIER, BRIEFING), encoding="utf-8").read()
+except OSError:
+    brief = ""
+for weg in ("vault-mirror", "vault-inbox"):
+    probe("Briefing nennt ~/%s" % weg, weg in brief)
+# Der Wächter muss beide Wege PRUEFEN — der Agent kann seinen eigenen Mangel
+# nicht melden, seine Notiz braucht ja denselben fehlenden Einwurf.
+wach = io.open(os.path.join(HIER, "postwache.py"), encoding="utf-8").read()
+probe("der Waechter prueft den Arbeitsplatz",
+      "arbeitsplatz_pruefen()" in wach and 'ARBEITSPLATZ = ("vault-mirror"' in wach)
+
 print("\n%s  %d Fehlschlaege" % ("ALLES GRUEN" if not fehler else "ROT", len(fehler)))
 sys.exit(1 if fehler else 0)
