@@ -1,0 +1,28 @@
+services:
+  postwache:
+    image: ghcr.io/der Dienstbenutzer/postwache:latest
+    container_name: postwache
+    restart: unless-stopped
+    ports:
+      - "8110:8110"          # the page; open http://<host>:8110
+    environment:
+      - TZ=Europe/Berlin
+      - POSTWACHE_TAKT=60    # seconds between runs; a container has no cron
+    volumes:
+      - ./data:/data         # mailbox credentials, what it learned, the log
+
+  # ── Optional: keep the image up to date by itself ──────────────────────
+  # Docker never re-pulls a running container, so without the block below the
+  # Postwache stays on the image you pulled until you run
+  #     docker compose pull && docker compose up -d
+  # Uncomment to let Watchtower do it. It needs the Docker socket, which is
+  # effectively root on the host — mounted read-only here, but still a
+  # privilege. Nightly at 04:00, not hourly: an update should not land in the
+  # middle of a run.
+  # watchtower:
+  #   image: containrrr/watchtower
+  #   container_name: postwache-watchtower
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   command: --cleanup --schedule "0 0 4 * * *" postwache

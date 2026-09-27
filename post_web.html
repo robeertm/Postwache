@@ -1,0 +1,2042 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Postwache</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  color-scheme: dark;
+  --grund:#12100c;
+  --karte:rgba(255,255,255,.045); --karte2:rgba(255,255,255,.075);
+  /* Dieselbe Farbe wie eine Karte, aber DECKEND. Wird gebraucht, wo etwas
+     ueber Inhalt klebt (die Auswahlleiste der Trefferliste): --karte ist
+     durchscheinend, dahinter laege sonst lesbar die naechste Zeile. */
+  --karte-voll:#1d1b17;
+  --rand:rgba(255,255,255,.10);
+  --text:#f4efe6; --leise:#a99c88;
+  --akzent:#e0a458;
+  --ok:#34d399; --info:#60a5fa; --warnung:#fbbf24; --kritisch:#f87171;
+  --r:1.1rem;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* overflow-x nur auf body genuegt nicht: laeuft ein Kind ueber, waechst das
+   html-Element mit und die ganze Seite wird breiter als das Fenster. */
+html{-webkit-text-size-adjust:100%;overflow-x:hidden}
+html,body{margin:0;min-height:100vh;min-height:100dvh;max-width:100%}
+body{
+  background:var(--grund); color:var(--text); overflow-x:hidden;
+  font-family:ui-rounded,"SF Pro Rounded",system-ui,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(60rem 34rem at 8% -10%, rgba(224,164,88,.16), transparent 60%),
+    radial-gradient(46rem 30rem at 100% 4%, rgba(96,165,250,.08), transparent 58%),
+    radial-gradient(50rem 34rem at 50% 118%, rgba(224,164,88,.09), transparent 60%);
+  background-attachment:fixed;
+  transition:filter .5s ease;
+}
+body.steht{filter:saturate(.3)}
+.huelle{max-width:1080px;margin:0 auto;padding:1.1rem 1rem 4rem}
+h1,h2,h3{margin:0;text-wrap:balance}
+h1{font-size:1.5rem;letter-spacing:-.01em}
+h2{font-size:1.02rem;margin:0 0 .7rem}
+.karte{background:var(--karte);border:1px solid var(--rand);border-radius:var(--r);
+  padding:1rem 1.05rem;backdrop-filter:blur(8px);
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 6px 20px rgba(0,0,0,.25)}
+.karte + .karte{margin-top:.85rem}
+.leise{color:var(--leise)}
+.klein{font-size:.82rem}
+.zahl{font-variant-numeric:tabular-nums}
+.chip{display:inline-flex;align-items:center;gap:.35rem;padding:.16rem .6rem;
+  border-radius:999px;font-size:.78rem;border:1px solid var(--rand);background:var(--karte2)}
+.chip.ok{color:var(--ok);border-color:#34d39955;background:#34d3991a}
+.chip.warnung{color:var(--warnung);border-color:#fbbf2455;background:#fbbf241a}
+.chip.kritisch{color:var(--kritisch);border-color:#f8717155;background:#f871711a}
+.chip.info{color:var(--info);border-color:#60a5fa55;background:#60a5fa1a}
+
+.kopf{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.wappen{position:relative;width:64px;height:64px;flex:0 0 auto;display:grid;
+  place-items:center;font-size:2rem;line-height:1}
+.wappen::before{content:"";position:absolute;inset:0;border-radius:50%;
+  border:2px solid var(--akzent);opacity:.45}
+.wappen::after{content:"";position:absolute;inset:0;border-radius:50%;
+  border:2px solid var(--akzent);animation:puls 5s ease-out infinite}
+body.steht .wappen::after{animation:none;opacity:0}
+@keyframes puls{0%{transform:scale(1);opacity:.55}70%{transform:scale(1.45);opacity:0}100%{opacity:0}}
+@media (prefers-reduced-motion: reduce){.wappen::after{animation:none;opacity:.3}}
+
+.kz{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem}
+/* ── Diagramme ─────────────────────────────────────────────────────────────
+   Reines SVG, keine Fremdbibliothek: die Seite laeuft im LAN ohne Internet,
+   und ein Diagramm, das auf ein CDN wartet, ist im Zweifel gar keins. */
+.plot{width:100%;height:auto;display:block}
+.plot .bar{fill:var(--akzent);opacity:.85}
+.plot .bar.leise{fill:var(--leise);opacity:.35}
+.plot .achse{stroke:var(--rand);stroke-width:1}
+.plot .schnitt{stroke:var(--info);stroke-width:1.2;stroke-dasharray:4 3;opacity:.9}
+.plot text{fill:var(--leise);font-size:9px;font-family:inherit}
+.plotkopf{display:flex;justify-content:space-between;align-items:baseline;
+  gap:.6rem;margin:.9rem 0 .25rem}
+.plotkopf b{font-size:.9rem;font-weight:600}
+.plotpaar{display:flex;gap:1rem;flex-wrap:wrap}
+.plotpaar > div{flex:1 1 16rem;min-width:0}
+.rang{display:flex;align-items:center;gap:.6rem;padding:.3rem 0}
+.rang .nam{flex:0 0 11rem;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-size:.84rem}
+/* 🔴 Bei mehrdeutigen Namen muss die Adresse auf eine EIGENE Zeile. In einer
+   Zeile wurde am Handy aus „eBay · ebay@ebay.de" und „eBay · ebay@info…"
+   zweimal dasselbe „eBay · ebay@eba…" — die Unterscheidung fiel genau dort
+   weg, wo sie am noetigsten war. */
+.rang .nam small{display:block;font-size:.7rem;color:var(--leise);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rang .balken{flex:1 1 auto;height:.55rem;border-radius:999px;background:var(--karte2);
+  overflow:hidden}
+.rang .balken i{display:block;height:100%;background:var(--akzent);opacity:.8}
+.rang .n{flex:0 0 3.2rem;text-align:right;font-size:.82rem;
+  font-variant-numeric:tabular-nums;color:var(--leise)}
+@media (max-width:520px){ .rang .nam{flex:0 0 7.5rem} }
+
+.kz > div{flex:1 1 8rem;background:var(--karte2);border:1px solid var(--rand);
+  border-radius:.8rem;padding:.55rem .7rem;text-align:center}
+.kz b{display:block;font-size:1.32rem;font-variant-numeric:tabular-nums}
+.kz span{font-size:.72rem;color:var(--leise)}
+
+.reihe{display:flex;align-items:center;gap:.8rem;padding:.62rem 0;
+  border-top:1px solid var(--rand)}
+.reihe:first-of-type{border-top:0}
+.reihe .txt{flex:1 1 auto;min-width:0}
+.reihe .txt b{display:block;font-weight:600}
+.reihe .txt span{font-size:.82rem;color:var(--leise)}
+.knebel{flex:0 0 auto;position:relative;width:52px;height:30px;border-radius:999px;
+  border:1px solid var(--rand);background:rgba(255,255,255,.07);cursor:pointer;
+  transition:background .18s ease,border-color .18s ease}
+.knebel::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;
+  border-radius:50%;background:#e7ddcd;transition:transform .18s ease}
+.knebel[aria-checked="true"]{background:var(--akzent);border-color:var(--akzent)}
+.knebel[aria-checked="true"]::after{transform:translateX(22px);background:#2a1d0a}
+
+button{font:inherit;color:var(--text);background:var(--karte2);cursor:pointer;
+  border:1px solid var(--rand);border-radius:.7rem;padding:.5rem .9rem;
+  transition:background .15s ease,border-color .15s ease}
+button:hover{background:rgba(255,255,255,.12)}
+button.haupt{background:var(--akzent);border-color:var(--akzent);color:#2a1d0a;font-weight:650}
+button.haupt:hover{filter:brightness(1.08);background:var(--akzent)}
+button.leisetaste{background:transparent;color:var(--leise)}
+button:disabled{opacity:.45;cursor:not-allowed}
+/* 🔴 Der Regelsatz oben heisst `button.leisetaste` — ein <a> mit derselben
+   Klasse waere sonst ein blauer Link zwischen zwei Knoepfen. Ein Download
+   MUSS aber ein <a download> sein, ein Knopf kann keine Datei holen. */
+a.leisetaste{display:inline-block;text-decoration:none;font:inherit;
+  color:var(--leise);background:transparent;border:1px solid var(--rand);
+  border-radius:.7rem;padding:.5rem .9rem;
+  transition:background .15s ease,border-color .15s ease}
+a.leisetaste:hover{background:rgba(255,255,255,.12)}
+/* Eine Karte in der Karte: abgesetzt, aber nicht noch einmal aufgeschlagen. */
+.unterkarte{background:rgba(255,255,255,.04);border:1px solid var(--rand);
+  border-radius:.9rem;padding:.85rem .9rem}
+input,select{font:inherit;color:var(--text);background:rgba(255,255,255,.06);
+  border:1px solid var(--rand);border-radius:.7rem;padding:.55rem .7rem;width:100%}
+input:focus,select:focus{outline:2px solid var(--akzent);outline-offset:1px}
+/* 🔴 Ohne diese Zeile nimmt der Browser sein eigenes Grau (gemessen
+   rgb(169,169,169)) — dieselbe Klasse Fehler wie bei Mikes Eingabefeld,
+   wo die Schrift beim Tippen hell wurde. Eine Farbe muss gewaehlt sein. */
+input::placeholder{color:var(--leise);opacity:.8}
+label{display:block;font-size:.8rem;color:var(--leise);margin:.6rem 0 .25rem}
+.feldpaar{display:flex;gap:.6rem;flex-wrap:wrap}
+.feldpaar > div{flex:1 1 12rem}
+.knopfreihe{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem}
+/* Reiter. Bewusst KEINE Leiste, die am Rand klebt: die Seite ist lang, aber
+   man wechselt die Ansicht selten — eine klebende Leiste kostet auf dem Telefon
+   dauerhaft Hoehe fuer etwas, das man zweimal am Tag braucht. */
+.reiter{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:1rem}
+.reitertaste{flex:1 1 9rem;padding:.62rem .9rem;border-radius:.8rem;
+  border:1px solid var(--rand);background:var(--karte);color:var(--leise);
+  font:inherit;font-weight:600;cursor:pointer;min-height:44px}
+.reitertaste:hover{background:var(--karte2);color:var(--text)}
+.reitertaste.an{background:var(--akzent);border-color:var(--akzent);color:#2a1d0a}
+.pfwahl{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.9rem}
+.pfwahl:empty{display:none}
+.pftaste{padding:.42rem .8rem;border-radius:999px;border:1px solid var(--rand);
+  background:var(--karte);color:var(--leise);font:inherit;font-size:.86rem;
+  cursor:pointer;min-height:38px}
+.pftaste.an{border-color:var(--akzent);color:var(--text);background:var(--karte2)}
+.pftaste.ruht{opacity:.5}
+.zeile{display:flex;gap:.6rem;align-items:flex-start;padding:.6rem 0;
+  border-top:1px solid var(--rand);flex-wrap:wrap}
+.zeile:first-child{border-top:0}
+.zeile .wachs{flex:1 1 12rem;min-width:0}
+
+.mail{display:flex;gap:.7rem;align-items:flex-start;padding:.62rem 0;
+  border-top:1px solid var(--rand)}
+.mail:first-of-type{border-top:0}
+.mail .ico{flex:0 0 auto;font-size:1.15rem;width:1.7rem;text-align:center}
+.mail .inh{flex:1 1 auto;min-width:0}
+.mail .betreff{font-weight:600;overflow-wrap:anywhere}
+.mail .von{font-size:.8rem;color:var(--leise);overflow-wrap:anywhere}
+.mail .grund{font-size:.76rem;color:var(--leise);font-style:italic;margin-top:.2rem;
+  overflow-wrap:anywhere}
+.mail select{width:auto;min-width:9rem;padding:.3rem .5rem;font-size:.78rem}
+.warn{color:var(--kritisch);font-size:.78rem;margin-top:.2rem}
+.wuerde{color:var(--akzent);font-size:.76rem;margin-top:.2rem}
+
+.balken{display:flex;height:10px;border-radius:999px;overflow:hidden;
+  background:var(--karte2);margin:.5rem 0 .8rem}
+.balken i{display:block;height:100%}
+.legende{display:flex;gap:.5rem;flex-wrap:wrap;font-size:.8rem}
+.legende span{display:inline-flex;align-items:center;gap:.3rem}
+.punkt{width:.6rem;height:.6rem;border-radius:50%;display:inline-block}
+
+.liste{max-height:26rem;overflow-y:auto;overscroll-behavior:contain}
+.tafel{overflow-x:auto}
+.meld{position:fixed;left:50%;transform:translateX(-50%);bottom:1.1rem;z-index:9;
+  background:#241b10;border:1px solid var(--rand);border-radius:.8rem;
+  padding:.6rem .95rem;box-shadow:0 8px 28px rgba(0,0,0,.45);max-width:92vw}
+.meld.weg{display:none}
+details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem 0}
+.hinweis{border-left:3px solid var(--akzent);padding-left:.8rem;margin:.6rem 0;
+  color:var(--leise);font-size:.86rem}
+</style>
+</head>
+<body>
+<div class="huelle">
+
+  <div class="karte">
+    <div class="kopf">
+      <div class="wappen">📬</div>
+      <div style="flex:1 1 12rem;min-width:0">
+        <h1>Postwache</h1>
+        <div class="leise klein" id="unterzeile" data-t="allg.laedt"></div>
+      </div>
+      <div id="modus"></div>
+    </div>
+    <div class="kz" id="kennzahlen"></div>
+    <div id="pfwahl" class="pfwahl"></div>
+    <nav class="reiter" id="reiter">
+      <button class="reitertaste an" data-ansicht="uebersicht"
+              onclick="zeigeAnsicht('uebersicht')" data-t="reiter.uebersicht"></button>
+      <button class="reitertaste" data-ansicht="umbau"
+              onclick="zeigeAnsicht('umbau')" data-t="reiter.umbau"></button>
+      <button class="reitertaste" data-ansicht="umzug"
+              onclick="zeigeAnsicht('umzug')" data-t="reiter.umzug"></button>
+      <button class="reitertaste" data-ansicht="einstellungen"
+              onclick="zeigeAnsicht('einstellungen')" data-t="reiter.einstellungen"></button>
+    </nav>
+  </div>
+
+  <div id="ansicht_uebersicht">
+
+  <div class="karte" id="nichteingerichtet" hidden>
+    <h2 data-t="leer.titel"></h2>
+    <div class="leise klein" data-t="leer.text"></div>
+    <div class="knopfreihe"><button class="haupt"
+      onclick="zeigeAnsicht('einstellungen')" data-t="leer.knopf"></button></div>
+  </div>
+
+  <div class="karte" id="statistikkarte">
+    <h2 data-t="stat.titel"></h2>
+    <div class="leise klein" id="stat_quelle" data-t="allg.laedt"></div>
+    <div id="statistik" style="margin-top:.8rem"></div>
+  </div>
+
+  <div class="karte">
+    <h2 data-t="heute.titel"></h2>
+    <div id="verteilung"></div>
+  </div>
+
+  <div class="karte">
+    <h2 data-t="mails.titel"></h2>
+    <div class="leise klein" data-t-html="mails.hilfe"></div>
+    <div class="liste" id="mails" style="margin-top:.6rem"></div>
+  </div>
+
+  <div class="karte" id="dokumentenkarte">
+    <h2>📎 <span data-t="dok.titel"></span></h2>
+    <div class="leise klein" id="dok_kopf" data-t="allg.laedt"></div>
+    <div class="feldpaar" style="margin-top:.7rem">
+      <div style="flex:2 1 18rem">
+        <label for="dok_q" data-t="dok.suchfeld"></label>
+        <input id="dok_q" data-t-platzhalter="dok.beispiel"
+               onkeydown="if(event.key==='Enter')dokSuche()"></div>
+      <div><label for="dok_art" data-t="dok.art"></label>
+        <select id="dok_art">
+          <option value="dokument" data-t="dok.art_dokument"></option>
+          <option value="alle" data-t="dok.art_alle"></option>
+          <option value="bild" data-t="dok.art_bild"></option>
+        </select></div>
+      <div><label for="dok_von" data-t="allg.von"></label><input id="dok_von" type="date"></div>
+      <div><label for="dok_bis" data-t="allg.bis"></label><input id="dok_bis" type="date"></div>
+    </div>
+    <div class="knopfreihe">
+      <button class="haupt" onclick="dokSuche()" data-t="dok.suchen"></button>
+      <button class="leisetaste" onclick="dokNachtragen()"
+              data-t-titel="dok.nachtragen_hilfe" data-t="dok.nachtragen"></button>
+    </div>
+    <div class="liste" id="dok_treffer" style="margin-top:.6rem"></div>
+  </div>
+
+  <div class="karte" id="ablagekarte">
+    <h2 data-t="ablage.titel"></h2>
+    <div id="ablage"></div>
+  </div>
+
+  <div class="karte" id="auftragkarte" hidden>
+    <h2>🧾 <span data-t="auftrag.titel"></span></h2>
+    <div class="leise klein" data-t="auftrag.hilfe"></div>
+    <div id="auftraege" style="margin-top:.6rem"></div>
+  </div>
+
+  <div class="karte" id="heimatkarte">
+    <h2 data-t="heimat.titel"></h2>
+    <div class="leise klein" data-t-html="heimat.hilfe"></div>
+    <div id="heimatlos" style="margin-top:.6rem"></div>
+  </div>
+
+  <div class="karte">
+    <h2 data-t="journal.titel"></h2>
+    <div id="journal"></div>
+  </div>
+
+  <div class="karte">
+    <h2 data-t="chronik.titel"></h2>
+    <div class="liste klein" id="chronik"></div>
+  </div>
+
+  </div><!-- /Übersicht -->
+
+  <div id="ansicht_umbau" hidden>
+
+  <div class="karte">
+    <h2>🏗️ <span data-t="u.titel"></span></h2>
+    <div class="leise klein" data-t-html="u.hilfe"></div>
+    <div id="u_stand" style="margin-top:.8rem"></div>
+    <div class="knopfreihe">
+      <button class="leisetaste" onclick="umbauStart('inventar')" data-t="u.knopf.inventar"></button>
+      <button class="leisetaste" onclick="umbauStart('plan')" data-t="u.knopf.plan"></button>
+      <button class="leisetaste" onclick="umbauStart('anwenden',{trocken:true})"
+              data-t="u.knopf.trocken"></button>
+      <button class="haupt" id="u_scharf" onclick="umbauAnwenden()" data-t="u.knopf.anwenden"></button>
+    </div>
+    <div class="knopfreihe">
+      <button class="leisetaste" onclick="umbauStart('anwenden',{grenze:2000})"
+              data-t="u.knopf.stapel"></button>
+      <button class="leisetaste" style="color:var(--kritisch)" onclick="umbauZurueck()"
+              data-t="u.knopf.zurueck"></button>
+      <button class="leisetaste" onclick="umbauStart('ordner',{trocken:true})"
+              data-t="u.knopf.ordner_zeigen"></button>
+      <button class="leisetaste" style="color:var(--kritisch)" onclick="umbauOrdner()"
+              data-t="u.knopf.ordner_weg"></button>
+    </div>
+  </div>
+
+  <div class="karte" id="u_baumkarte" hidden>
+    <h2 data-t="u.baum.titel"></h2>
+    <div class="leise klein" data-t="u.baum.hilfe"></div>
+    <div id="u_baum" style="margin-top:.6rem"></div>
+  </div>
+
+  <div class="karte" id="u_restkarte" hidden>
+    <h2 data-t="u.rest.titel"></h2>
+    <div class="leise klein" data-t="u.rest.hilfe"></div>
+    <div id="u_rest" style="margin-top:.6rem"></div>
+  </div>
+
+  </div>
+
+  <div id="ansicht_umzug" hidden>
+
+  <div class="karte">
+    <h2>📦 <span data-t="z.titel"></span></h2>
+    <div class="leise klein" data-t-html="z.hilfe"></div>
+    <div id="z_wahl" style="margin-top:.8rem"></div>
+    <div id="z_stand" style="margin-top:.8rem"></div>
+    <div class="knopfreihe">
+      <button class="leisetaste" onclick="umzugStart('pruefen')" data-t="z.knopf.pruefen"></button>
+      <button class="leisetaste" onclick="umzugStart('plan')" data-t="z.knopf.plan"></button>
+      <button class="leisetaste" onclick="umzugStart('uebertragen',{trocken:true,abdruck:Z_ABDRUCK})"
+              data-t="z.knopf.trocken"></button>
+      <button class="haupt" id="z_scharf" onclick="umzugUebertragen()"
+              data-t="z.knopf.uebertragen"></button>
+    </div>
+    <div class="knopfreihe">
+      <button class="leisetaste" onclick="umzugStart('abgleich')" data-t="z.knopf.abgleich"></button>
+      <button class="leisetaste" onclick="umzugStart('leeren',{trocken:true})"
+              data-t="z.knopf.leeren_zeigen"></button>
+      <button class="leisetaste" style="color:var(--kritisch)" onclick="umzugLeeren()"
+              data-t="z.knopf.leeren"></button>
+    </div>
+  </div>
+
+  <div class="karte">
+    <h2>🔀 <span data-t="z.umleitung.titel"></span></h2>
+    <div class="leise klein" data-t="z.umleitung.hilfe"></div>
+    <div id="z_umleitung" style="margin-top:.7rem"></div>
+  </div>
+
+  <div class="karte" id="z_baumkarte" hidden>
+    <h2 data-t="z.baum.titel"></h2>
+    <div class="leise klein" data-t="z.baum.hilfe"></div>
+    <div id="z_baum" style="margin-top:.6rem"></div>
+  </div>
+
+  </div>
+
+  <div id="ansicht_einstellungen" hidden>
+
+    <div class="karte" id="postfachkarte">
+      <h2>📮 <span data-t="pf.titel"></span></h2>
+      <div class="leise klein" data-t="pf.hilfe"></div>
+      <div id="postfaecher" style="margin-top:.7rem"></div>
+    </div>
+
+      <div class="karte" id="steuerung"></div>
+
+    <div class="karte">
+      <h2 data-t="regeln.titel"></h2>
+      <div class="leise klein" data-t-html="regeln.hilfe"></div>
+      <div id="regeln" style="margin-top:.6rem"></div>
+    </div>
+
+    <div class="karte" id="tgkarte"></div>
+
+    <div class="karte" id="dskarte"></div>
+
+    <div class="karte" id="kikarte">
+      <h2>🧠 <span data-t="ki.titel"></span></h2>
+      <div id="ki"></div>
+    </div>
+
+    <div class="karte" id="vorschlagkarte" hidden>
+      <h2 data-t="vorschlag.titel"></h2>
+      <div class="leise klein" data-t-html="vorschlag.hilfe"></div>
+      <div id="vorschlaege" style="margin-top:.6rem"></div>
+    </div>
+
+    <div class="karte" id="umgebungkarte">
+      <h2>⚙️ <span data-t="umgebung.titel"></span></h2>
+      <div class="leise klein" data-t="umgebung.hilfe"></div>
+      <div id="umgebung" style="margin-top:.7rem"></div>
+    </div>
+
+  </div><!-- /Einstellungen -->
+
+    <div class="karte" id="sprachkarte">
+      <h2>🌍 <span data-t="sprache.titel"></span></h2>
+      <div class="leise klein" data-t="sprache.hilfe"></div>
+      <div class="knopfreihe" id="sprachen"></div>
+    </div>
+
+  <div class="leise klein" style="text-align:center;margin-top:1.2rem">
+    Postwache <span id="version"></span> · <span data-t="fuss.spruch"></span>
+  </div>
+</div>
+
+<div class="meld weg" id="meldung"></div>
+
+<script>
+/*SPRACHE*/
+/* Faellt die Einsetzung aus (Seite direkt aus dem Dateisystem geoeffnet),
+   bleibt die Seite bedienbar und zeigt die Schluessel. Ein leerer Bildschirm
+   waere die schlechtere Antwort auf ein fehlendes Woerterbuch.
+
+   🔴 `globalThis.T = …` und NICHT `var T = …`: `var` wird hochgezogen und
+   kollidiert mit dem eingesetzten `const T` — „Identifier 'T' has already been
+   declared". Das ist ein PARSE-Fehler, also laeuft keine einzige Zeile des
+   Skripts mehr. Die Seite sieht dabei fast normal aus, weil das statische HTML
+   ja steht; man merkt es erst daran, dass die Knoepfe leer bleiben. Ein
+   Rueckfall, der den Normalfall zerstoert, ist schlimmer als gar keiner. */
+if (typeof T === "undefined") {
+  globalThis.T = {};
+  globalThis.LANG = "de";
+  globalThis.SPRACHEN = [["de", "Deutsch"]];
+}
+
+/* Ein Text. `txt("pf.titel")` — fehlt er, kommt der SCHLUESSEL zurueck und faellt
+   damit sofort auf, statt still eine Luecke zu hinterlassen. Platzhalter in
+   geschweiften Klammern: txt("dok.treffer", {n: 12}). */
+function txt(schluessel, werte){
+  let s = T[schluessel];
+  if(s === undefined) return schluessel;
+  if(werte) for(const k in werte) s = s.split("{" + k + "}").join(werte[k]);
+  return s;
+}
+/* Statisches Markup: ein Element mit data-t wird einmal gefuellt.
+   Bei data-t-titel/-platzhalter wandert der Text ins Attribut. */
+function textenSetzen(wurzel){
+  (wurzel || document).querySelectorAll("[data-t]").forEach(el => {
+    el.textContent = txt(el.dataset.t);
+  });
+  (wurzel || document).querySelectorAll("[data-t-titel]").forEach(el => {
+    el.title = txt(el.dataset.tTitel);
+  });
+  (wurzel || document).querySelectorAll("[data-t-platzhalter]").forEach(el => {
+    el.placeholder = txt(el.dataset.tPlatzhalter);
+  });
+  (wurzel || document).querySelectorAll("[data-t-html]").forEach(el => {
+    el.innerHTML = txt(el.dataset.tHtml);
+  });
+}
+
+const $ = s => document.querySelector(s);
+let L = null, laden_laeuft = false;
+
+/* 🔴 Die Seite holt alle 30 s neu. Wuerde sie dabei jedes Mal ALLES neu
+   zeichnen, ist jede halb getippte Eingabe weg — der Besitzer konnte am 11.09.2026
+   seine Zugangsdaten gar nicht erst eintragen. Deshalb dasselbe Verfahren wie
+   dieselbe Regel wie ueberall hier: ein Block wird nur angefasst, wenn sich seine
+   NUTZDATEN wirklich geaendert haben. Die Signatur wird VOR dem Bauen gesetzt. */
+const sig = {};
+function male(id, daten, bauen){
+  const s = JSON.stringify(daten);
+  if(sig[id] === s) return false;
+  sig[id] = s;
+  $(id).innerHTML = bauen();
+  return true;
+}
+
+/* 🔴 Zweiter, unabhaengiger Riegel fuer die Einrichtungskarte. Die Signatur
+   allein genuegt nicht: es reicht EIN Neuzeichnen aus irgendeinem Grund, und
+   das Passwort ist weg. Solange dort ein Feld den Fokus hat ODER etwas
+   darinsteht, wird die Karte gar nicht erst angefasst. */
+function tippt(){
+  const k = $("#einrichtung");
+  if(!k) return false;
+  if(k.contains(document.activeElement)) return true;
+  /* 🔴 NICHT „irgendein Feld hat Inhalt" pruefen: Port steht immer auf 993 und
+     Server immer auf imap.beispiel.example — der Riegel haette damit dauerhaft
+     festgehangen und die Karte sich nie wieder gezeichnet (gemessen am
+     11.09.2026, direkt nachdem er den ersten Fehler behoben hatte).
+     Geschuetzt wird genau das, was verloren gehen KANN: ein angefangenes
+     Passwort, und eine Adresse, die noch nicht die gespeicherte ist. */
+  const pass = $("#f_pass"), adr = $("#f_adresse");
+  if(pass && pass.value !== "") return true;
+  if(adr && adr.value.trim() !== "" && adr.value.trim() !== (L.adresse || "")) return true;
+  return false;
+}
+
+const FARBE = {sicherheit:"#f87171", frist:"#fbbf24", amt:"#60a5fa", mensch:"#34d399",
+               werbung:"#a78bfa", newsletter:"#38bdf8", automatisch:"#94a3b8",
+               unklar:"#e0a458"};
+
+function melde(text, gut){
+  const m = $("#meldung");
+  m.textContent = text;
+  m.className = "meld" + (gut === false ? " kritisch" : "");
+  m.style.borderColor = gut === false ? "#f8717188" : "";
+  clearTimeout(m._t);
+  m._t = setTimeout(() => m.classList.add("weg"), 5200);
+}
+
+async function sende(aktion, daten){
+  const r = await fetch("/api/" + aktion, {method:"POST",
+    headers:{"Content-Type":"application/json"}, body: JSON.stringify(daten || {})});
+  return await r.json();
+}
+
+async function tu(aktion, daten){
+  try{
+    const a = await sende(aktion, daten);
+    melde(a.text || (a.ok ? txt("allg.erledigt") : txt("allg.ging_nicht")), a.ok);
+    await hole();
+    return a;
+  }catch(e){ melde(txt("allg.keine_verbindung"), false); return {ok:false}; }
+}
+
+function esc(s){ return String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+/* „vor 2 Min" statt „15:15" — die Frage ist nicht wann, sondern wie lange her. */
+function herKurz(sek){
+  sek = Math.round(sek);
+  if(sek < 90)     return txt("zeit.vor_sek",  {n: sek});
+  if(sek < 5400)   return txt("zeit.vor_min",  {n: Math.round(sek/60)});
+  if(sek < 172800) return txt("zeit.vor_std",  {n: Math.round(sek/3600)});
+  return txt("zeit.vor_tage", {n: Math.round(sek/86400)});
+}
+function dauerKurz(sek){
+  sek = Math.round(sek);
+  if(sek < 90)   return txt("zeit.sek", {n: sek});
+  if(sek < 5400) return txt("zeit.min", {n: Math.round(sek/60)});
+  return txt("zeit.std", {n: Math.round(sek/3600)});
+}
+
+function zeit(s){
+  if(!s) return "";
+  const d = new Date(s);
+  if(isNaN(d)) return String(s).slice(0,16).replace("T"," ");
+  /* 🔴 Nicht fest "de-DE": ein englischer Text mit deutschem Datumsformat
+     sieht aus wie ein halb fertiges Programm. Die Ortsangabe folgt der Sprache. */
+  return d.toLocaleString(LANG, {day:"2-digit", month:"2-digit",
+    hour:"2-digit", minute:"2-digit"});
+}
+
+/* ── Kopf ──────────────────────────────────────────────────────────────────── */
+function zeichneKopf(){
+  const steht = L.notaus_datei || L.schalter === "off";
+  document.body.classList.toggle("steht", steht);
+  const lauf = L.lauf || {};
+  /* 🔑 der Besitzer am 12.09.2026: „kann nirgends sehen wann und wie oft die läuft."
+     Hier stand nur ein absoluter Zeitstempel — daraus liest niemand ab, ob der
+     Wächter noch tickt. Jetzt: wie lange her, in welchem Takt, wie oft heute —
+     und eine Warnung, wenn der letzte Lauf zu lange her ist. Der Takt ist
+     GEMESSEN (Median der letzten Laufabstände), nicht aus dem Cron-Eintrag
+     abgeschrieben: ein eingetragener Takt beweist keine Ausführung. */
+  const alterS = lauf.zeit ? Math.max(0, (Date.now() - new Date(lauf.zeit)) / 1000) : null;
+  const takt = Number(lauf.takt_s || 0);
+  const ueberfaellig = takt > 0 && alterS !== null && alterS > takt * 3 + 60;
+  const teile = [];
+  if(alterS !== null) teile.push(txt("kopf.zuletzt", {zeit: esc(herKurz(alterS))}));
+  if(takt > 0) teile.push(txt("kopf.takt", {dauer: esc(dauerKurz(takt))}));
+  if(lauf.heute) teile.push(txt("kopf.heute", {n: lauf.heute}));
+  $("#unterzeile").innerHTML = !L.eingerichtet
+    ? txt("kopf.kein_postfach")
+    : (steht ? txt("kopf.stillgelegt") :
+       (teile.join(" · ") || txt("kopf.laeuft")) +
+       (ueberfaellig ? " · <span style='color:var(--warnung)'>" + txt("kopf.ueberfaellig") + "</span>" : "") +
+       (lauf.fehler ? " · <span style='color:var(--kritisch)'>" + esc(lauf.fehler) + "</span>" : ""));
+  $("#modus").innerHTML = steht
+    ? '<span class="chip kritisch">🛑 ' + txt("modus.stillgelegt") + '</span>'
+    : (L.scharf ? '<span class="chip ok">✓ ' + txt("modus.scharf") + '</span>'
+                : '<span class="chip warnung">👀 ' + txt("modus.lernlauf") + '</span>');
+  const heute = L.heute || {};
+  const wichtig = ["sicherheit","frist","amt","mensch"]
+    .reduce((s,k) => s + (heute[k]||0), 0);
+  const laerm = ["werbung","newsletter","automatisch"]
+    .reduce((s,k) => s + (heute[k]||0), 0);
+  $("#kennzahlen").innerHTML = [
+    [txt("kz.heute"), L.heute_gesamt || 0],
+    [txt("kz.fuer_dich"), wichtig],
+    [txt("kz.laerm"), laerm],
+    [L.scharf ? txt("kz.aussortiert") : txt("kz.wuerde_raus"),
+     L.scharf ? (L.journal||[]).length : L.wuerde_aussortieren],
+  ].map(([n,v]) => `<div><b class="zahl">${v}</b><span>${esc(n)}</span></div>`).join("");
+  $("#version").textContent = L.version || "";
+}
+
+/* ── Einrichtung ───────────────────────────────────────────────────────────── */
+/* Die alte Einrichtungskarte ist in die Postfachkarte aufgegangen — ein
+   Formular fuer „das eine Postfach" waere neben einer Liste mit mehreren die
+   zweite Wahrheit darueber, welches gemeint ist. */
+
+/* ── Steuerung ─────────────────────────────────────────────────────────────── */
+function bauSteuerung(){
+  const steht = L.notaus_datei || L.schalter === "off";
+  return `
+    <h2>${txt("steuer.titel")}</h2>
+    <div class="reihe">
+      <div class="txt"><b>${txt("steuer.scharf")}</b>
+        <span>${L.scharf ? txt("steuer.scharf_an") : txt("steuer.scharf_aus")}</span></div>
+      <div class="knebel" role="switch" aria-checked="${!!L.scharf}"
+           onclick="tu('einstellung',{scharf:${!L.scharf}})"></div>
+    </div>
+    <div class="reihe">
+      <div class="txt"><b>${txt("steuer.wichtig")}</b>
+        <span>${L.wichtiges_bleibt ? txt("steuer.wichtig_an") : txt("steuer.wichtig_aus")}</span></div>
+      <div class="knebel" role="switch" aria-checked="${!!L.wichtiges_bleibt}"
+           onclick="tu('einstellung',{wichtiges_bleibt:${!L.wichtiges_bleibt}})"></div>
+    </div>
+    <div class="reihe">
+      <div class="txt"><b>Telegram</b><span>${txt("steuer.telegram", {stunde: L.bericht_stunde||7})}</span></div>
+      <div class="knebel" role="switch" aria-checked="${!!L.telegram}"
+           onclick="tu('einstellung',{telegram:${!L.telegram}})"></div>
+    </div>
+    <div class="reihe">
+      <div class="txt"><b>${txt("steuer.notaus")}</b><span>${txt("steuer.notaus_hilfe")}</span></div>
+      <div class="knebel" role="switch" aria-checked="${!!L.notaus_datei}"
+           onclick="tu('notaus',{an:${!L.notaus_datei}})"></div>
+    </div>
+    ${L.schalter === null ? "" : `
+    <div class="reihe">
+      <div class="txt"><b>${txt("steuer.schalter")}</b><span>${esc((L.konfig||{}).ha_schalter || "")} — ${txt("steuer.schalter_hilfe")}</span></div>
+      <div class="knebel" role="switch" aria-checked="${L.schalter === "on"}"
+           onclick="tu('schalter',{an:${L.schalter !== "on"}})"></div>
+    </div>`}
+    ${steht ? '<div class="hinweis">' + txt("steuer.steht") + '</div>' : ""}`;
+}
+
+/* ── Telegram ──────────────────────────────────────────────────────────────── */
+/* Derselbe Riegel wie bei der Einrichtungskarte: ein Bot-Token ist genauso
+   laestig neu zu tippen wie ein Passwort. */
+function tgTippt(){
+  const k = $("#tgkarte");
+  if(!k) return false;
+  if(k.contains(document.activeElement)) return true;
+  const feld = $("#tg_token");
+  return !!(feld && feld.value !== "");
+}
+
+function bauTelegram(){
+  const g = L.tg || {};
+  return `<h2>Telegram</h2>
+    <div class="reihe"><div class="txt">
+      <b>${g.bot ? esc(g.bot) : txt("tg.kein_bot")}</b>
+      <span>${g.eigen ? txt("tg.eigen") : txt("tg.keiner")}</span>
+    </div>${g.bot ? '<span class="chip ok">' + txt("tg.funkt") + '</span>' : ""}</div>
+    <details style="margin-top:.5rem" ${g.eigen ? "" : "open"}>
+      <summary>${g.eigen ? txt("tg.wechseln") : txt("tg.eintragen")}</summary>
+      <div class="hinweis">🔴 ${txt("tg.start_hinweis")}</div>
+      <label for="tg_token">${txt("tg.token")}</label>
+      <input id="tg_token" type="password" autocomplete="off"
+             placeholder="${g.eigen ? txt("allg.hinterlegt") : "123456:AA…"}">
+      <label for="tg_chat">${txt("tg.chat")}</label>
+      <input id="tg_chat" inputmode="numeric" value="${esc(g.chat || "")}"
+             placeholder="${txt("tg.chat_platzhalter")}">
+      <div class="knopfreihe">
+        <button class="haupt" onclick="tgSpeichern()">${txt("tg.senden")}</button>
+      </div>
+    </details>`;
+}
+
+async function tgSpeichern(){
+  const knopf = document.activeElement;
+  if(knopf && knopf.tagName === "BUTTON") knopf.disabled = true;
+  const daten = {token: $("#tg_token").value.trim(), chat: $("#tg_chat").value.trim()};
+  $("#tg_token").value = "";        /* ein Token hat im DOM nichts verloren */
+  melde(txt("tg.frage"), true);
+  let a = {ok:false, text: txt("allg.keine_antwort")};
+  try{ a = await sende("telegram_zugang", daten); }catch(e){}
+  melde(a.text || txt("allg.ging_nicht"), a.ok);
+  if(a.ok){
+    sig["#tgkarte"] = null;
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  }
+  if(knopf && knopf.tagName === "BUTTON") knopf.disabled = false;
+  await hole();
+}
+
+/* ── Verteilung ────────────────────────────────────────────────────────────── */
+function bauVerteilung(){
+  const heute = L.heute || {}, gesamt = L.heute_gesamt || 0;
+  if(!gesamt) return '<div class="leise">' + txt("heute.leer") + '</div>';
+  const paare = Object.entries(heute).filter(([,v]) => v > 0)
+    .sort((a,b) => b[1] - a[1]);
+  return '<div class="balken">' + paare.map(([k,v]) =>
+      `<i style="width:${(v/gesamt*100).toFixed(2)}%;background:${FARBE[k]||"#888"}"
+          title="${esc((L.schubladen[k]||{}).name||k)}: ${v}"></i>`).join("") + "</div>" +
+    '<div class="legende">' + paare.map(([k,v]) => {
+      const s = L.schubladen[k] || {name:k, icon:"•"};
+      return `<span><i class="punkt" style="background:${FARBE[k]||"#888"}"></i>
+        ${s.icon} ${esc(s.name)} <b class="zahl">${v}</b></span>`;
+    }).join("") + "</div>";
+}
+
+/* ── Mails ─────────────────────────────────────────────────────────────────── */
+function bauMails(){
+  const m = L.mails || [];
+  if(!m.length) return '<div class="leise">' + txt("mails.leer") + '</div>';
+  const opt = ((L.ablage||{}).ordner || []).map(([n]) =>
+    `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  return m.map(e => {
+    const s = L.schubladen[e.klasse] || {icon:"•", name:e.klasse};
+    const k = e.kopf || {};
+    const eigene = (L.absender_regeln||{})[(k.adresse||"").toLowerCase()];
+    let wohin;
+    if(e.verschoben_nach)
+      wohin = `<div class="wuerde">🗂 ${txt("mail.abgelegt", {ordner: "<b>" + esc(e.verschoben_nach) + "</b>"})}</div>`;
+    else if(e.wuerde_nach)
+      wohin = `<div class="wuerde">🗂 ${txt("mail.kaeme", {ordner: "<b>" + esc(e.wuerde_nach) + "</b>"})} — ${esc(e.ziel_grund||"")}</div>`;
+    else if(e.ziel && !e.ziel_darf && !eigene)
+      /* Er hat eine Vermutung, ist sich aber nicht sicher genug, um selbst zu
+         handeln. Ein Tipp macht daraus eine Dauerregel — genau hier lohnt sich
+         dessen Blick am meisten. */
+      wohin = `<div class="wuerde">🗂 ${txt("mail.vermutlich", {ordner: "<b>" + esc(e.ziel) + "</b>"})} — ${esc(e.ziel_grund||"")}
+        <button class="leisetaste" style="padding:.15rem .5rem;font-size:.76rem;margin-left:.3rem"
+          onclick="absenderRegel('${esc((k.adresse||"").toLowerCase())}','${esc(e.ziel)}')">
+          ${txt("mail.immer_dorthin")}</button></div>`;
+    else
+      wohin = `<div class="grund">🗂 ${txt("mail.bleibt")} — ${esc(e.ziel_grund || txt("mail.kein_ziel"))}</div>`;
+    return `<div class="mail">
+      <div class="ico" title="${esc(s.name)}">${s.icon}</div>
+      <div class="inh">
+        <div class="betreff">${esc(k.betreff || txt("mail.ohne_betreff"))}</div>
+        <div class="von">${esc(k.name || "")} &lt;${esc(k.adresse||"")}&gt; · ${esc(zeit(k.datum||e.gesehen))}</div>
+        <div class="grund">${esc(s.name)}: ${esc(e.grund||"")}</div>
+        ${e.phishing ? `<div class="warn">⚠️ ${esc(e.phishing)} — ${txt("mail.phishing")}</div>` : ""}
+        ${wohin}
+        ${eigene ? `<div class="wuerde">${txt("mail.deine_regel")}: ${esc(eigene)}</div>` : ""}
+      </div>
+      <select onchange="absenderRegel('${esc((k.adresse||"").toLowerCase())}', this.value)"
+              title="${txt("mail.wahl_titel")}">
+        <option value="">${txt("mail.wahl")}</option>${opt}
+      </select>
+    </div>`;
+  }).join("");
+}
+
+async function absenderRegel(adresse, ordner){
+  if(!adresse || !ordner) return;
+  await tu("einstellung", {absender:{adresse, ordner}});
+}
+
+/* ── Dokumente in der Post ──────────────────────────────────────────────────── */
+/* Die Zustaende einer Uebergabe. Der Text kommt aus der Sprachtabelle, die
+   Farbe steht hier — eine Farbe braucht keine Uebersetzung. */
+const DS_FARBE = {
+  uebergeben:"info", abgelegt:"ok", pruefen:"warnung", doppelt:"info",
+  finanzen:"ok", fehler:"kritisch", zu_gross:"warnung",
+  kann_docusort_nicht:"warnung", phishing:"kritisch", verschollen:"kritisch",
+};
+function dsText(stand){ return [txt("ds.stand." + stand), DS_FARBE[stand] || "info"]; }
+const ART_ICON = {dokument:"📄", bild:"🖼️", kram:"📎"};
+
+function gr(b){
+  b = Number(b) || 0;
+  if(b >= 1048576) return (b/1048576).toFixed(1) + " MB";
+  if(b >= 1024) return Math.round(b/1024) + " kB";
+  return b + " B";   /* Einheiten sind international, die bleiben */
+}
+
+function bauDokKopf(){
+  const d = L.dokumente || {}, ds = L.docusort || {};
+  if(!d.zeit) return txt("dok.noch_nichts");
+  const n = d.nachtrag || {};
+  const teile = [
+    txt("dok.mails", {n: `<b class="zahl">${d.mails||0}</b>`}),
+    txt("dok.dokumente", {n: `<b class="zahl">${d.dokumente||0}</b>`}),
+    ds.eingerichtet ? txt("dok.in_docusort", {n: `<b class="zahl">${d.uebergeben||0}</b>`}) : null,
+    d.unterwegs ? `<span style="color:var(--info)">🕓 ${txt("dok.unterwegs", {n: d.unterwegs})}</span>` : null,
+    d.ordner_offen ? `<span style="color:var(--warnung)">`
+                   + txt("dok.ordner_offen", {offen: d.ordner_offen, gesamt: d.ordner})
+                   + `</span>` : null,
+  ].filter(Boolean);
+  return teile.join(" · ") + "<br>" + txt("dok.nachgetragen", {zeit: zeit(n.zeit || d.zeit)});
+}
+
+/* 🔑 „Lässt sich hier noch etwas übergeben?" beantwortet der SERVER — an
+   derselben Stelle, an der er auch die Übergabe entscheidet (`ds_offen`). Der
+   Browser zeichnet nur noch. Vorher stand dieselbe Regel hier ein zweites Mal,
+   und zwei Meinungen darüber sind zwei Gelegenheiten, dasselbe Dokument ein
+   zweites Mal hochzuladen. */
+function dokGebbar(e){
+  return !!(e.gebbar && (L.docusort || {}).eingerichtet);
+}
+
+function dokZaehlen(){
+  const knopf = $("#dok_sammel");
+  if(!knopf) return;
+  const alle = document.querySelectorAll(".dokwahl");
+  const n = document.querySelectorAll(".dokwahl:checked").length;
+  knopf.disabled = !n;
+  knopf.textContent = n ? txt("dok.geben_n", {n: n}) : txt("dok.geben");
+  const haken = $("#dok_alle");
+  if(haken){
+    haken.checked = n > 0 && n === alle.length;
+    /* Teilauswahl sichtbar machen — sonst sieht „keins" aus wie „ein paar". */
+    haken.indeterminate = n > 0 && n < alle.length;
+  }
+}
+
+function dokAlle(an){
+  document.querySelectorAll(".dokwahl").forEach(c => { c.checked = an; });
+  dokZaehlen();
+}
+
+/* Ab hier wird gefragt. 🔴 Nicht aus Vorsicht um der Vorsicht willen: DocuSort
+   liest JEDES Dokument einzeln (OCR + Einordnung durch ein Sprachmodell), das
+   kostet dort Zeit und Geld, und wieder herausnehmen heisst dort einzeln
+   loeschen. „alle auswaehlen" kann bei einer weiten Suche dreistellig sein. */
+const DOK_FRAGEN_AB = 10;
+
+/* 🔑 „Hochgeladen" ist nicht „angekommen". Solange DocuSort noch an einem
+   Dokument arbeitet, fragt die Seite alle 8 s nach — bis zu 6 Minuten. Danach
+   übernimmt der Wächter (er läuft ohnehin jede Minute), damit hier nichts
+   ewig im Kreis fragt. */
+const DOK_WACHE_TAKT = 8000, DOK_WACHE_MAX = 45;
+let dokWacheLaeuft = false;
+
+async function dokWache(){
+  if(dokWacheLaeuft) return;
+  dokWacheLaeuft = true;
+  try{
+    for(let i = 0; i < DOK_WACHE_MAX; i++){
+      await new Promise(r => setTimeout(r, DOK_WACHE_TAKT));
+      const r = await sende("dokumente_stand", {});
+      if(!r.ok) break;
+      if(r.geaendert) await dokSuche();
+      await hole();
+      if(!r.unterwegs) break;
+    }
+  }catch(e){ /* eine Nachfrage, die scheitert, darf die Seite nicht anhalten */ }
+  finally{ dokWacheLaeuft = false; }
+}
+
+async function dokSammel(){
+  const wahl = [...document.querySelectorAll(".dokwahl:checked")].map(c => c.value);
+  if(!wahl.length) return;
+  if(wahl.length >= DOK_FRAGEN_AB && !confirm(txt("dok.rueckfrage", {n: wahl.length})))
+    return;
+  const knopf = $("#dok_sammel");
+  knopf.disabled = true;
+  knopf.textContent = txt("dok.uebertraegt", {n: wahl.length});
+  melde(txt("dok.gehen_los", {n: wahl.length}));
+  const r = await sende("dokumente_geben", {schluessel: wahl});
+  melde(r.text || "", r.ok);
+  await dokSuche();
+  await hole();
+  dokWache();          // nicht abwarten — sie läuft im Hintergrund weiter
+}
+
+async function dokSuche(){
+  const z = $("#dok_treffer");
+  z.innerHTML = '<div class="leise">' + txt("dok.sucht") + '</div>';
+  const r = await sende("dokumente", {q: $("#dok_q").value,
+                                      art: $("#dok_art").value,
+                                      von: $("#dok_von").value,
+                                      bis: $("#dok_bis").value});
+  const tr = r.treffer || [];
+  if(!tr.length){
+    z.innerHTML = '<div class="leise">' + txt("dok.nichts") + '</div>';
+    return;
+  }
+  const url = (L.docusort || {}).url || "";
+  /* Erst zaehlen, dann zeichnen: Kaestchen gibt es nur, wenn es wirklich etwas
+     auszuwaehlen gibt. Bei EINER Mail genuegt der Knopf an der Zeile. */
+  const waehlbar = tr.filter(dokGebbar).length;
+  const sammeln = waehlbar >= 2;
+  /* 🔴 Die Leiste bleibt oben KLEBEN. Die Trefferliste scrollt in sich (26 rem);
+     ohne sticky ist „alle auswählen" und der Knopf beim dritten Treffer aus dem
+     Bild — und man hakt Zeilen an, deren Knopf man nicht mehr sieht.
+     Im Bild gesehen, nicht im Code. */
+  const leiste = sammeln ? `<div class="reihe" style="border-top:0;gap:.7rem;
+        flex-wrap:wrap;padding:.35rem 0;position:sticky;top:0;z-index:2;
+        background:var(--karte-voll);box-shadow:0 6px 10px -8px rgba(0,0,0,.8)">
+      <label style="margin:0;display:flex;align-items:center;gap:.45rem;
+             color:var(--text);cursor:pointer">
+        <input type="checkbox" id="dok_alle" onchange="dokAlle(this.checked)"
+               style="width:auto;accent-color:var(--akzent)">
+        ${txt("dok.alle_waehlen", {n: waehlbar})}</label>
+      <button class="haupt" id="dok_sammel" disabled onclick="dokSammel()"
+              style="padding:.35rem .8rem;font-size:.84rem">${txt("dok.geben")}</button>
+    </div>` : "";
+  z.innerHTML = (r.gesamt > tr.length
+      ? `<div class="leise klein">${txt("dok.treffer", {gesamt: r.gesamt, n: tr.length})}</div>` : "")
+    + leiste
+    + tr.map(e => {
+    const liste = e.dateien_gezeigt || e.dateien || [];
+    const dateien = liste.map(f => {
+      const txt = f.stand ? dsText(f.stand) : null;
+      const z = f.zwilling;
+      const doc = f.doc || (z ? z.doc : "");
+      const link = (doc && url)
+        ? ` · <a href="${esc(url)}/document/${esc(doc)}" target="_blank"
+             rel="noopener">${txt("dok.ansehen")}</a>` : "";
+      /* Dieselbe Datei hing schon an einer anderen Mail und ist längst drüben —
+         sie wird benannt, damit man sie nicht ein zweites Mal exportiert. */
+      const zwilling = z ? `<span class="chip ok" style="margin-left:.3rem"
+          title="${txt("dok.zwilling_titel", {datum: esc(zeit(z.datum))})}"
+          >${txt("dok.zwilling")}</span>` : "";
+      return `<div class="grund" style="font-style:normal">
+          ${ART_ICON[f.art] || "📎"} ${esc(f.n)} <span class="leise">(${gr(f.b)})</span>
+          ${txt ? `<span class="chip ${txt[1]}" style="margin-left:.3rem">${txt[0]}</span>` : ""}
+          ${zwilling}${link}${((f.stand === "fehler" || f.stand === "verschollen") && f.text)
+             ? ` <span class="warn">${esc(f.text)}</span>` : ""}
+        </div>`;
+    }).join("");
+    const gebbar = dokGebbar(e);
+    return `<div class="mail">
+      ${sammeln ? (gebbar
+        ? `<input type="checkbox" class="dokwahl" value="${esc(e.schluessel || "")}"
+             onchange="dokZaehlen()" title="${txt("dok.mitwaehlen")}"
+             style="width:auto;flex:0 0 auto;margin-top:.45rem;
+                    accent-color:var(--akzent)">`
+        : `<span style="flex:0 0 13px"></span>`) : ""}
+      <div class="ico">${ART_ICON[(liste[0] || {}).art] || "📎"}</div>
+      <div class="inh">
+        <div class="betreff">${esc(e.betreff || txt("mail.ohne_betreff"))}</div>
+        <div class="von">${esc(e.name || "")} &lt;${esc(e.adresse || "")}&gt; ·
+          ${esc(zeit(e.datum))} · 🗂 ${esc(e.ordner || "?")}</div>
+        ${dateien}
+        ${gebbar ? `<button class="leisetaste"
+            style="padding:.2rem .6rem;font-size:.78rem;margin-top:.25rem"
+            onclick="dokGeben('${esc(e.schluessel || "")}', this)">${txt("dok.geben")}</button>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+  dokZaehlen();
+}
+
+async function dokGeben(schluessel, knopf){
+  if(knopf){ knopf.disabled = true; knopf.textContent = txt("dok.gibt"); }
+  const r = await sende("dokument_geben", {schluessel});
+  melde(r.text || "", r.ok);
+  await dokSuche();
+  await hole();
+  dokWache();
+}
+
+async function dokNachtragen(){
+  melde(txt("dok.nachtrag_laeuft"));
+  const r = await sende("dokumente_nachtragen", {frist: 60});
+  melde(r.text || "", r.ok);
+  hole();
+}
+
+/* ── DocuSort-Zugang ────────────────────────────────────────────────────────── */
+function dsTippt(){
+  const k = $("#dskarte");
+  if(!k) return false;
+  if(k.contains(document.activeElement)) return true;
+  const p = $("#ds_pass");
+  return !!(p && p.value !== "");
+}
+
+function bauDocuSort(){
+  const d = L.docusort || {};
+  return `<h2>${txt("ds.titel")}</h2>
+    <div class="hinweis">${txt("ds.hilfe")}</div>
+    <div class="reihe">
+      <div class="txt"><b>${txt("ds.an")}</b>
+        <span>${d.eingerichtet ? txt("ds.an_ja") : txt("ds.an_nein")}</span></div>
+      <div class="knebel" role="switch" aria-checked="${!!d.aktiv}"
+           onclick="tu('docusort', {aktiv: ${!d.aktiv}})"></div>
+    </div>
+    <div class="feldpaar">
+      <div style="flex:2 1 20rem"><label for="ds_url">${txt("allg.adresse")}</label>
+        <input id="ds_url" value="${esc(d.url || "")}"
+               placeholder="https://rechner.example.ts.net:9876"></div>
+      <div><label for="ds_benutzer">${txt("allg.benutzer")}</label>
+        <input id="ds_benutzer" autocomplete="username"
+               value="${esc(d.benutzer || "")}"></div>
+      <div><label for="ds_pass">${txt("allg.passwort")} ${d.passwort_gesetzt
+              ? '<span class="chip ok" style="padding:0 .4rem;font-size:.7rem">'
+                + txt("allg.hinterlegt_kurz") + '</span>' : ""}</label>
+        <input id="ds_pass" type="password" autocomplete="new-password"
+               placeholder="${d.passwort_gesetzt ? txt("allg.unveraendert") : ""}"></div>
+      <div><label for="ds_max">${txt("ds.max_mb")}</label>
+        <input id="ds_max" type="number" min="1" max="200"
+               value="${Number(d.max_mb || 25)}"></div>
+    </div>
+    <div class="knopfreihe">
+      <button class="haupt" onclick="dsSpeichern()">${txt("allg.speichern")}</button>
+      <button onclick="dsPruefen()">${txt("allg.pruefen")}</button>
+    </div>`;
+}
+
+async function dsSpeichern(){
+  const r = await sende("docusort", {url: $("#ds_url").value,
+                                     benutzer: $("#ds_benutzer").value,
+                                     passwort: $("#ds_pass").value,
+                                     max_mb: $("#ds_max").value});
+  melde(r.text || "", r.ok);
+  $("#ds_pass").value = "";
+  hole();
+}
+
+async function dsPruefen(){
+  melde(txt("ds.meldet_an"));
+  const r = await sende("docusort_pruefen", {});
+  melde(r.text || "", r.ok);
+}
+
+/* ── Regeln ────────────────────────────────────────────────────────────────── */
+function bauRegeln(){
+  const r = L.regeln || {};
+  return Object.entries(L.schubladen).map(([k,s]) => {
+    const e = r[k] || {};
+    const alarm = s.alarm;
+    return `<div class="reihe">
+      <div class="txt"><b>${s.icon} ${esc(s.name)}</b>
+        <span>${e.melden ? txt("regel.sofort") : txt("regel.tagesbericht")}</span></div>
+      <div class="knebel" role="switch" aria-checked="${!!e.melden}"
+           onclick="tu('einstellung',{regel:{klasse:'${k}',melden:${!e.melden}}})"></div>
+    </div>`;
+  }).join("");
+}
+
+/* ── Statistik ─────────────────────────────────────────────────────────────
+   der Besitzer, 12.09.2026: „bau mal in die postwache eine kleine statistik ein,
+   wieviel mails pro tag kommen, zu welcher zeit wer am haeufigsten schreibt".
+   Gerechnet wird auf den ECHTEN Kopfzeilen im Postfach (Date/From), nicht auf
+   dem, was die Postwache seit ihrer Einrichtung gesehen hat — sonst gaebe es
+   erst in Wochen etwas zu sehen. */
+
+/* Ein Saeulendiagramm als reines SVG. Keine Fremdbibliothek: die Seite laeuft
+   im LAN, und ein Diagramm, das auf ein CDN wartet, ist im Zweifel keins. */
+function saeulen(werte, titelFn, beschreibung, schnitt){
+  const B = 1000, H = 150, unten = 14, oben = 6;
+  const n = werte.length || 1;
+  const max = Math.max(1, ...werte);
+  const bw = B / n;
+  const hoch = v => (H - unten - oben) * (v / max);
+  const stuecke = werte.map((v, i) => {
+    const h = hoch(v), x = i * bw, y = H - unten - h;
+    const titel = titelFn ? titelFn(i, v) : "";
+    return '<rect class="bar' + (v ? '' : ' leise') + '" x="' + (x + bw*0.12).toFixed(2)
+      + '" y="' + y.toFixed(2) + '" width="' + Math.max(bw*0.76, 0.8).toFixed(2)
+      + '" height="' + Math.max(h, v ? 1 : 0.6).toFixed(2)
+      + '" rx="' + Math.min(bw*0.3, 2).toFixed(2) + '"><title>' + esc(titel) + '</title></rect>';
+  }).join("");
+  let linie = "";
+  if(schnitt && schnitt > 0){
+    const y = H - unten - hoch(schnitt);
+    linie = '<line class="schnitt" x1="0" x2="' + B + '" y1="' + y.toFixed(2)
+          + '" y2="' + y.toFixed(2) + '"/>';
+  }
+  return '<svg class="plot" viewBox="0 0 ' + B + ' ' + H + '" preserveAspectRatio="none"'
+    + ' role="img" aria-label="' + esc(beschreibung || "") + '">'
+    + '<line class="achse" x1="0" x2="' + B + '" y1="' + (H-unten) + '" y2="' + (H-unten) + '"/>'
+    + stuecke + linie + '</svg>';
+}
+
+/* Achsenbeschriftung als HTML unter das Bild — NICHT ins SVG. Das SVG wird in
+   der Breite gestreckt (preserveAspectRatio="none") und wuerde Schrift
+   mitverzerren. */
+function achse(marken){
+  return '<div class="leise klein" style="display:flex;justify-content:space-between;'
+    + 'margin-top:.15rem">' + marken.map(m => '<span>' + esc(m) + '</span>').join("") + '</div>';
+}
+
+/* Nur Tag und Monat — im Diagramm zaehlt Lesbarkeit, nicht das Jahr. */
+function zeitTag(iso){
+  const d = new Date(iso + "T12:00:00");
+  return isNaN(d) ? String(iso)
+    : d.toLocaleDateString(LANG, {day:"2-digit", month:"2-digit"});
+}
+
+function zeichneStatKopf(){
+  const k = L.statistik || {};
+  const el = $("#stat_quelle");
+  if(!el) return;
+  el.textContent = !k.gebaut ? txt("stat.leer")
+    : txt("stat.quelle", {mails: k.mails, ordner: k.ordner, von: k.von, bis: k.bis,
+                        ab: k.vollstaendig_ab, eigene: k.eigene_ausgelassen,
+                        stand: zeit(k.gebaut)});
+}
+
+function bauStatistik(){
+  const k = L.statistik || {};
+  if(!k.gebaut){
+    return '<div class="leise">' + txt("stat.leer") + '</div>'
+      + '<div class="knopfreihe"><button onclick="tu(\'statistik_neu\')">'
+      + txt("stat.jetzt") + '</button></div>';
+  }
+  const tage = k.je_tag || [];
+  const werte = tage.map(e => e.n);
+  const stunden = k.je_stunde || [];
+  const wt = k.je_wochentag || [];
+  const WT = txt("stat.wochentage").split(",");
+  const hMax = stunden.length ? stunden.indexOf(Math.max(...stunden)) : -1;
+  const wMax = wt.length ? wt.indexOf(Math.max(...wt)) : -1;
+  const spitze = tage.reduce((a, e) => (a === null || e.n > a.n) ? e : a, null);
+  const top = k.top_absender || [];
+  const tmax = Math.max(1, ...top.map(e => e.n));
+  /* 🔴 Anzeigenamen sind nicht eindeutig: „eBay" stand zweimal in der Liste
+     (212 und 108) — zwei verschiedene Absenderadressen. Der Hover-Text hilft
+     auf dem Handy und im Screenshot nicht. Also wird der Name nur dort ergänzt,
+     wo er mehrdeutig IST — sonst bliebe die Liste unnötig technisch. */
+  const wieOft = {};
+  top.forEach(e => { const nm = e.name || e.adresse; wieOft[nm] = (wieOft[nm] || 0) + 1; });
+  const rang = top.slice(0, 10).map(e => {
+    const nm = e.name || e.adresse;
+    const zweite = (wieOft[nm] > 1 && e.name)
+      ? '<small>' + esc(e.adresse) + '</small>' : "";
+    return ''
+    + '<div class="rang"><span class="nam" title="' + esc(e.adresse) + '">'
+    + esc(nm) + zweite + '</span>'
+    + '<span class="balken"><i style="width:' + (100*e.n/tmax).toFixed(1) + '%"></i></span>'
+    + '<span class="n zahl">' + e.n + '</span></div>';
+  }).join("");
+
+  return ''
+  + '<div class="kz">'
+  +   '<div><b class="zahl">' + (k.schnitt_pro_tag ?? "–") + '</b><span>' + txt("stat.pro_tag") + '</span></div>'
+  +   '<div><b class="zahl">' + (k.mails ?? 0) + '</b><span>' + txt("stat.ausgewertet") + '</span></div>'
+  +   '<div><b class="zahl">' + (k.absender_gesamt ?? 0) + '</b><span>' + txt("stat.absender") + '</span></div>'
+  +   '<div><b class="zahl">' + (hMax >= 0 ? hMax + "–" + (hMax+1) : "–") + '</b><span>' + txt("stat.stunde") + '</span></div>'
+  + '</div>'
+  + '<div class="plotkopf"><b>' + txt("stat.pro_tag") + '</b><span class="leise klein">'
+  +   txt("stat.bis_heute", {ab: esc(k.vollstaendig_ab || ""), schnitt: k.schnitt_pro_tag})
+  +   (spitze ? " · " + txt("stat.spitze", {n: spitze.n, tag: esc(zeitTag(spitze.tag))}) : "") + '</span></div>'
+  + saeulen(werte, (i, v) => zeitTag(tage[i].tag) + ": " + v, txt("stat.pro_tag"), k.schnitt_pro_tag)
+  + achse(tage.length ? [zeitTag(tage[0].tag),
+                         zeitTag(tage[Math.floor(tage.length/2)].tag),
+                         zeitTag(tage[tage.length-1].tag)] : [])
+  + '<div class="plotpaar"><div>'
+  +   '<div class="plotkopf"><b>' + txt("stat.tageszeit") + '</b><span class="leise klein">'
+  +   (hMax >= 0 ? txt("stat.am_meisten_uhr", {von: hMax, bis: hMax+1}) : "") + '</span></div>'
+  +   saeulen(stunden, (i, v) => txt("stat.uhr_titel", {von: i, bis: i+1, n: v}), txt("stat.je_stunde"))
+  +   achse(["0","6","12","18","23"])
+  + '</div><div>'
+  +   '<div class="plotkopf"><b>' + txt("stat.wochentag") + '</b><span class="leise klein">'
+  +   (wMax >= 0 ? txt("stat.am_meisten", {was: WT[wMax]}) : "") + '</span></div>'
+  +   saeulen(wt, (i, v) => WT[i] + ": " + v, txt("stat.je_wochentag"))
+  +   achse(WT)
+  + '</div></div>'
+  + '<div class="plotkopf"><b>' + txt("stat.wer") + '</b><span class="leise klein">'
+  +   txt("stat.von_absendern", {n: k.absender_gesamt || 0}) + '</span></div>'
+  + rang
+  + '<div class="knopfreihe" style="margin-top:.8rem">'
+  +   '<button onclick="tu(\'statistik_neu\')">' + txt("stat.neu") + '</button></div>';
+}
+
+/* ── Ablage ────────────────────────────────────────────────────────────────── */
+/* 🔑 Die Antwort auf „der Bot hat ja gar nichts sortiert".
+   Gemessen am 12.09.2026 am echten Posteingang: von 22 Mails scheiterten nur
+   ZWEI an einer Schwelle. Bei 20 gab es kein Ziel — kein Ordner, in dem je
+   Post von diesem Absender lag. Schwellen zu lockern haette daran nichts
+   geaendert (am Rueckhalt gemessen: +3,5 Punkte Abdeckung fuer 1,4 Punkte
+   Genauigkeit). Was fehlt, ist eine ENTSCHEIDUNG — und die trifft der Besitzer. */
+function bauHeimatlos(){
+  const liste = L.heimatlos || [];
+  if(!liste.length){
+    return `<div class="leise">${txt("heimat.leer")}</div>`;
+  }
+  const ordner = (L.ablage?.ordner || []).map(o => o[0]);
+  return liste.map((e, i) => {
+    const wahl = ordner.map(o =>
+      `<option value="${esc(o)}"${o === e.vorschlag ? " selected" : ""}>${esc(o)}</option>`
+    ).join("");
+    const wer = e.name ? `${esc(e.name)} <span class="leise">&lt;${esc(e.adresse)}&gt;</span>`
+                       : esc(e.adresse);
+    return `<div class="reihe" style="align-items:flex-start;flex-wrap:wrap;gap:.4rem">
+      <div class="txt" style="min-width:14rem;flex:1 1 14rem">
+        <b>${wer}</b>
+        <div class="leise klein">${txt("heimat.zeile", {n: e.anzahl, zeit: esc(zeit(e.zuletzt))})}
+          ${e.vorschlag_grund ? ` · ${esc(e.vorschlag_grund)}` : ""}</div>
+      </div>
+      <!-- 🔴 27.09.2026, der Besitzer: „logischere anordnung der button zum verschieben
+           oder neu erstellen von ordnern". Vorher standen Auswahl, Knopf,
+           Textfeld und Knopf mit GLEICHEM Abstand in einer Reihe — man sah
+           nicht, welcher Knopf zu welchem Feld gehört. Jetzt zwei Gruppen mit
+           eigener Beschriftung und einem „oder" dazwischen: innen eng
+           (.25rem), außen weit (.9rem). Der Abstand IST die Gruppierung. -->
+      <div style="display:flex;gap:.9rem;flex-wrap:wrap;align-items:flex-end">
+        <div style="display:flex;flex-direction:column;gap:.15rem">
+          <span class="klein leise">${txt("heimat.gruppe_vorhanden")}</span>
+          <div style="display:flex;gap:.25rem;align-items:center">
+            <select id="hl_o${i}">${wahl}</select>
+            <button onclick="heimGeben(${i}, false)">${txt("heimat.hierhin")}</button>
+          </div>
+        </div>
+        <span class="klein leise" style="padding-bottom:.45rem">${txt("heimat.oder")}</span>
+        <div style="display:flex;flex-direction:column;gap:.15rem">
+          <span class="klein leise">${txt("heimat.gruppe_neu")}</span>
+          <div style="display:flex;gap:.25rem;align-items:center">
+            <input id="hl_n${i}" placeholder="${txt("heimat.neuer_ordner")}"
+                   value="${esc(e.neuer_ordner || "")}" style="width:9rem">
+            <button onclick="heimGeben(${i}, true)">${txt("heimat.anlegen")}</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+/* Ein Klick, zwei Wege: in einen vorhandenen Ordner einreihen, oder einen neuen
+   anlegen. Beides endet in DERSELBEN Absenderregel — die gab es schon und sie
+   schlaegt jede gelernte Stufe. */
+/* 🔴 Aufraeumen bewegt echte Post in einem Rutsch. Das ist die einzige Aktion
+   der Seite, die viele Mails auf einmal anfasst — deshalb eine Rueckfrage, und
+   in der Frage steht, was danach hilft (das Journal). */
+async function aufraeumenFragen(){
+  if(!confirm(txt("ablage.aufraeumen_frage"))) return;
+  await tu("aufraeumen");
+}
+
+async function heimGeben(i, neu){
+  const e = (L.heimatlos || [])[i];
+  if(!e) return;
+  if(neu){
+    const name = ($("#hl_n" + i)?.value || "").trim();
+    if(!name) return melde(txt("heimat.name_fehlt"), false);
+    await tu("ordner_anlegen", {ordner: name, adresse: e.adresse});
+  }else{
+    const ziel = $("#hl_o" + i)?.value || "";
+    if(!ziel) return melde(txt("heimat.ziel_fehlt"), false);
+    await tu("einstellung", {absender: {adresse: e.adresse, ordner: ziel}});
+  }
+}
+
+/* ═══ Aufträge in der Werkstatt ═══════════════════════════════════════════ */
+/* 🔴 Die Zustände AUSGESCHRIEBEN, nicht `txt("auftrag.zustand." + z)`: ein
+   zusammengebauter Schlüssel ist für den Sprach-Prüfstand unsichtbar. */
+function auftragZustand(z){
+  if(z === "angelegt")  return txt("auftrag.zustand.angelegt");
+  if(z === "queued")    return txt("auftrag.zustand.queued");
+  if(z === "running")   return txt("auftrag.zustand.running");
+  if(z === "retrying")  return txt("auftrag.zustand.retrying");
+  if(z === "failed")    return txt("auftrag.zustand.failed");
+  if(z === "done")      return txt("auftrag.zustand.done");
+  if(z === "cancelled") return txt("auftrag.zustand.cancelled");
+  return z || "";
+}
+
+function bauAuftraege(){
+  const a = L.auftraege || {};
+  const karte = $("#auftragkarte");
+  /* Ohne Werkstatt gibt es diese Karte nicht — sie wäre eine leere Aussage
+     über ein Ding, das dieser Nutzer nicht hat. */
+  if(karte) karte.hidden = !a.an;
+  if(!a.an) return "";
+  const liste = a.liste || [];
+  if(!liste.length) return `<div class="leise">${txt("auftrag.leer")}</div>`;
+  const kopf = a.haengen
+    ? `<div class="zeile"><div class="wachs" style="color:var(--kritisch)">
+         <b>${a.haengen}×</b> ${txt("auftrag.haengt")}</div></div>`
+    : "";
+  const sperre = a.sperre
+    ? `<div class="zeile"><div class="wachs klein" style="color:var(--kritisch)">
+         ${txt("w.stau.detail", {n: a.offen})}</div></div>`
+    : "";
+  return kopf + sperre + liste.map(e => {
+    const farbe = e.haengt ? "var(--kritisch)"
+                : e.zustand === "running" ? "var(--akzent)" : "";
+    return `<div class="zeile">
+      <div class="wachs"><code>#${e.nr}</code> ${esc(e.titel)}</div>
+      <div class="klein" style="min-width:9rem;text-align:right;color:${farbe}">
+        ${esc(auftragZustand(e.zustand))}</div>
+      <div class="klein leise" style="min-width:6rem;text-align:right">
+        ${txt("auftrag.seit", {dauer: dauerKurz(e.alter)})}</div>
+    </div>`;
+  }).join("");
+}
+
+/* 🔴 Eigener Tippriegel — dieselbe Lehre wie bei der Einrichtungskarte, nur
+   fuer diese Karte: hier stehen Textfelder mit VORAUSGEFUELLTEN Vorschlaegen.
+   Deshalb wird NICHT auf „Feld hat Inhalt" geprueft (das waere immer wahr und
+   die Karte wuerde sich nie wieder zeichnen), sondern nur darauf, ob ein Feld
+   dieser Karte gerade den Fokus hat. */
+function heimTippt(){
+  const k = $("#heimatkarte");
+  return !!(k && k.contains(document.activeElement));
+}
+
+function bauAblage(){
+  const a = L.ablage || {};
+  if(!a.gelernt){
+    return `<div class="leise">${txt("ablage.leer")}</div>
+      <div class="knopfreihe"><button onclick="tu('neu_lernen')">${txt("ablage.jetzt_lernen")}</button></div>`;
+  }
+  const sw = a.schwaechen || {};
+  const ordner = (a.ordner || []);
+  return `<div class="kz">
+      <div><b class="zahl">${ordner.length}</b><span>${txt("ablage.ordner")}</span></div>
+      <div><b class="zahl">${a.mails}</b><span>${txt("ablage.angesehen")}</span></div>
+      <div><b class="zahl">${a.absender}</b><span>${txt("ablage.absender")}</span></div>
+      <div><b class="zahl">${a.deckung}%</b><span>${txt("ablage.deckung")}</span></div>
+    </div>
+    <div class="leise klein" style="margin-top:.7rem">${txt("ablage.wie", {zeit: esc(zeit(a.gelernt))})}</div>
+    <div class="knopfreihe">
+      <button onclick="tu('neu_lernen')">${txt("ablage.neu_lernen")}</button>
+      <button onclick="aufraeumenFragen()">${txt("ablage.aufraeumen")}</button>
+    </div>
+    <div class="leise klein">${txt("ablage.aufraeumen_hilfe")}</div>
+    <details style="margin-top:.6rem"><summary>${txt("ablage.alle_ordner", {n: ordner.length})}</summary>
+      <div class="liste" style="margin-top:.5rem">${ordner.map(([n,c]) =>
+        `<div class="reihe"><div class="txt"><b>${esc(n)}</b></div>
+           <span class="zahl leise">${c}</span></div>`).join("")}</div>
+    </details>
+    ${(sw.uneindeutig_gesamt || sw.fast_leer?.length || sw.leer?.length)
+      ? `<details style="margin-top:.4rem"><summary>${txt("ablage.schwaechen", {
+             a: sw.uneindeutig_gesamt||0, b: (sw.fast_leer||[]).length,
+             c: (sw.leer||[]).length})}</summary>
+         <div class="hinweis">${txt("ablage.schwaechen_hilfe")}</div>
+         ${(sw.uneindeutig||[]).map(u => `<div class="mail"><div class="ico">↔</div>
+            <div class="inh"><div class="betreff">${esc(u.absender)}</div>
+              <div class="von">${txt("ablage.verteilt", {n: u.gesamt, wohin:
+                (u.verteilt_auf||[]).map(v => esc(v[0])+" ("+v[1]+")").join(", ")})}</div>
+            </div></div>`).join("")}
+         ${(sw.fast_leer||[]).length ? `<div class="von leise" style="margin-top:.5rem">
+            ${txt("ablage.fast_leer")}: ${(sw.fast_leer||[]).map(esc).join(" · ")}</div>` : ""}
+         ${(sw.leer||[]).length ? `<div class="von leise">${txt("ablage.ganz_leer")}: ${(sw.leer||[]).map(esc).join(" · ")}</div>` : ""}
+       </details>`
+      : ""}`;
+}
+
+/* ── Journal ───────────────────────────────────────────────────────────────── */
+function bauJournal(){
+  const j = L.journal || [];
+  if(!j.length) return '<div class="leise">' + txt("journal.leer")
+      + (L.scharf ? "" : " " + txt("journal.leer_lernlauf")) + "</div>";
+  return `<div class="knopfreihe" style="margin-top:0">
+       <button onclick="allesZurueck()">${txt("journal.alle_zurueck", {n: j.length})}</button>
+     </div>
+     <div class="liste" style="margin-top:.6rem">` +
+    j.map(e => `<div class="mail">
+      <div class="ico">↩︎</div>
+      <div class="inh">
+        <div class="betreff">${esc(e.betreff || txt("mail.ohne_betreff"))}</div>
+        <div class="von">${esc(e.absender||"")} · ${esc(zeit(e.zeit))} → ${esc(e.nach||"")}</div>
+      </div>
+      <button class="leisetaste" onclick='tu("zurueck",{eintraege:[${
+        JSON.stringify({uid:e.uid, nach:e.nach})}]})'>${txt("journal.zurueck")}</button>
+    </div>`).join("") + "</div>";
+}
+
+async function allesZurueck(){
+  const j = L.journal || [];
+  if(!j.length) return;
+  if(!confirm(txt("journal.alle_frage", {n: j.length}))) return;
+  await tu("zurueck", {eintraege: j.map(e => ({uid:e.uid, nach:e.nach}))});
+}
+
+/* ── Chronik ───────────────────────────────────────────────────────────────── */
+function bauChronik(){
+  const c = L.chronik || [];
+  return c.length
+    ? c.map(e => `<div class="reihe"><div class="txt">
+        <b>${esc(e.titel || e.art)}${e.anzahl > 1 ? " ×" + e.anzahl : ""}</b>
+        <span>${esc(zeit(e.zeit))} · ${esc(e.detail||"")}</span></div></div>`).join("")
+    /* 🔴 Stand seit 2.x deutsch im JavaScript. Gefunden erst, als der
+       Sprach-Prüfstand am 27.09. um „nichts" erweitert wurde — `\bnicht\b`
+       trifft „nichts" nicht. */
+    : `<div class="leise">${txt("chronik.leer")}</div>`;
+}
+
+/* ── Laden ─────────────────────────────────────────────────────────────────── */
+/* ═══ Sprache ══════════════════════════════════════════════════════════════
+   Die Wahl geht an den Server, nicht in den Browser: die Postwache schreibt
+   auch dann Texte, wenn niemand hinsieht (Telegram, Chronik). Nach dem
+   Speichern wird die Seite neu geladen — die Texttabelle steckt im Markup. */
+function bauSprachen(){
+  return (typeof SPRACHEN !== "undefined" ? SPRACHEN : []).map(([code, name]) =>
+    `<button class="${code === LANG ? "haupt" : "leisetaste"}"
+       onclick="spracheWaehlen('${code}')" lang="${code}">${esc(name)}</button>`).join("");
+}
+async function spracheWaehlen(code){
+  if(code === LANG) return;
+  const a = await sende("konfig", {sprache: code});
+  if(a && a.ok) location.reload();
+  else melde(txt("sprache.fehler"), false);
+}
+
+/* ═══ Ansichten ═══════════════════════════════════════════════════════════
+   Zwei Ansichten statt eines Onepagers. Die Wahl liegt im Browser, nicht auf
+   dem Server: sie gilt fuer DIESES Geraet — wer am Telefon Einstellungen
+   offen hatte, soll am Schreibtisch trotzdem die Uebersicht sehen. */
+/* 🔴 EINE Liste der Ansichten, nicht zwei. Hier stand bis 4.5.0 eine zweite,
+   hartkodierte Aufzählung für den Hash — beim vierten Reiter („umzug") wurde nur
+   die untere gepflegt, und ein geteilter Link `…/#umzug` landete still auf der
+   Übersicht. Eine zweite Stelle, die dieselbe Frage beantwortet, ist eine zu
+   viel; sie muss oben stehen, weil `ANSICHT` sie beim Laden schon braucht. */
+const ANSICHTEN = ["uebersicht", "umbau", "umzug", "einstellungen"];
+
+let ANSICHT = (() => {
+  /* Ein Hash in der Adresse gewinnt: so ist ein Reiter verlinkbar (und beim
+     Nachsehen von aussen erreichbar). 🔴 Geschrieben wird der Hash nur bei
+     einer echten Wahl — wer ihn beim Laden stempelt, macht aus „ich habe
+     nichts gewählt" ein „ich will das hier". */
+  const h = (location.hash || "").replace("#", "");
+  if(ANSICHTEN.includes(h)) return h;
+  try{ return localStorage.getItem("pw_ansicht") || "uebersicht"; }
+  catch(e){ return "uebersicht"; }
+})();
+
+function zeigeAnsicht(name, gewaehlt){
+  if(gewaehlt === undefined) gewaehlt = true;   /* Klick = Wahl */
+  ANSICHT = ANSICHTEN.includes(name) ? name : "uebersicht";
+  try{ localStorage.setItem("pw_ansicht", ANSICHT); }catch(e){}
+  ANSICHTEN.forEach(n => { const el = $("#ansicht_" + n); if(el) el.hidden = ANSICHT !== n; });
+  document.querySelectorAll(".reitertaste").forEach(b =>
+    b.classList.toggle("an", b.dataset.ansicht === ANSICHT));
+  /* 🔴 Ein Reiter nach vorn zu holen ist Markup — sichtbar WERDEN ist es nicht.
+     Die alte Übersicht füllte `hole()` ohnehin; dieser Reiter hat seinen eigenen
+     Lader, und ohne diesen Aufruf stünde er leer mit korrekt markiertem Reiter
+     da (dieselbe Falle wie in der Frequenzwache 1.34). */
+  if(ANSICHT === "umbau") umbauLage();
+  if(ANSICHT === "umzug") umzugLage();
+  if(gewaehlt && location.hash.replace("#", "") !== ANSICHT){
+    try{ history.replaceState(null, "", "#" + ANSICHT); }catch(e){}
+  }
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
+/* ═══ Umbau ═══════════════════════════════════════════════════════════════ */
+let U_ABDRUCK = "", U_TAKT = null;
+
+/* 🔴 Die drei Phasennamen AUSGESCHRIEBEN, nicht `txt("u.phase." + s.phase)`.
+   Ein zusammengebauter Schlüssel ist für den Sprach-Prüfstand unsichtbar — er
+   meldete sie als „verwaist", und genauso unsichtbar wäre ein Schlüssel, der in
+   einer der fünf Sprachen fehlt. */
+function phaseText(p){
+  if(p === "pruefen")   return txt("u.phase.pruefen");
+  if(p === "entfernen") return txt("u.phase.entfernen");
+  if(p === "lernen")    return txt("u.phase.lernen");
+  if(p === "lesen")       return txt("u.phase.lesen");
+  if(p === "ableiten")    return txt("u.phase.ableiten");
+  if(p === "verschieben") return txt("u.phase.verschieben");
+  return "";
+}
+
+async function umbauLage(){
+  let a;
+  try{ a = await sende("umbau_lage", {}); }catch(e){ return; }
+  if(!a || !a.ok) return;
+  const s = a.stand || {};
+  U_ABDRUCK = a.abdruck || "";
+  const zeilen = [];
+  zeilen.push(`<div class="zeile"><div class="wachs">${esc(s.text || txt("u.nie_gelaufen"))}</div></div>`);
+  if(s.laeuft){
+    /* 🔴 Laufzeit UND Alter der letzten Rückmeldung. Ohne beides sieht jede
+       lange Stufe aus wie ein hängender Dienst — das Lernen der Landkarte
+       dauert über vier Minuten. */
+    const jetzt = Date.now() / 1000;
+    const seit  = s.begonnen ? dauerKurz(jetzt - s.begonnen) : "";
+    const still = s.zeit ? (jetzt - Date.parse(s.zeit) / 1000) : 0;
+    const anteil = s.gesamt ? Math.round((s.fortschritt || 0) * 100 / s.gesamt) : 0;
+    let zeile = `<div class="zeile"><div class="wachs"><b>${txt("u.laeuft")}</b>`
+      + (phaseText(s.phase) ? ` — ${esc(phaseText(s.phase))}` : "")
+      + (s.gesamt ? ` ${s.fortschritt || 0} / ${s.gesamt}` : "")
+      + (seit ? ` · ${txt("u.seit", {dauer: seit})}` : "")
+      + `</div>`;
+    if(s.gesamt) zeile += `<div style="flex:0 0 8rem;height:.45rem;border-radius:.3rem;
+        background:var(--karte2)"><div style="width:${Math.max(2,anteil)}%;height:100%;
+        border-radius:.3rem;background:var(--akzent)"></div></div>`;
+    zeilen.push(zeile + `</div>`);
+    /* Zwei Minuten ohne ein Lebenszeichen sind ein Befund, kein Schweigen. */
+    if(still > 120) zeilen.push(`<div class="zeile"><div class="wachs"
+      style="color:var(--kritisch)">${txt("u.still", {dauer: dauerKurz(still)})}</div></div>`);
+  }
+  if(s.fehler) zeilen.push(`<div class="zeile"><div class="wachs" style="color:var(--kritisch)">${esc(s.fehler)}</div></div>`);
+  /* 🔑 Die GEMESSENE Trefferquote des gelernten Wortschatzes gehört auf die
+     Seite, nicht nur ins Protokoll. Ein Einordner, der seine Quote nicht nennt,
+     ist eine Behauptung — und der Besitzer wollte „zu 100% nachverfolgen können". */
+  const w = s.wortschatz;
+  if(w) zeilen.push(`<div class="zeile"><div class="wachs klein">`
+    + `${txt("u.wortschatz", {kategorien: w.kategorien, woerter: w.woerter})} · `
+    + `<b>${txt("u.wortschatz_quote", {treffer: w.treffer, abdeckung: w.abdeckung})}</b>`
+    + `</div></div>`);
+  zeilen.push(`<div class="zeile"><div class="wachs klein leise">`
+    + `${txt("u.inventar_da")}: ${a.inventar ? (s.mails || "✓") : "—"}`
+    + ` · ${txt("u.plan_da")}: ${a.plan ? (s.bewegungen || "✓") : "—"}`
+    + (U_ABDRUCK ? ` · ${txt("u.abdruck")} <code>${esc(U_ABDRUCK)}</code>` : "")
+    + ` · ${txt("u.journal")}: ${a.journal || 0}`
+    + ` · ${txt("u.selbst")}: ${a.selbst_sortieren ? txt("allg.ja") : txt("allg.nein")}`
+    + `</div></div>`);
+  $("#u_stand").innerHTML = zeilen.join("");
+  $("#u_scharf").disabled = !a.plan || !!s.laeuft;
+
+  const baum = s.baum || [];
+  $("#u_baumkarte").hidden = baum.length === 0;
+  if(baum.length){
+    const max = baum[0][1] || 1;
+    $("#u_baum").innerHTML = baum.map(([z, n]) => `
+      <div class="zeile"><div class="wachs">${esc(z)}</div>
+        <div class="klein leise" style="min-width:4rem;text-align:right">${n}</div>
+        <div style="flex:0 0 6rem;height:.45rem;border-radius:.3rem;background:var(--karte2)">
+          <div style="width:${Math.max(2, Math.round(n*100/max))}%;height:100%;
+                      border-radius:.3rem;background:var(--akzent)"></div></div>
+      </div>`).join("");
+  }
+  const ordner = s.weg || [];
+  if(ordner.length){
+    $("#u_stand").innerHTML += `<div class="zeile"><div class="wachs klein">`
+      + `${txt("u.ordner_liste")}: ${ordner.map(esc).join(", ")}</div></div>`;
+  }
+  const rest = s.unerkannt || [];
+  $("#u_restkarte").hidden = rest.length === 0;
+  if(rest.length) $("#u_rest").innerHTML = rest.map(e =>
+    `<div class="zeile"><div class="wachs"><code>${esc(e[0])}</code></div>
+       <div class="klein leise">${e[1]}</div></div>`).join("");
+
+  /* Solange etwas läuft, selbst nachfragen — aber nur EIN Takt gleichzeitig. */
+  if(s.laeuft && !U_TAKT) U_TAKT = setInterval(umbauLage, 3000);
+  if(!s.laeuft && U_TAKT){ clearInterval(U_TAKT); U_TAKT = null; }
+}
+
+async function umbauStart(schritt, zusatz){
+  const a = await sende("umbau", Object.assign({schritt: schritt}, zusatz || {}));
+  melde(a.text || "", a.ok);
+  umbauLage();
+}
+async function umbauAnwenden(){
+  if(!U_ABDRUCK){ melde(txt("u.kein_plan"), false); return; }
+  if(!confirm(txt("u.sicher"))) return;
+  /* 🔴 Der ANGEZEIGTE Abdruck geht mit: wurde zwischendurch neu geplant, lehnt
+     der Wächter ab, statt etwas auszuführen, das niemand gesehen hat. */
+  const a = await sende("umbau", {schritt:"anwenden", abdruck:U_ABDRUCK});
+  melde(a.text || "", a.ok);
+  umbauLage();
+}
+async function umbauOrdner(){
+  /* 🔴 „nicht mehr gebraucht" ist nicht „leer": vorher schon leere Ordner hat
+     der Besitzer selbst angelegt und wartet vielleicht auf Post. Die bleiben. */
+  if(!confirm(txt("u.sicher_ordner"))) return;
+  const a = await sende("umbau", {schritt:"ordner", trocken:false});
+  melde(a.text || "", a.ok);
+  umbauLage();
+}
+async function umbauZurueck(){
+  if(!confirm(txt("u.sicher_zurueck"))) return;
+  const a = await sende("umbau", {schritt:"zurueck"});
+  melde(a.text || "", a.ok);
+  umbauLage();
+}
+
+/* ═══ Umzug zu einem anderen Anbieter ═════════════════════════════════════ */
+let Z_ABDRUCK = "", Z_TAKT = null, Z_VON = "", Z_NACH = "";
+
+/* 🔴 Wie beim Umbau: die Phasennamen AUSGESCHRIEBEN. Ein zusammengebauter
+   Schlüssel (`txt("z.phase." + s.phase)`) ist für den Sprach-Prüfstand
+   unsichtbar — und ebenso unsichtbar wäre eine fehlende Übersetzung. */
+function zPhaseText(p){
+  if(p === "verbinden")   return txt("z.phase.verbinden");
+  if(p === "inventar")    return txt("z.phase.inventar");
+  if(p === "ziele")       return txt("z.phase.ziele");
+  if(p === "ableiten")    return txt("z.phase.ableiten");
+  if(p === "bestand")     return txt("z.phase.bestand");
+  if(p === "uebertragen") return txt("z.phase.uebertragen");
+  if(p === "lesen")       return txt("z.phase.lesen");
+  if(p === "pruefen")     return txt("z.phase.pruefen");
+  if(p === "loeschen")    return txt("z.phase.loeschen");
+  return "";
+}
+
+function zArtText(art){
+  if(art === "parallel")  return txt("z.art.parallel");
+  if(art === "umleitung") return txt("z.art.umleitung");
+  return txt("z.art.einzeln");
+}
+
+async function umzugLage(){
+  let a;
+  try{ a = await sende("umzug_lage", {}); }catch(e){ return; }
+  if(!a || !a.ok) return;
+  const s = a.stand || {}, faecher = a.postfaecher || [], e = a.umleitung || {};
+  Z_ABDRUCK = a.abdruck || "";
+  /* Die Wahl nur EINMAL vorbelegen — sonst springt sie bei jedem Takt zurück,
+     während der Besitzer noch auswählt. */
+  if(!Z_VON)  Z_VON  = s.von  || e.von  || (faecher[0] ? faecher[0].id : "");
+  if(!Z_NACH) Z_NACH = s.nach || e.nach || (faecher[1] ? faecher[1].id : "");
+  const wahl = o => faecher.map(f =>
+    `<option value="${esc(f.id)}" ${f.id === o ? "selected" : ""}>${esc(f.name)}</option>`).join("");
+  if(faecher.length < 2){
+    $("#z_wahl").innerHTML = `<div class="zeile"><div class="wachs"
+      style="color:var(--kritisch)">${txt("z.zwei_postfaecher")}</div></div>`;
+  } else {
+    /* 🔴 Die beiden Auswahlfelder nebeneinander, nicht gestapelt: `.zeile`
+       streckt ein <select> sonst über die ganze Breite und aus zwei Feldern
+       werden vier Zeilen. Auf dem Telefon bricht `flex-wrap` sie trotzdem um. */
+    $("#z_wahl").innerHTML = `<div class="zeile" style="flex-wrap:wrap;gap:.5rem">
+      <div class="klein leise" style="flex:0 0 auto">${txt("z.von")}</div>
+      <select id="z_von" style="flex:1 1 11rem;min-width:9rem"
+              onchange="Z_VON=this.value">${wahl(Z_VON)}</select>
+      <div class="klein leise" style="flex:0 0 auto">${txt("z.nach")}</div>
+      <select id="z_nach" style="flex:1 1 11rem;min-width:9rem"
+              onchange="Z_NACH=this.value">${wahl(Z_NACH)}</select>
+      </div>
+      <div class="zeile"><div class="wachs klein leise">${txt("z.art")}: ${esc(zArtText(a.art))}</div></div>`;
+  }
+
+  const zeilen = [];
+  zeilen.push(`<div class="zeile"><div class="wachs">${esc(s.text || txt("z.nie_gelaufen"))}</div></div>`);
+  if(s.laeuft){
+    const jetzt = Date.now() / 1000;
+    const seit  = s.begonnen ? dauerKurz(jetzt - s.begonnen) : "";
+    const still = s.zeit ? (jetzt - Date.parse(s.zeit) / 1000) : 0;
+    const anteil = s.gesamt ? Math.round((s.fortschritt || 0) * 100 / s.gesamt) : 0;
+    let zeile = `<div class="zeile"><div class="wachs"><b>${txt("z.laeuft")}</b>`
+      + (zPhaseText(s.phase) ? ` — ${esc(zPhaseText(s.phase))}` : "")
+      + (s.gesamt ? ` ${s.fortschritt || 0} / ${s.gesamt}` : "")
+      + (seit ? ` · ${txt("z.seit", {dauer: seit})}` : "")
+      + `</div>`;
+    if(s.gesamt) zeile += `<div style="flex:0 0 8rem;height:.45rem;border-radius:.3rem;
+        background:var(--karte2)"><div style="width:${Math.max(2,anteil)}%;height:100%;
+        border-radius:.3rem;background:var(--akzent)"></div></div>`;
+    zeilen.push(zeile + `</div>`);
+    /* Ein Umzug kann Stunden dauern — zwei Minuten Schweigen sind trotzdem ein
+       Befund, weil jede Stufe je Ordner etwas meldet. */
+    if(still > 120) zeilen.push(`<div class="zeile"><div class="wachs"
+      style="color:var(--kritisch)">${txt("z.still", {dauer: dauerKurz(still)})}</div></div>`);
+  }
+  if(s.fehler) zeilen.push(`<div class="zeile"><div class="wachs"
+    style="color:var(--kritisch)">${esc(s.fehler)}</div></div>`);
+  const teile = [`${txt("z.plan_da")}: ${a.plan ? (s.bewegungen || "✓") : "—"}`];
+  if(Z_ABDRUCK) teile.push(`${txt("z.abdruck")} <code>${esc(Z_ABDRUCK)}</code>`);
+  teile.push(`${txt("z.journal")}: ${a.journal || 0}`);
+  if(s.uebertragen) teile.push(`${s.uebertragen} ${txt("z.uebertragen_zahl")}`);
+  if(s.schon_dort)  teile.push(`${s.schon_dort} ${txt("z.schon_dort")}`);
+  if(s.fehlt)       teile.push(`${s.fehlt} ${txt("z.fehlt")}`);
+  if(s.ohne_kennung) teile.push(`${s.ohne_kennung} ${txt("z.ohne_kennung")}`);
+  zeilen.push(`<div class="zeile"><div class="wachs klein leise">${teile.join(" · ")}</div></div>`);
+  $("#z_stand").innerHTML = zeilen.join("");
+  $("#z_scharf").disabled = !a.plan || !!s.laeuft;
+
+  /* Umleitung */
+  const an = !!e.an;
+  $("#z_umleitung").innerHTML = `
+    <div class="zeile"><div class="wachs">${an
+      ? esc(txt("z.umleitung.stand", {von: e.von || "?", nach: e.nach || "?",
+                                      zeit: e.gesetzt || "?"}))
+      : txt("z.umleitung.aus_stand")}</div></div>
+    <div class="zeile"><label class="wachs klein"
+      style="display:flex;gap:.45rem;align-items:center;cursor:pointer">
+      <input type="checkbox" id="z_loeschen" ${e.loeschen ? "checked" : ""}>
+      <span>${txt("z.umleitung.loeschen")}</span></label></div>
+    <div class="zeile"><div class="klein leise" style="min-width:7rem;flex:0 0 7rem"
+      >${txt("z.umleitung.ziel")}</div>
+      <label class="wachs klein" style="display:flex;gap:.45rem;align-items:center;cursor:pointer">
+        <input type="radio" name="z_ziel" value="posteingang"
+          ${e.ziel !== "sortiert" ? "checked" : ""}>
+        <span>${txt("z.umleitung.ziel_posteingang")}</span></label></div>
+    <div class="zeile"><div style="min-width:7rem;flex:0 0 7rem"></div>
+      <label class="wachs klein" style="display:flex;gap:.45rem;align-items:center;cursor:pointer">
+        <input type="radio" name="z_ziel" value="sortiert"
+          ${e.ziel === "sortiert" ? "checked" : ""}>
+        <span>${txt("z.umleitung.ziel_sortiert")}</span></label></div>
+    <div class="zeile"><div class="wachs klein leise">${txt("z.umleitung.deckel", {n: e.deckel || 200})}</div></div>
+    <div class="knopfreihe">
+      <button class="${an ? "leisetaste" : "haupt"}" onclick="umleitungSetzen(true)"
+        ${faecher.length < 2 ? "disabled" : ""}>${txt("z.umleitung.an")}</button>
+      <button class="leisetaste" onclick="umleitungSetzen(false)">${txt("z.umleitung.aus")}</button>
+    </div>`;
+
+  const baum = s.baum || [];
+  $("#z_baumkarte").hidden = baum.length === 0;
+  if(baum.length){
+    const max = baum[0][1] || 1;
+    $("#z_baum").innerHTML = baum.map(([z, n]) => `
+      <div class="zeile"><div class="wachs">${esc(z)}</div>
+        <div class="klein leise" style="min-width:4rem;text-align:right">${n}</div>
+        <div style="flex:0 0 6rem;height:.45rem;border-radius:.3rem;background:var(--karte2)">
+          <div style="width:${Math.max(2, Math.round(n*100/max))}%;height:100%;
+                      border-radius:.3rem;background:var(--akzent)"></div></div>
+      </div>`).join("");
+  }
+  if(s.laeuft && !Z_TAKT) Z_TAKT = setInterval(umzugLage, 3000);
+  if(!s.laeuft && Z_TAKT){ clearInterval(Z_TAKT); Z_TAKT = null; }
+}
+
+async function umzugStart(schritt, zusatz){
+  const a = await sende("umzug", Object.assign(
+    {schritt: schritt, von: Z_VON, nach: Z_NACH}, zusatz || {}));
+  melde(a.text || "", a.ok);
+  umzugLage();
+}
+async function umzugUebertragen(){
+  if(!Z_ABDRUCK){ melde(txt("z.kein_plan"), false); return; }
+  if(!confirm(txt("z.sicher_uebertragen"))) return;
+  umzugStart("uebertragen", {abdruck: Z_ABDRUCK, trocken: false});
+}
+async function umzugLeeren(){
+  /* 🔴 Der Abdruck kommt aus der TROCKENEN Vorschau, die der Besitzer gesehen hat.
+     Ohne ihn lehnt der Wächter ab — und das ist richtig: hier wird gelöscht. */
+  const s = (await sende("umzug_lage", {})).stand || {};
+  if(!s.abdruck){ melde(txt("z.kein_plan"), false); return; }
+  if(!confirm(txt("z.sicher_leeren"))) return;
+  umzugStart("leeren", {abdruck: s.abdruck, trocken: false});
+}
+async function umleitungSetzen(an){
+  const ziel = document.querySelector('input[name="z_ziel"]:checked');
+  const a = await sende("umzug_umleitung", {
+    an: an, von: Z_VON, nach: Z_NACH,
+    loeschen: !!($("#z_loeschen") && $("#z_loeschen").checked),
+    ziel: ziel ? ziel.value : "posteingang"});
+  melde(a.text || "", a.ok);
+  umzugLage();
+}
+
+/* ═══ Postfächer ══════════════════════════════════════════════════════════ */
+function bauPfWahl(){
+  const liste = L.postfaecher || [];
+  /* Bei EINEM Postfach gibt es nichts zu wählen — dann ist die Leiste nur
+     Lärm. Sie erscheint, sobald ein zweites da ist. */
+  if(liste.length < 2) return "";
+  return liste.map(f => `<button class="pftaste ${f.id===L.pf?"an":""} ${f.an?"":"ruht"}"
+      onclick="pfWechseln('${esc(f.id)}')"
+      title="${esc(f.adresse)}${f.an?"":" — ruht"}">${esc(f.name)}</button>`).join("");
+}
+async function pfWechseln(id){
+  await tu("dokumente_stand", {pf:id});   /* leichte Aktion, setzt die Auswahl */
+  await hole();
+}
+
+function bauPostfaecher(){
+  const liste = L.postfaecher || [];
+  const zeilen = liste.map(f => `
+    <div class="zeile">
+      <div class="wachs">
+        <div><b>${esc(f.name)}</b>${f.an?"":' <span class="leise klein">— ' + txt("pf.ruht") + '</span>'}</div>
+        <div class="leise klein">${esc(f.adresse)} · ${esc(f.server)}:${f.port}
+          · ${txt("pf.kennung")} <code>${esc(f.id)}</code>
+          · ${f.passwort_gesetzt ? txt("pf.passwort_da") : "<b>" + txt("pf.passwort_fehlt") + "</b>"}</div>
+      </div>
+      <div class="knopfreihe" style="margin:0">
+        <button class="leisetaste" onclick="tu('postfach_schalten',{id:'${esc(f.id)}',an:${!f.an}})">
+          ${f.an ? txt("pf.ruhen") : txt("pf.einschalten")}</button>
+        <button class="leisetaste" onclick="pfBearbeiten('${esc(f.id)}')">${txt("pf.aendern")}</button>
+        <button class="leisetaste" style="color:var(--kritisch)"
+          onclick="pfEntfernen('${esc(f.id)}','${esc(f.name)}')">${txt("pf.entfernen")}</button>
+      </div>
+    </div>`).join("");
+  return (zeilen || '<div class="leise klein">' + txt("pf.keins") + '</div>') + `
+    <div class="knopfreihe">
+      <button class="haupt" onclick="pfBearbeiten('')">${txt("pf.hinzufuegen")}</button>
+    </div>
+    <div id="pfform"></div>`;
+}
+
+function pfBearbeiten(id){
+  const f = (L.postfaecher || []).find(x => x.id === id) || {};
+  const neu = !id;
+  $("#pfform").innerHTML = `
+    <div style="border-top:1px solid var(--rand);margin-top:.8rem;padding-top:.8rem">
+      <div class="feldpaar">
+        <div style="flex:2 1 15rem"><label for="pf_adresse">${txt("pf.mail")}</label>
+          <input id="pf_adresse" value="${esc(f.adresse||"")}" ${neu?"":"readonly"}
+                 placeholder="post@beispiel.de" oninput="pfServerRaten()"></div>
+        <div style="flex:1 1 10rem"><label for="pf_name">${txt("pf.name")}</label>
+          <input id="pf_name" value="${esc(f.name||"")}" placeholder="${txt("pf.name_beispiel")}"></div>
+      </div>
+      <div class="feldpaar">
+        <div style="flex:2 1 14rem"><label for="pf_server">${txt("pf.server")}</label>
+          <input id="pf_server" value="${esc(f.server||"")}" placeholder="imap.beispiel.de"></div>
+        <div style="flex:0 0 6rem"><label for="pf_port">Port</label>
+          <input id="pf_port" type="number" value="${f.port||993}"></div>
+        <div style="flex:1 1 12rem"><label for="pf_passwort">${txt("allg.passwort")}</label>
+          <input id="pf_passwort" type="password" autocomplete="new-password"
+                 placeholder="${f.passwort_gesetzt ? txt("allg.hinterlegt") : "…"}"></div>
+      </div>
+      <div class="leise klein" style="margin-top:.5rem">${txt("pf.prueft")}
+        ${neu ? "" : txt("pf.kennung_bleibt", {id: "<code>" + esc(id) + "</code>"})}</div>
+      <div class="knopfreihe">
+        <button class="haupt" onclick="pfSpeichern('${esc(id)}')">${txt("pf.speichern")}</button>
+        <button class="leisetaste" onclick="$('#pfform').innerHTML=''">${txt("allg.abbrechen")}</button>
+      </div>
+    </div>`;
+  $("#pf_adresse").focus();
+}
+function pfServerRaten(){
+  const a = $("#pf_adresse").value.trim(), srv = $("#pf_server");
+  if(!srv || srv.dataset.getippt) return;
+  const dom = a.split("@")[1] || "";
+  if(dom.includes(".")) srv.value = "imap." + dom.toLowerCase();
+}
+async function pfSpeichern(id){
+  const d = {id:id, adresse:$("#pf_adresse").value.trim(),
+             name:$("#pf_name").value.trim(), server:$("#pf_server").value.trim(),
+             port:parseInt($("#pf_port").value || "993", 10),
+             passwort:$("#pf_passwort").value};
+  const a = await tu("postfach", d);
+  if(a.ok) $("#pfform").innerHTML = "";
+}
+async function pfEntfernen(id, name){
+  if(!confirm(txt("pf.entfernen_frage", {name: name}))) return;
+  await tu("postfach_entfernen", {id:id});
+}
+
+/* ═══ Urteilshilfe ════════════════════════════════════════════════════════ */
+function kiName(a){ return txt("ki.name." + a); }
+function kiHilfe(a){ return txt("ki.hilfe." + a); }
+let ki_tippt_bis = 0;
+function kiTippt(){ return Date.now() < ki_tippt_bis; }
+function bauKI(){
+  const k = L.ki || {anbieter:"aus"};
+  const wahl = (k.anbieter_liste || ["aus"]).map(a =>
+    `<option value="${a}" ${a===k.anbieter?"selected":""}>${esc(kiName(a))}</option>`).join("");
+  const dienst = (k.anbieter === "openai" || k.anbieter === "anthropic");
+  const eigen  = (k.anbieter === "ollama");
+  const feld = (dienst || eigen) ? `
+    <div class="feldpaar" style="margin-top:.6rem">
+      <div style="flex:2 1 15rem"><label for="ki_url">${txt("allg.adresse")}</label>
+        <input id="ki_url" value="${esc(k.url||"")}" oninput="ki_tippt_bis=Date.now()+20000"></div>
+      <div style="flex:1 1 12rem"><label for="ki_modell">${txt("ki.modell")}</label>
+        <input id="ki_modell" value="${esc(k.modell||"")}" oninput="ki_tippt_bis=Date.now()+20000"></div>
+      ${dienst ? `<div style="flex:1 1 12rem"><label for="ki_schluessel">${txt("ki.schluessel")}</label>
+        <input id="ki_schluessel" type="password" autocomplete="new-password"
+               placeholder="${k.schluessel_gesetzt ? txt("allg.hinterlegt") : "…"}"
+               oninput="ki_tippt_bis=Date.now()+20000"></div>` : ""}
+    </div>` : "";
+  const stand = k.anbieter === "aus" ? "" :
+    `<div class="leise klein" style="margin-top:.5rem">${k.bereit
+      ? "✓ " + txt("ki.bereit") : "⚠ " + esc(k.grund || txt("ki.unvollstaendig"))}</div>`;
+  return `
+    <div class="leise klein">${txt("ki.hilfe")}</div>
+    <div class="feldpaar" style="margin-top:.7rem">
+      <div style="flex:1 1 14rem"><label for="ki_anbieter">${txt("ki.anbieter")}</label>
+        <select id="ki_anbieter" onchange="kiAnbieterWechsel()">${wahl}</select></div>
+    </div>
+    <div class="leise klein" style="margin-top:.4rem">${kiHilfe(k.anbieter)}</div>
+    ${feld}${stand}
+    <div class="knopfreihe">
+      <button class="haupt" onclick="kiSpeichern()">${txt("allg.speichern")}</button>
+      <button class="leisetaste" onclick="tu('ki_pruefen',{})">${txt("allg.pruefen")}</button>
+    </div>
+    ${(eigen || k.anbieter === "aus") ? bauKILokal() : ""}`;
+}
+
+/* ── Lokales Modell in einem Klick ─────────────────────────────────────────
+   Zwei Wege, und beide enden an derselben Stelle: „such es" fuer den, der
+   schon eine Ollama hat, „richte es ein" fuer den, der keine hat. */
+function bauKILokal(){
+  return `
+  <div class="unterkarte" style="margin-top:1rem">
+    <div class="klein" style="font-weight:600">🖥 ${txt("ki.lokal.titel")}</div>
+    <div class="leise klein" style="margin-top:.3rem">${txt("ki.lokal.hilfe")}</div>
+    <div class="knopfreihe" style="margin-top:.6rem">
+      <button class="leisetaste" id="ki_suchknopf"
+              onclick="kiSuchen()">🔍 ${txt("ki.lokal.suchen")}</button>
+    </div>
+    <div id="ki_funde"></div>
+    <div class="leise klein" style="margin-top:.9rem">${txt("ki.lokal.einrichten_hilfe")}</div>
+    <div class="knopfreihe" style="margin-top:.4rem">
+      <a class="leisetaste" href="/api/installer?os=mac" download>⬇ macOS</a>
+      <a class="leisetaste" href="/api/installer?os=windows" download>⬇ Windows</a>
+      <a class="leisetaste" href="/api/installer?os=linux" download>⬇ Linux</a>
+    </div>
+    <div class="leise klein" style="margin-top:.5rem">${txt("ki.lokal.hinweise")}</div>
+    <div class="leise klein" style="margin-top:.4rem">⚠ ${txt("ki.lokal.warnung")}</div>
+  </div>`;
+}
+
+/* 🔴 Die Funde stehen NICHT in L — sonst zeichnete sie die Signaturpruefung
+   beim naechsten Abruf wieder weg. Sie werden direkt in ihr Feld gesetzt und
+   verschwinden genau dann, wenn sich die Urteilshilfe wirklich aendert. */
+async function kiSuchen(){
+  const knopf = $("#ki_suchknopf");
+  const feld  = $("#ki_funde");
+  if(knopf){ knopf.disabled = true; knopf.textContent = txt("ki.lokal.sucht"); }
+  let a = {ok:false};
+  try{ a = await sende("ki_suchen", {}); }catch(e){ }
+  if(knopf){ knopf.disabled = false; knopf.textContent = "🔍 " + txt("ki.lokal.suchen"); }
+  melde(a.text || txt("allg.ging_nicht"), !!a.ok);
+  if(!feld) return;
+  const funde = a.fundstellen || [];
+  if(!funde.length){ feld.innerHTML = ""; return; }
+  feld.innerHTML = funde.map((f, i) => `
+    <div class="feldpaar" style="margin-top:.6rem;align-items:flex-end">
+      <div style="flex:2 1 15rem"><label>${txt("allg.adresse")}</label>
+        <input value="${esc(f.url)}" readonly></div>
+      <div style="flex:1 1 12rem"><label for="ki_fund_${i}">${txt("ki.modell")}</label>
+        <select id="ki_fund_${i}">${f.modelle.map(m =>
+          `<option value="${esc(m)}" ${m===f.vorschlag?"selected":""}>${esc(m)}</option>`
+        ).join("")}</select></div>
+      <div><button class="haupt" onclick="kiNehmen(${i}, '${esc(f.url)}')">${
+        txt("ki.lokal.uebernehmen")}</button></div>
+    </div>`).join("");
+}
+
+async function kiNehmen(i, url){
+  const w = $("#ki_fund_" + i);
+  ki_tippt_bis = 0;
+  await tu("ki_uebernehmen", {url: url, modell: w ? w.value : ""});
+}
+async function kiAnbieterWechsel(){
+  ki_tippt_bis = 0;
+  await tu("ki", {anbieter:$("#ki_anbieter").value});
+}
+async function kiSpeichern(){
+  const d = {anbieter:$("#ki_anbieter").value};
+  if($("#ki_url"))        d.url = $("#ki_url").value.trim();
+  if($("#ki_modell"))     d.modell = $("#ki_modell").value.trim();
+  if($("#ki_schluessel") && $("#ki_schluessel").value) d.schluessel = $("#ki_schluessel").value;
+  ki_tippt_bis = 0;
+  await tu("ki", d);
+}
+
+function bauVorschlaege(){
+  const v = L.vorschlaege || [];
+  return v.map(x => `
+    <div class="zeile">
+      <div class="wachs">
+        <div><b>${esc(x.absender)}</b> → ${esc((L.schubladen||{})[x.schublade]?.name || x.schublade)}
+          <span class="leise klein">${x.sicher}%</span></div>
+        <div class="leise klein">${esc(x.warum)}</div>
+      </div>
+      <div class="knopfreihe" style="margin:0">
+        <button class="haupt" onclick="tu('vorschlag_uebernehmen',{absender:'${esc(x.absender)}',schublade:'${esc(x.schublade)}'})">${txt("vorschlag.uebernehmen")}</button>
+        <button class="leisetaste" onclick="tu('vorschlag_verwerfen',{absender:'${esc(x.absender)}'})">${txt("vorschlag.verwerfen")}</button>
+      </div>
+    </div>`).join("");
+}
+
+/* ═══ Umgebung ════════════════════════════════════════════════════════════ */
+let umg_tippt_bis = 0;
+function umgTippt(){ return Date.now() < umg_tippt_bis; }
+function bauUmgebung(){
+  const k = L.konfig || {};
+  const tippmerker = ' oninput="umg_tippt_bis=Date.now()+20000"';
+  return `
+    <div class="feldpaar">
+      <div style="flex:2 1 18rem"><label for="u_seite">${txt("umg.seite")}</label>
+        <input id="u_seite" value="${esc(k.seite||"")}"${tippmerker}></div>
+      <div style="flex:1 1 12rem"><label for="u_imap">${txt("umg.imap")}</label>
+        <input id="u_imap" value="${esc(k.imap_server||"")}" placeholder="${txt("umg.imap_platzhalter")}"${tippmerker}></div>
+    </div>
+    <div class="leise klein" style="margin-top:.4rem">${txt("umg.seite_hilfe")}</div>
+    <div class="feldpaar" style="margin-top:.8rem">
+      <div style="flex:1 1 13rem"><label for="u_ha">Home Assistant</label>
+        <input id="u_ha" value="${esc(k.ha_url||"")}" placeholder="${txt("umg.leer_ohne")}"${tippmerker}></div>
+      <div style="flex:1 1 14rem"><label for="u_hatok">${txt("umg.token")}</label>
+        <input id="u_hatok" value="${esc(k.ha_token_datei||"")}" placeholder="${txt("umg.leer_ohne")}"${tippmerker}></div>
+      <div style="flex:1 1 13rem"><label for="u_haschalter">${txt("umg.schalter")}</label>
+        <input id="u_haschalter" value="${esc(k.ha_schalter||"")}" placeholder="input_boolean.…"${tippmerker}></div>
+    </div>
+    <div class="leise klein" style="margin-top:.4rem">${k.ha_an ? txt("umg.ha_an") : txt("umg.ha_aus")}</div>
+    <div class="knopfreihe">
+      <button class="haupt" onclick="umgSpeichern()">${txt("allg.speichern")}</button>
+    </div>`;
+}
+async function umgSpeichern(){
+  umg_tippt_bis = 0;
+  await tu("konfig", {seite:$("#u_seite").value.trim(),
+                      imap_server:$("#u_imap").value.trim(),
+                      ha_url:$("#u_ha").value.trim(),
+                      ha_token_datei:$("#u_hatok").value.trim(),
+                      ha_schalter:$("#u_haschalter").value.trim()});
+}
+
+async function hole(){
+  if(laden_laeuft) return;
+  laden_laeuft = true;
+  try{
+    const r = await fetch("/api/lage", {cache:"no-store"});
+    L = await r.json();
+    zeichneKopf();
+    male("#steuerung", [L.scharf, L.telegram, L.notaus_datei, L.schalter,
+                        L.bericht_stunde, L.wichtiges_bleibt], bauSteuerung);
+    if(!tgTippt()) male("#tgkarte", [L.tg], bauTelegram);
+    male("#verteilung", [L.heute, L.heute_gesamt], bauVerteilung);
+    male("#mails", [L.mails, L.absender_regeln], bauMails);
+    /* Vor der Einrichtung gibt es nichts zu zeigen — eine leere Karte ueber
+       dem Formular, das man zuerst braucht, waere im Weg. */
+    const zeigStat = !!L.eingerichtet;
+    $("#statistikkarte").hidden = !zeigStat;
+    if(zeigStat){
+      male("#statistik", [L.statistik], bauStatistik);
+      zeichneStatKopf();
+    }
+    male("#dok_kopf", [L.dokumente], bauDokKopf);
+    /* Steht beim Laden noch etwas bei DocuSort in Arbeit, wird auch ohne
+       vorherigen Klick nachgefragt — sonst bliebe „unterwegs" stehen, bis der
+       Wächter das nächste Mal läuft. */
+    if(((L.dokumente || {}).unterwegs || 0) > 0) dokWache();
+    /* 🔴 Nur der KOPF wird nachgezogen, nicht die Trefferliste: ein Auffrischen
+       alle 30 s wuerde sonst jede Suche wieder wegwischen — dieselbe Falle wie
+       beim Einrichtungsformular am 11.09.2026. */
+    if(!dsTippt()) male("#dskarte", [L.docusort], bauDocuSort);
+    male("#ablage", [L.ablage], bauAblage);
+    if(!heimTippt()) male("#heimatlos", [L.heimatlos, L.ablage?.ordner], bauHeimatlos);
+    male("#auftraege", [L.auftraege], bauAuftraege);
+    male("#regeln", [L.regeln], bauRegeln);
+    male("#journal", [L.journal, L.scharf], bauJournal);
+    male("#chronik", [L.chronik], bauChronik);
+    /* ── seit 3.0.0 ── */
+    male("#pfwahl", [L.postfaecher, L.pf], bauPfWahl);
+    $("#nichteingerichtet").hidden = !!L.eingerichtet;
+    if(!$("#pfform") || !$("#pfform").innerHTML)
+      male("#postfaecher", [L.postfaecher, L.pf], bauPostfaecher);
+    if(!kiTippt())  male("#ki", [L.ki], bauKI);
+    if(!umgTippt()) male("#umgebung", [L.konfig], bauUmgebung);
+    $("#vorschlagkarte").hidden = !(L.vorschlaege || []).length;
+    male("#vorschlaege", [L.vorschlaege], bauVorschlaege);
+    male("#sprachen", [LANG], bauSprachen);
+  }catch(e){
+    $("#unterzeile").textContent = txt("allg.seite_tot");
+  }finally{ laden_laeuft = false; }
+}
+
+textenSetzen();
+zeigeAnsicht(ANSICHT, false);   /* Start ist keine Wahl — kein Hash stempeln */
+hole();
+/* 🔑 `?standbild=1` hält die Seite nach dem ersten Laden an. Das ist für
+   Bildschirmfotos der Dokumentation: ein Browser, der alle 30 s nachfragt,
+   erreicht in einer kopflosen Aufnahme NIE den Zustand „fertig geladen", und
+   das Bild entsteht gar nicht. Bedient wird damit nichts anders — es werden nur
+   keine Takte gestartet. Ohne den Parameter ist alles wie vorher. */
+if(!new URLSearchParams(location.search).has("standbild")){
+  setInterval(hole, 30000);
+}
+</script>
+</body>
+</html>
