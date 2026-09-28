@@ -1,5 +1,7 @@
 <h1 align="center">Postwache</h1>
 
+<p align="center"><i>„Hier geht die Post ab" — where the mail gets moving.</i></p>
+
 <p align="center">
   <b>A watchman for your mailbox — and, since 5.0, a mail client.</b><br>
   It sorts the noise <i>out</i>. What matters stays where you already look.<br>
@@ -81,6 +83,9 @@ that will not tell you its hit rate is a claim, not a measurement.
 | 📬 **One click from the watchman to the mailbox** | The tab row carries a door to `/post` — a real link that works before any script has run. |
 | 📱 **A version of its own for phones** | Not the wide page made narrow: one sheet at a time, a bar at the bottom, finger targets from 44 px, swipe to archive or delete, long-press to choose several and act on them at once. |
 | 🔒 **A lock in front of the mail** | The client asks for an access word before it shows a single line of a letter. Optionally the watchman page too. |
+| 👂 **New mail arrives by itself** | The page listens (IMAP `IDLE`) instead of asking every minute: measured **0.13 s** from arrival to the top of the list, with nobody pressing anything. One waiting request, one connection at the provider, and it lets go when nobody is looking. |
+| ☀️ **Day and night** | Three positions, one button: automatic (follows the device), day, night. The same colours either way — the brown-black night becomes warm paper, and the gold stays gold. |
+| 🖐 **Whole folders travel** | Drag a folder onto another and it moves with its mail and its subfolders — one `RENAME`, not thousands of copies. The watchman's learned filing, its document index and its journal are carried over in the same breath. |
 
 ## What the watchman will not do
 
@@ -126,6 +131,47 @@ as one request per folder. All data invented.</i></p>
 
 Open `http://<host>:8110/post`. A phone gets the phone version, everything else
 the wide one, and either can be switched by hand — the choice is remembered.
+
+**New mail shows up by itself.** The page does not ask every minute — it listens.
+IMAP has `IDLE` for exactly this: the server speaks up when something happens, so
+the page leaves one request waiting and that request comes back the moment there
+is something to say. Measured on a running page, with nobody touching anything:
+**0.13 s** on the wide version, **0.22 s** on the phone. The listening post keeps
+its own connection (an `IDLE` sits on one for minutes, and the warm connection is
+the one every click goes through), it cannot write — the folder is opened
+`EXAMINE`, read-only, by construction — and it lets go after 90 seconds without a
+listener, so a tab left open at night holds nothing at the provider until
+morning. A server without `IDLE` is asked politely every 20 seconds instead.
+Nothing is ever redrawn under your hands: a selection, an open window, a focused
+field or a search all hold the list still, while the folder counts keep moving.
+
+![The day mode](docs/screenshots/36-client-day.png)
+
+<p align="center"><i>The same house by daylight. Not another colour family — the
+brown-black night becomes warm paper, and the gold stays gold. All data
+invented.</i></p>
+
+**Day and night, three positions, one button:** automatic (follows the device),
+day, night. The choice lives on the device, because a phone in a dark room and a
+desk in the sun are two different answers to the same question. When the device
+switches at sunset, so does the page. The letter itself follows too — it is a
+document of its own inside the frame, so the page tells the engine which time of
+day is in force.
+
+**Whole folders travel.** Drag a folder onto another one and it moves with its
+mail *and* its subfolders — one IMAP `RENAME`, not thousands of copies. Drag a
+mail row onto a folder and it goes there; drag a row that is part of your
+selection and the whole selection goes. On a phone a long press picks a folder up
+and the same sheet you move mail with puts it down. Special folders stay where
+they are: Sent, Drafts, Trash and Junk are positions, not drawers.
+
+And the watchman is told, in the same breath — that is the larger half of the
+job. Its learned filing map decides where post goes, so an old folder name left
+in it would make the next run file into a folder that no longer exists *and
+create it*. The document index, the journal (the way back for every mail it ever
+moved) and the folders you pinned by hand in the settings all move with it. If
+that half fails, the page says so: the folder moved, the watchman did not
+understand it.
 
 **The lock is part of it, not an accessory.** The overview page has always shown
 subject and sender only, and the reason was written down: not enough to spread an
@@ -219,6 +265,10 @@ come from exactly that.
 2. Leave it in **learning mode**. It reads the last 300 mails to learn where
    things belong, moves nothing, and tells nobody.
 3. Look at what it *would* do. When that looks right, arm it.
+
+![The watchman by daylight](docs/screenshots/38-watch-day.png)
+
+<p align="center"><i>The watchman page in day mode. All data invented.</i></p>
 
 ![Settings](docs/screenshots/02-settings.png)
 

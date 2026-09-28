@@ -157,6 +157,13 @@ class FalscherIMAP(threading.Thread):
         self.angehaengt = []
         self.gewaehlt = "INBOX"
         self.laeuft = True
+        # What STATUS answers — a probe moves these to play „mail has arrived".
+        self.zahlen = {"MESSAGES": 3, "UNSEEN": 1, "UIDNEXT": 104}
+        self.ordner = list(ORDNER)          # this server's own tree, it can change
+        self.umbenannt = []
+        self.idle_an = threading.Event()     # set while a connection is idling
+        self.idle_datei = None
+        self.schreibt = threading.Lock()
 
     def run(self):
         while self.laeuft:
@@ -194,9 +201,10 @@ class FalscherIMAP(threading.Thread):
         # „<tag> <TYPE> <data>" with a required space — a bare „A1 OK" makes it
         # throw „unexpected response" and the whole connection dies. Cost an hour.
         def raus(*zeilen):
-            for z in zeilen:
-                datei.write(z if isinstance(z, bytes) else z.encode())
-            datei.flush()
+            with self.schreibt:
+                for z in zeilen:
+                    datei.write(z if isinstance(z, bytes) else z.encode())
+                datei.flush()
 
         if wort == "CAPABILITY":
             raus("* CAPABILITY %s\r\n" % " ".join(["IMAP4rev1"] + self.faehig),
@@ -204,7 +212,7 @@ class FalscherIMAP(threading.Thread):
         elif wort == "LOGIN":
             raus("%s OK angemeldet\r\n" % marke)
         elif wort == "LIST":
-            for flaggen, name in ORDNER:
+            for flaggen, name in self.ordner:
                 raus('* LIST (%s) "." "%s"\r\n' % (flaggen, name))
             raus("%s OK fertig\r\n" % marke)
         elif wort in ("SELECT", "EXAMINE"):
@@ -215,11 +223,47 @@ class FalscherIMAP(threading.Thread):
                  % (marke, "ONLY" if wort == "EXAMINE" else "WRITE"))
         elif wort == "STATUS":
             name = (re.findall(r'"([^"]*)"', args) or ["INBOX"])[0]
-            raus('* STATUS "%s" (MESSAGES 3 UNSEEN 1)\r\n' % name,
+            raus('* STATUS "%s" (MESSAGES %d UNSEEN %d UIDNEXT %d)\r\n'
+                 % (name, self.zahlen["MESSAGES"], self.zahlen["UNSEEN"],
+                    self.zahlen["UIDNEXT"]),
                  "%s OK fertig\r\n" % marke)
         elif wort == "NOOP":
             raus("%s OK fertig\r\n" % marke)
-        elif wort == "CREATE" or wort == "SUBSCRIBE":
+        elif wort == "IDLE":
+            # 🔑 The fake server has to behave like the real one HERE of all
+            # places: answer „+ idling", then say nothing at all until either
+            # something happens or the client sends DONE. Only then can the test
+            # bench measure whether the page really hears instead of asking.
+            self.idle_datei = datei
+            raus("+ idling\r\n")
+            self.idle_an.set()
+            try:
+                while True:
+                    z = datei.readline()
+                    if not z:
+                        return False
+                    self.befehle.append(z.decode("utf-8", "replace").strip())
+                    if z.strip().upper() == b"DONE":
+                        break
+            finally:
+                self.idle_an.clear()
+                self.idle_datei = None
+            raus("%s OK fertig\r\n" % marke)
+        elif wort in ("CREATE", "SUBSCRIBE", "UNSUBSCRIBE"):
+            raus("%s OK fertig\r\n" % marke)
+        elif wort == "RENAME":
+            # 🔑 The real server moves the folder, its mail and its subfolders in
+            # this ONE command. The fake one does the same to its list of folders
+            # — otherwise the bench would prove a move that never happened.
+            namen = re.findall(r'"([^"]*)"', args)
+            if len(namen) == 2:
+                alt_n, neu_n = namen
+                self.umbenannt.append((alt_n, neu_n))
+                for i, (fl, nm) in enumerate(self.ordner):
+                    if nm == alt_n:
+                        self.ordner[i] = (fl, neu_n)
+                    elif nm.startswith(alt_n + "."):
+                        self.ordner[i] = (fl, neu_n + nm[len(alt_n):])
             raus("%s OK fertig\r\n" % marke)
         elif wort == "EXPUNGE":
             raus("%s OK fertig\r\n" % marke)
@@ -320,6 +364,16 @@ class FalscherIMAP(threading.Thread):
                     raus("* %d FETCH (UID %d BODY[%s] {%d}\r\n"
                          % (nr, uid, nummer, len(roh)), roh, ")\r\n")
         raus("%s OK fertig\r\n" % marke)
+
+    def klopfen(self, zeile="* 4 EXISTS"):
+        """Say something unasked — exactly what a server does when mail arrives."""
+        datei = self.idle_datei
+        if datei is None:
+            return False
+        with self.schreibt:
+            datei.write((zeile + "\r\n").encode())
+            datei.flush()
+        return True
 
     def halt(self):
         self.laeuft = False
@@ -1004,6 +1058,201 @@ probe("es sortiert nach Haeufigkeit",
       == ["anna@erfunden.example", "shop@erfunden.example"])
 
 
+# ══ 5d. A whole folder moves house ════════════════════════════════════════
+print("\n── 5d. Ein ganzer Ordner zieht um ──")
+server6, kasten6 = mit_falschem_server(faehig=("MOVE",))
+K.W.save("postfaecher.json", {"liste": [
+    {"id": "probe", "name": "Probe", "adresse": "inhaber@erfunden.example",
+     "passwort": "geheim", "server": "127.0.0.1", "port": server.port, "an": True},
+    {"id": "zug", "name": "Zug", "adresse": "inhaber@erfunden.example",
+     "passwort": "geheim", "server": "127.0.0.1", "port": server6.port, "an": True}]},
+    0o600)
+K._VERBINDUNGEN.clear()
+
+# What the watchman has LEARNED about the folder that is about to move.
+K.W.pf_waehlen("zug")
+K.W.save("ablage.json", {
+    "absender": {"anna@erfunden.example": {"ordner": "INBOX.Technik.Synology",
+                                           "treffer": 9, "gesamt": 9}},
+    "domain": {"erfunden.example": {"ordner": "INBOX.Gesendet", "treffer": 4,
+                                    "gesamt": 4}},
+    "haupt": {}, "v_absender": {}, "v_domain": {}, "v_haupt": {},
+    "ordner": {"INBOX.Technik.Synology": 41, "INBOX.Gel&APY-schtes": 3},
+    "namen": {"synology": "INBOX.Technik.Synology"},
+    "schwaechen": {"fast_leere_ordner": ["INBOX.Technik.Synology"],
+                   "leere_ordner": []}})
+K.W.save("anhaenge.json", {"eintraege": {
+    "m123": {"ordner": "INBOX.Technik.Synology", "uid": 88, "datum": "2026-09-01",
+             "dateien": [], "ds": []}},
+    "stand": {"INBOX.Technik.Synology": {"fertig": True}}})
+K.W.save("koepfe.json", [{"betreff": "x", "klasse": "automatisch",
+                          "verschoben_nach": "INBOX.Technik.Synology"}])
+import os as _os2
+_os2.makedirs(K.W.OUT, exist_ok=True)
+with io.open(_os2.path.join(K.W.OUT, "journal.jsonl"), "w", encoding="utf-8") as _fh:
+    _fh.write(json.dumps({"zeit": "2026-09-27T10:00:00", "uid": 88, "von": "INBOX",
+                          "nach": "INBOX.Technik.Synology",
+                          "anzeige": "INBOX.Technik.Synology", "klasse": "automatisch",
+                          "betreff": "x", "absender": "anna@erfunden.example",
+                          "zurueck": False}, ensure_ascii=False) + "\n")
+K.einstellung_setzen({"ordner_archiv": "INBOX.Technik.Synology"})
+
+# 🔴 A special folder is a POSITION. Every mail program looks for Sent where it
+# is, and the watchman files against it.
+fest = K.ordner_ziehen({"pf": "zug", "ordner": "INBOX.Gesendet", "ziel": ""})
+probe("ein Sonderordner zieht nicht um", fest["ok"] is False, fest.get("text", "")[:40])
+in_sich = K.ordner_ziehen({"pf": "zug", "ordner": "INBOX.Technik",
+                           "ziel": "INBOX.Technik.Synology"})
+probe("ein Ordner zieht nicht in sein eigenes Kind", in_sich["ok"] is False)
+weg_da = K.ordner_ziehen({"pf": "zug", "ordner": "INBOX.Gibtesnicht", "ziel": ""})
+probe("ein Ordner, den es nicht gibt, zieht auch nicht um", weg_da["ok"] is False)
+
+server6.befehle.clear()
+erg = K.ordner_ziehen({"pf": "zug", "ordner": "INBOX.Technik.Synology",
+                       "ziel": "INBOX.Gel&APY-schtes"})
+probe("der Umzug geht durch", erg["ok"] is True, erg.get("text", "")[:60])
+probe("er benutzt RENAME — nicht kopieren und loeschen",
+      any(" RENAME " in b for b in server6.befehle)
+      and not any("COPY" in b or "APPEND" in b for b in server6.befehle),
+      "; ".join(b.split(" ", 1)[1][:34] for b in server6.befehle[:4]))
+probe("der neue Platz steht in der Antwort",
+      erg["neu"] == "INBOX.Gel&APY-schtes.Synology", erg.get("neu"))
+probe("das Abonnement wird erneuert",
+      any("UNSUBSCRIBE" in b for b in server6.befehle)
+      and any(b.endswith('SUBSCRIBE "INBOX.Gel&APY-schtes.Synology"')
+              for b in server6.befehle))
+# 🔑 And now the half that matters: does the watchman still know where it is?
+K.W.pf_waehlen("zug")
+karte = K.W.load("ablage.json", {})
+probe("die gelernte Ablage zeigt auf den neuen Platz",
+      karte["absender"]["anna@erfunden.example"]["ordner"]
+      == "INBOX.Gel&APY-schtes.Synology",
+      karte["absender"]["anna@erfunden.example"]["ordner"])
+probe("die Ordnerzahlen der Ablage sind mitgezogen",
+      "INBOX.Gel&APY-schtes.Synology" in karte["ordner"]
+      and "INBOX.Technik.Synology" not in karte["ordner"])
+probe("die Namensbruecke zeigt auf den neuen Platz",
+      karte["namen"]["synology"] == "INBOX.Gel&APY-schtes.Synology")
+probe("ein Ordner, der NICHT umgezogen ist, bleibt unberuehrt",
+      karte["domain"]["erfunden.example"]["ordner"] == "INBOX.Gesendet")
+idx = K.W.load("anhaenge.json", {})
+probe("der Anhang-Index zeigt auf den neuen Platz",
+      idx["eintraege"]["m123"]["ordner"] == "INBOX.Gel&APY-schtes.Synology"
+      and "INBOX.Gel&APY-schtes.Synology" in idx["stand"])
+koepfe = K.W.load("koepfe.json", [])
+probe("was der Waechter sich gemerkt hat, nennt den neuen Platz",
+      koepfe[0]["verschoben_nach"] == "INBOX.Gel&APY-schtes.Synology")
+zeilen = [json.loads(z) for z in io.open(
+    _os2.path.join(K.W.OUT, "journal.jsonl"), encoding="utf-8").read().splitlines() if z]
+probe("der Weg zurueck im Journal zeigt auf den neuen Platz",
+      zeilen[0]["nach"] == "INBOX.Gel&APY-schtes.Synology"
+      and zeilen[0]["von"] == "INBOX", str(zeilen[0]["nach"]))
+probe("ein von Hand gesetzter Ordner in den Einstellungen zieht mit",
+      K.einstellungen()["ordner_archiv"] == "INBOX.Gel&APY-schtes.Synology",
+      K.einstellungen()["ordner_archiv"])
+belegt = K.ordner_ziehen({"pf": "zug", "ordner": "INBOX.Gel&APY-schtes.Synology",
+                          "ziel": "INBOX.Gel&APY-schtes"})
+probe("an denselben Platz noch einmal geht nicht", belegt["ok"] is False,
+      belegt.get("text", "")[:40])
+K.W.pf_waehlen("")
+K.W.save("postfaecher.json", {"liste": [{
+    "id": "probe", "name": "Probe", "adresse": "inhaber@erfunden.example",
+    "passwort": "geheim", "server": "127.0.0.1", "port": server.port, "an": True}]},
+    0o600)
+K._VERBINDUNGEN.clear()
+
+
+# ══ 5c. The listening post: hearing instead of asking ═════════════════════
+print("\n── 5c. Der Horchposten ──")
+server4 = FalscherIMAP(faehig=("IDLE",))
+server4.start()
+_zugang_alt = K._zugang
+K._zugang = lambda pf: ({"id": "horch", "adresse": "inhaber@erfunden.example",
+                         "passwort": "geheim", "server": "127.0.0.1",
+                         "port": server4.port}
+                        if pf == "horch" else _zugang_alt(pf))
+
+a1 = K.horch({"pf": "horch", "ordner": ["INBOX"], "stand": 0, "warte": 4})
+probe("der erste Anruf bringt den Stand mit", a1["ok"] and a1["stand"] >= 1,
+      "Stand %s" % a1.get("stand"))
+probe("er nennt die drei Zahlen des Ordners",
+      a1["marken"].get("INBOX") == [3, 1, 104], str(a1.get("marken")))
+probe("er benutzt IDLE, wenn der Server es anbietet", a1["horcht"] is True)
+# 🔴 THE point about the connection: an IDLE sits on it for minutes. On the warm
+# connection it would sit on the lock that every click goes through.
+probe("der Horchposten geht NICHT über die warme Verbindung",
+      "horch" not in K._VERBINDUNGEN, str(sorted(K._VERBINDUNGEN)))
+probe("er öffnet den Ordner nur zum ANSEHEN (EXAMINE, kein SELECT)",
+      any(" EXAMINE " in b for b in server4.befehle)
+      and not any(" SELECT " in b for b in server4.befehle),
+      "; ".join(b.split(" ", 1)[1][:24] for b in server4.befehle[:6]))
+
+t0 = time.time()
+a2 = K.horch({"pf": "horch", "ordner": ["INBOX"], "stand": a1["stand"], "warte": 2})
+gewartet = time.time() - t0
+probe("ohne Ereignis wartet die Anfrage ihre Zeit ab und meldet denselben Stand",
+      gewartet >= 1.8 and a2["stand"] == a1["stand"], "%.1f s" % gewartet)
+probe("der Server steht wirklich in IDLE", server4.idle_an.wait(5))
+
+# 🔑 The measurement this whole thing exists for: mail arrives, and the waiting
+# request comes back — without anybody asking again.
+server4.zahlen.update({"MESSAGES": 4, "UNSEEN": 2, "UIDNEXT": 105})
+ergebnis = {}
+warter = threading.Thread(
+    target=lambda: ergebnis.update(a=K.horch({"pf": "horch", "ordner": ["INBOX"],
+                                              "stand": a2["stand"], "warte": 10})),
+    daemon=True)
+warter.start()
+time.sleep(0.4)
+t0 = time.time()
+geklopft = server4.klopfen("* 4 EXISTS")
+warter.join(9)
+dauer = time.time() - t0
+a3 = ergebnis.get("a") or {}
+probe("der falsche Server konnte unaufgefordert sprechen", geklopft)
+probe("neue Post weckt die wartende Anfrage in unter zwei Sekunden",
+      bool(a3) and a3.get("stand", 0) > a2["stand"] and dauer < 2.0, "%.2f s" % dauer)
+probe("die neuen Zahlen stehen in der Antwort",
+      a3.get("marken", {}).get("INBOX") == [4, 2, 105], str(a3.get("marken")))
+probe("UIDNEXT ist gewachsen — daran erkennt die Seite ANGEKOMMENE Post",
+      a3["marken"]["INBOX"][2] > a1["marken"]["INBOX"][2])
+probe("der Horchposten ruft nichts ab und setzt keine Flagge",
+      not any("FETCH" in b or "STORE" in b for b in server4.befehle),
+      "; ".join(b for b in server4.befehle if "FETCH" in b or "STORE" in b))
+probe("jedes IDLE wird mit DONE wieder beendet",
+      server4.befehle.count("DONE") >= 1
+      and sum(1 for b in server4.befehle if b.endswith(" IDLE")) >= 1,
+      "%d× IDLE, %d× DONE" % (sum(1 for b in server4.befehle if b.endswith(" IDLE")),
+                              server4.befehle.count("DONE")))
+# 🔴 And it has to LET GO: a tab closed at night must not hold a connection at the
+# provider until morning. Nobody asks any more -> the post closes.
+_frist_alt = K.HORCH_FRIST
+K.HORCH_FRIST = 1.0
+ende = time.time() + 20
+posten = K._HORCH["horch"]
+while posten["faden"] is not None and time.time() < ende:
+    time.sleep(0.2)
+probe("ohne Zuhörer schließt der Horchposten von selbst",
+      posten["faden"] is None, "nach %.1f s" % (20 - (ende - time.time())))
+K.HORCH_FRIST = _frist_alt
+
+# A server WITHOUT IDLE is not a reason to give up — it gets asked instead.
+server5 = FalscherIMAP(faehig=())
+server5.start()
+K._zugang = lambda pf: ({"id": "still", "adresse": "inhaber@erfunden.example",
+                         "passwort": "geheim", "server": "127.0.0.1",
+                         "port": server5.port}
+                        if pf == "still" else _zugang_alt(pf))
+b1 = K.horch({"pf": "still", "ordner": ["INBOX"], "stand": 0, "warte": 4})
+probe("ohne IDLE meldet der Posten das ehrlich", b1["ok"] and b1["horcht"] is False)
+probe("und er fragt trotzdem — der Stand kommt an",
+      b1["marken"].get("INBOX") == [3, 1, 104], str(b1.get("marken")))
+probe("ohne IDLE wird kein IDLE geschickt",
+      not any(b.endswith(" IDLE") for b in server5.befehle))
+K.horch_halt()
+K._zugang = _zugang_alt
+
+
 # ══ 6. Sending — against a fake SMTP server ═══════════════════════════════
 # ══ 5b. What the pages promise in their own stylesheet ════════════════════
 print("\n── 5b. Die Seiten ──")
@@ -1028,6 +1277,47 @@ probe("Handy: kein Zahlen-Prompt mehr zum Verschieben",
 _breit = io.open(_os.path.join(_HIER, "post_klient.html"), encoding="utf-8").read()
 probe("breite Fassung: Auswahl kennt Ordner UND Nummer",
       "wahlSchluessel" in _breit and "S.gewaehlt.add(wahlSchluessel" in _breit)
+
+# 🔴 THE probe this release earned. `const ANSICHTEN` for the day/night button
+# collided with the `ANSICHTEN` of the TABS on the watchman page — a duplicate
+# `const` is a PARSE error, and a parse error kills the WHOLE script while the
+# page still draws its markup and looks perfectly normal in a screenshot. Two
+# names, one page: that is findable without a browser.
+for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
+    _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()
+    _namen = re.findall(r"(?m)^(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)", _text)
+    _doppelt = sorted({n for n in _namen if _namen.count(n) > 1})
+    probe("%s: kein Name zweimal erklaert" % _datei, not _doppelt,
+          ", ".join(_doppelt[:4]) if _doppelt else "%d Namen" % len(set(_namen)))
+
+# ── The day mode ──────────────────────────────────────────────────────────
+for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
+    _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()
+    probe("%s hat einen Tagmodus" % _datei, "html[data-hell]{" in _text)
+    # 🔴 The colours have to be set in the HEAD, before the first pixel —
+    # anywhere later and the reader sees the night flash past.
+    _kopf = _text.split("</head>", 1)[0]
+    probe("%s entscheidet die Farben im Kopf" % _datei,
+          'setAttribute("data-hell"' in _kopf)
+    # 🔴 And no colour may have its ONLY home in the light block: a token that is
+    # missing from `:root` is a colour that does not exist at night.
+    _wurzel = set(re.findall(r"(--[a-z0-9-]+)\s*:", _text.split(":root{", 1)[1]
+                             .split("}", 1)[0]))
+    _hell = set(re.findall(r"(--[a-z0-9-]+)\s*:",
+                           _text.split("html[data-hell]{", 1)[1].split("}", 1)[0]))
+    probe("%s: jede helle Marke hat ein dunkles Gegenstueck" % _datei,
+          not (_hell - _wurzel), ", ".join(sorted(_hell - _wurzel)[:4]))
+
+# ── The listening post, as the pages use it ───────────────────────────────
+for _datei in ("post_klient.html", "post_mobil.html"):
+    _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()
+    probe("%s horcht, statt im Minutentakt zu fragen" % _datei,
+          "klient_horch" in _text and "60000)" not in _text)
+    # 🔴 Rows taken out by hand are the instant answer; the page is REFILLED from
+    # the server. Without it, deleting 50 of 100 left page „1 of 2" empty.
+    probe("%s fuellt die Liste nach einer Tat wieder auf" % _datei,
+          ("await ladeListe(false);" in _text if "klient.html" in _datei
+           else "await listeNachfuellen();" in _text))
 
 print("\n── 6. Der Postausgang ──")
 
@@ -1192,7 +1482,7 @@ probe("der Entwurf traegt die Entwurfs-Flagge",
       any("APPEND" in b and "Draft" in b for b in server.befehle))
 
 K.verbindungen_schliessen()
-for s_ in (server, server2, server3):
+for s_ in (server, server2, server3, server4, server5, server6):
     s_.halt()
 post.halt()
 seite.terminate()

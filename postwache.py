@@ -2968,6 +2968,131 @@ def statistik_frisch(pf) -> dict:
     return k
 
 
+def pfad_umschreiben(name: str, alt: str, neu: str, trenner: str = ".") -> str:
+    """A stored folder name after a move — the folder itself AND everything under
+    it. Anything else stays exactly as it was."""
+    name = str(name or "")
+    if name == alt:
+        return neu
+    if name.startswith(alt + trenner):
+        return neu + name[len(alt):]
+    return name
+
+
+def ordner_umgezogen(alt: str, neu: str, trenner: str = ".") -> dict:
+    """A folder now hangs somewhere else. Carry the watchman's memory over.
+
+    🔴 THIS is the work; renaming at the provider is one command. Everything that
+    knows the folder BY NAME has to be told, and each piece for its own reason:
+
+      * the learned filing map (`ablage.json`) decides where post goes. Leave the
+        old name in there and the next run files into a folder that no longer
+        exists — and the filing CREATES it, so the mail ends up split between the
+        moved folder and a fresh empty one beside it.
+      * the document index (`anhaenge.json`) reaches for an attachment by folder
+        and number. Old name, no attachment.
+      * the journal is the WAY BACK for every mail the watchman has moved. A way
+        back that names a folder nobody has any more is not a way back.
+      * what it kept of each mail (`koepfe.json`) says on the page where that
+        mail was filed.
+
+    🔑 Everywhere, names are stored the way the SERVER writes them (see
+    `voller_name`) — one spelling, so one rewriting rule for all of them.
+    """
+    bericht = {"alt": alt, "neu": neu, "ablage": 0, "anhaenge": 0, "journal": 0,
+               "koepfe": 0}
+    if not alt or not neu or alt == neu:
+        return bericht
+
+    def um(name):
+        return pfad_umschreiben(name, alt, neu, trenner)
+
+    karte = load(ABLAGE, None)
+    if isinstance(karte, dict):
+        zahl = 0
+        for stufe in ("absender", "domain", "haupt", "v_absender", "v_domain", "v_haupt"):
+            for eintrag in (karte.get(stufe) or {}).values():
+                if isinstance(eintrag, dict) and um(eintrag.get("ordner")) != eintrag.get("ordner"):
+                    eintrag["ordner"] = um(eintrag["ordner"])
+                    zahl += 1
+        for feld in ("ordner",):          # folder -> how many mails
+            if isinstance(karte.get(feld), dict):
+                karte[feld] = {um(o): n for o, n in karte[feld].items()}
+        if isinstance(karte.get("namen"), dict):    # mark -> folder
+            karte["namen"] = {mk: um(o) for mk, o in karte["namen"].items()}
+        schwach = karte.get("schwaechen")
+        if isinstance(schwach, dict):
+            for feld in ("fast_leere_ordner", "leere_ordner"):
+                if isinstance(schwach.get(feld), list):
+                    schwach[feld] = [um(o) for o in schwach[feld]]
+        if zahl or True:
+            save(ABLAGE, karte)
+        bericht["ablage"] = zahl
+
+    idx = load(ANHAENGE, None)
+    if isinstance(idx, dict):
+        zahl = 0
+        for eintrag in (idx.get("eintraege") or {}).values():
+            if isinstance(eintrag, dict) and um(eintrag.get("ordner")) != eintrag.get("ordner"):
+                eintrag["ordner"] = um(eintrag["ordner"])
+                zahl += 1
+        if isinstance(idx.get("stand"), dict):
+            idx["stand"] = {um(o): w for o, w in idx["stand"].items()}
+        if zahl or idx.get("stand"):
+            anhang_index_sichern(idx)
+        bericht["anhaenge"] = zahl
+
+    koepfe = load(KOEPFE, None)
+    if isinstance(koepfe, list):
+        zahl = 0
+        for e in koepfe:
+            if not isinstance(e, dict):
+                continue
+            for feld in ("verschoben_nach", "wuerde_nach", "ordner"):
+                if e.get(feld) and um(e[feld]) != e[feld]:
+                    e[feld] = um(e[feld])
+                    zahl += 1
+        if zahl:
+            save(KOEPFE, koepfe)
+        bericht["koepfe"] = zahl
+
+    # 🔴 The journal is a FILE OF LINES, and it is rewritten as a whole — line by
+    # line, in order. It is the way back; losing its order would mean handing a
+    # mail back to the wrong folder.
+    weg = os.path.join(OUT, "journal.jsonl")
+    if os.path.isfile(weg):
+        zeilen, zahl = [], 0
+        try:
+            with open(weg, encoding="utf-8") as fh:
+                for zeile in fh:
+                    zeile = zeile.strip()
+                    if not zeile:
+                        continue
+                    try:
+                        e = json.loads(zeile)
+                    except ValueError:
+                        zeilen.append(zeile)
+                        continue
+                    for feld in ("von", "nach", "anzeige"):
+                        if e.get(feld) and um(e[feld]) != e[feld]:
+                            e[feld] = um(e[feld])
+                            zahl += 1
+                    zeilen.append(json.dumps(e, ensure_ascii=False))
+            if zahl:
+                tmp = weg + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    fh.write("\n".join(zeilen) + "\n")
+                os.replace(tmp, weg)
+            bericht["journal"] = zahl
+        except OSError as e:
+            log("Journal nicht umgeschrieben: %s" % str(e)[:100])
+
+    log("Ordner umgezogen: %s -> %s (%s)"
+        % (alt, neu, ", ".join("%s %d" % (k, bericht[k])
+                               for k in ("ablage", "anhaenge", "journal", "koepfe"))))
+    return bericht
+
+
 def ablage_frisch(pf) -> dict:
     """The map, at most a day old. Learning takes seconds to minutes — that does
     not belong in a run that comes every minute."""

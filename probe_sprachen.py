@@ -182,8 +182,13 @@ wie_ein_schluessel = set()
 # 🔴 The client's settings table carries its keys as VALUES („k.o_rechts" in a
 #    list) — exactly the case this check exists for. So the page is read here too,
 #    not just the Python.
-for datei in ("post_web.py", "postwache.py", "klient.py", "post_klient.html",
-              "post_mobil.html"):
+# 🔴 And the WATCHMAN page as well. It was missing here — the comment above says
+#    „the page is read here too" and meant the two client pages; a key carried as
+#    a VALUE in `post_web.html` was therefore reported as orphaned, and an
+#    invented one there was never caught at all. Found by the day/night button,
+#    whose three keys live in exactly such a map.
+for datei in ("post_web.py", "postwache.py", "klient.py", "post_web.html",
+              "post_klient.html", "post_mobil.html"):
     quelle = io.open(os.path.join(HIER, datei), encoding="utf-8").read()
     wie_ein_schluessel |= set(re.findall(
         # 🔴 With DIGITS: „k.o_12h" and „k.o_3s" are keys like any other. Without

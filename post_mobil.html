@@ -12,6 +12,23 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Postwache">
 <title>Postwache</title>
+<script>
+/* 🔴 In the HEAD, and nowhere else. This decides the colours BEFORE the page is
+   drawn; one line further down and the reader watches the night flash past on
+   the way to the day. It reads the choice and nothing else — the machinery
+   lives below, with the other functions. */
+(function(){
+  var wahl = "auto";
+  try{ wahl = new URLSearchParams(location.search).get("licht") || ""; }catch(e){}
+  if(wahl !== "hell" && wahl !== "dunkel" && wahl !== "auto"){
+    wahl = "auto";
+    try{ wahl = localStorage.getItem("pw_ansicht") || "auto"; }catch(e){}
+  }
+  var hell = wahl === "hell" || (wahl === "auto" && window.matchMedia
+    && matchMedia("(prefers-color-scheme: light)").matches);
+  if(hell) document.documentElement.setAttribute("data-hell", "1");
+})();
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%2312100c'/%3E%3Ctext y='.85em' x='8' font-size='76'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
 <style>
@@ -28,14 +45,47 @@
   --karte-voll:#1d1b17;
   --rand:rgba(255,255,255,.11); --rand2:rgba(255,255,255,.2);
   --text:#f4efe6; --leise:#a99c88; --leiser:#7d7264;
-  --akzent:#e0a458; --akzent-tief:#2a1d0a;
+  /* 🔑 TWO golds: `--akzent` writes, `--akzent-fuell` fills. In the dark they
+     are the same colour; on paper #e0a458 as text is a hint, not a word. */
+  --akzent:#e0a458; --akzent-fuell:#e0a458; --akzent-tief:#2a1d0a;
   --ok:#34d399; --info:#60a5fa; --warnung:#fbbf24; --kritisch:#f87171;
+  --film:rgba(255,255,255,.06); --film2:rgba(255,255,255,.12);
+  --feld:rgba(0,0,0,.3); --griff:#e7ddcd;
+  --schatten:rgba(0,0,0,.5);
+  --gefahr:#fca5a5; --warnton:#fcd34d; --briefgrund:#161410;
+  /* The bars at the top and the bottom lie OVER the list — translucent, with the
+     ground behind them. So the ground has to be named here as well. */
+  --schleier:rgba(18,16,12,.93); --schleier2:rgba(30,24,14,.97);
+  --licht1:rgba(224,164,88,.16); --licht2:rgba(96,165,250,.08);
+  --licht3:rgba(224,164,88,.09);
   --r:1rem;
   --oben:env(safe-area-inset-top,0px);
   --unten:env(safe-area-inset-bottom,0px);
   --kopf:3.5rem;
   --fuss:3.7rem;
   --schrift:100%;
+}
+/* ── Day mode ───────────────────────────────────────────────────────────────
+   der Besitzer, 28.09.2026: „soll aber den stiel von ups farben beibehalten nur in
+   hell, find ich total klasse die farbwahl." The night becomes PAPER — same
+   brown, same gold, same three lights. Only the signals go darker: #34d399 on
+   white is a colour nobody can read. */
+html[data-hell]{
+  color-scheme: light;
+  --grund:#f5efe3;
+  --karte:rgba(255,255,255,.75); --karte2:rgba(255,255,255,.93);
+  --karte-voll:#fffdf8;
+  --rand:rgba(61,44,22,.15); --rand2:rgba(61,44,22,.3);
+  --text:#2b2015; --leise:#6e6353; --leiser:#8a7f6d;
+  --akzent:#9a5a17;
+  --ok:#0f7a4f; --info:#1a5fc8; --warnung:#95600a; --kritisch:#b42318;
+  --film:rgba(61,44,22,.05); --film2:rgba(61,44,22,.10);
+  --feld:#fffdf8; --griff:#8d8371;
+  --schatten:rgba(61,44,22,.20);
+  --gefahr:#b42318; --warnton:#8a5a06; --briefgrund:#fffdf8;
+  --schleier:rgba(245,239,227,.93); --schleier2:rgba(250,245,236,.97);
+  --licht1:rgba(224,164,88,.34); --licht2:rgba(96,165,250,.10);
+  --licht3:rgba(224,164,88,.22);
 }
 /* 🔴 The browser's own `[hidden]{display:none}` is ONE selector — every class
    with a `display` beats it. `.wischhinweis{display:flex}` did, so the swipe
@@ -54,24 +104,31 @@ body{
   /* 🔑 The same three lights as the watchman's page and the wide client, laid
      out for a narrow screen. One house, one ground. */
   background-image:
-    radial-gradient(36rem 24rem at 10% -8%, rgba(224,164,88,.16), transparent 62%),
-    radial-gradient(30rem 22rem at 100% 5%, rgba(96,165,250,.08), transparent 60%),
-    radial-gradient(34rem 24rem at 50% 116%, rgba(224,164,88,.09), transparent 62%);
+    radial-gradient(36rem 24rem at 10% -8%, var(--licht1), transparent 62%),
+    radial-gradient(30rem 22rem at 100% 5%, var(--licht2), transparent 60%),
+    radial-gradient(34rem 24rem at 50% 116%, var(--licht3), transparent 62%);
   background-attachment:fixed;
 }
 h1,h2,h3{margin:0;font-weight:600}
 /* 🔴 16 px on every input. Below that iOS zooms into the field when it gets the
    focus and the layout is crooked afterwards — and nobody knows why. */
 input,select,textarea,button{font:inherit;font-size:max(1rem,16px);color:var(--text)}
-input,select,textarea{background:rgba(0,0,0,.3);border:1px solid var(--rand);
+input,select,textarea{background:var(--feld);border:1px solid var(--rand);
   border-radius:.7rem;padding:.7rem .8rem;width:100%}
+/* 🔴 `width:100%` is right for a text field and wrong for a BOX. A checkbox with
+   it stretches across the whole row and pushes its own label to the far edge —
+   that is what made the redirect card look broken, and it had been that way since
+   the card was built. Two places had patched it with an inline style of their
+   own; a rule that needs patching at the call site is a rule in the wrong place. */
+input[type="checkbox"],input[type="radio"]{width:auto;flex:0 0 auto;margin:0;
+  accent-color:var(--akzent-fuell);cursor:pointer}
 input[type=range],input[type=checkbox]{accent-color:var(--akzent)}
 input[type=range]{padding:0}
 input:focus-visible,textarea:focus-visible,select:focus-visible,
 button:focus-visible{outline:2px solid var(--akzent);outline-offset:1px}
 button{background:var(--karte2);border:1px solid var(--rand);border-radius:.8rem;
   padding:.62rem .9rem;min-height:2.75rem;cursor:pointer}
-button.haupt{background:var(--akzent);border-color:var(--akzent);
+button.haupt{background:var(--akzent-fuell);border-color:var(--akzent-fuell);
   color:var(--akzent-tief);font-weight:600}
 button.blank{background:transparent;border-color:transparent;min-width:2.75rem;
   padding:.5rem}
@@ -91,16 +148,16 @@ body[data-blick="ziel"] #b_ziel,
 body[data-blick="schreiben"] #b_schreiben{display:flex}
 .kopf{flex:0 0 auto;height:var(--kopf);display:flex;align-items:center;gap:.4rem;
   padding:0 .35rem;border-bottom:1px solid var(--rand);
-  background:rgba(18,16,12,.92);backdrop-filter:blur(12px)}
+  background:var(--schleier);backdrop-filter:blur(12px)}
 .kopf h1{flex:1 1 auto;font-size:1.05rem;min-width:0;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .kopf .u{font-size:.7rem;font-weight:700;color:var(--akzent-tief);
-  background:var(--akzent);border-radius:99px;padding:.06rem .42rem}
+  background:var(--akzent-fuell);border-radius:99px;padding:.06rem .42rem}
 .rumpf{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
   -webkit-overflow-scrolling:touch}
 .rumpf.gepolstert{padding:.7rem .8rem calc(1.2rem + var(--unten))}
 .fuss{flex:0 0 auto;display:flex;border-top:1px solid var(--rand);
-  background:rgba(18,16,12,.94);backdrop-filter:blur(12px);
+  background:var(--schleier);backdrop-filter:blur(12px);
   padding-bottom:var(--unten)}
 .fuss button{flex:1 1 0;min-width:0;border:0;background:transparent;border-radius:0;
   display:flex;flex-direction:column;align-items:center;gap:.1rem;padding:.45rem 0 .5rem;
@@ -111,7 +168,7 @@ body[data-blick="schreiben"] #b_schreiben{display:flex}
   width:.45rem;height:.45rem;border-radius:50%;background:var(--akzent)}
 
 /* ── The list ────────────────────────────────────────────────────── */
-.zeile{position:relative;overflow:hidden;border-bottom:1px solid rgba(255,255,255,.06)}
+.zeile{position:relative;overflow:hidden;border-bottom:1px solid var(--rand)}
 /* 🔴 EVERY cell placed by hand. Left to automatic placement the date landed in
    the middle column and the sender was pushed off the right edge — visible in the
    screenshot, invisible in the source. Three columns, three rows, no guessing. */
@@ -124,7 +181,8 @@ body[data-blick="schreiben"] #b_schreiben{display:flex}
 .z.neu{background:linear-gradient(90deg,rgba(224,164,88,.09),rgba(0,0,0,0) 45%),
   var(--grund)}
 .kreis{grid-column:1;grid-row:1/4;width:2.5rem;height:2.5rem;border-radius:50%;
-  display:grid;place-items:center;font-size:.85rem;font-weight:700;color:#15120c;
+  display:grid;place-items:center;font-size:.85rem;font-weight:700;
+  color:var(--akzent-tief);
   align-self:center}
 /* ── Choosing several ────────────────────────────────────────────
    🔑 The tick takes the avatar's PLACE, it does not stand next to it. A phone
@@ -134,9 +192,10 @@ body[data-blick="schreiben"] #b_schreiben{display:flex}
 body.wahlmodus .z .kreis{display:none}
 body.wahlmodus .z .haken{grid-column:1;grid-row:1/4;width:2.5rem;height:2.5rem;
   border-radius:50%;display:grid;place-items:center;align-self:center;
-  border:2px solid var(--rand2);color:#15120c;font-size:1.05rem;font-weight:700;
+  border:2px solid var(--rand2);color:var(--akzent-tief);font-size:1.05rem;font-weight:700;
   flex:0 0 auto}
-body.wahlmodus .z.gewaehlt .haken{background:var(--akzent);border-color:var(--akzent)}
+body.wahlmodus .z.gewaehlt .haken{background:var(--akzent-fuell);
+  border-color:var(--akzent-fuell)}
 /* 🔴 OPAQUE, like every row — the comment two rules up says why, and I still
    wrote a translucent one: behind the row lie the swipe actions, and in the
    picture the bin shone through every chosen mail that had been read. Layered
@@ -148,7 +207,7 @@ body.wahlmodus .z.gewaehlt .haken{background:var(--akzent);border-color:var(--ak
 /* The bar of the selection replaces the tab bar — same height, same place, so
    the thumb does not have to learn a second one. */
 .wahlfuss{flex:0 0 auto;display:none;border-top:1px solid var(--rand);
-  background:rgba(30,24,14,.97);backdrop-filter:blur(12px);
+  background:var(--schleier2);backdrop-filter:blur(12px);
   padding-bottom:var(--unten)}
 body.wahlmodus .wahlfuss{display:flex}
 body.wahlmodus .fuss{display:none}
@@ -157,7 +216,7 @@ body.wahlmodus .fuss{display:none}
   padding:.45rem 0 .5rem;color:var(--text);font-size:.66rem;min-height:var(--fuss)}
 .wahlfuss button:disabled{opacity:.35}
 .wahlfuss button i{font-style:normal;font-size:1.28rem;line-height:1.1}
-.wahlfuss button.gefahr{color:#fca5a5}
+.wahlfuss button.gefahr{color:var(--gefahr)}
 .z .von{grid-column:2;grid-row:1;font-size:.95rem;min-width:0;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .z.neu .von,.z.neu .bet{font-weight:700}
@@ -192,7 +251,7 @@ body.wahlmodus .fuss{display:none}
    top-level folder, with air between them: a flat run of rows leaves the reader
    counting indents to see where one family ends. */
 .o{display:flex;align-items:center;gap:.7rem;min-height:3.2rem;position:relative;
-  border-bottom:1px solid rgba(255,255,255,.06);
+  border-bottom:1px solid var(--rand);
   padding:.85rem .95rem .85rem calc(.95rem + var(--tief, 0) * 1.1rem)}
 .o.an{background:rgba(224,164,88,.14)}
 .o.unter::before{content:"";position:absolute;top:0;bottom:0;width:1px;
@@ -212,7 +271,7 @@ body.wahlmodus .fuss{display:none}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
 .o .n{font-size:.76rem;color:var(--leiser)}
 .o .u{font-size:.7rem;font-weight:700;color:var(--akzent-tief);
-  background:var(--akzent);border-radius:99px;padding:.08rem .45rem}
+  background:var(--akzent-fuell);border-radius:99px;padding:.08rem .45rem}
 .gruppentitel{padding:1rem .95rem .3rem;font-size:.68rem;letter-spacing:.09em;
   text-transform:uppercase;color:var(--leiser)}
 
@@ -230,8 +289,8 @@ body.wahlmodus .fuss{display:none}
 .chip.tat{cursor:pointer}
 .warnleiste{display:flex;gap:.55rem;align-items:center;flex-wrap:wrap;
   margin:.2rem .9rem .6rem;padding:.6rem .75rem;border-radius:.8rem;font-size:.84rem;
-  border:1px solid #f8717155;background:#f871711a;color:#fca5a5}
-.warnleiste.mild{border-color:#fbbf2455;background:#fbbf2414;color:#fcd34d}
+  border:1px solid #f8717155;background:#f871711a;color:var(--gefahr)}
+.warnleiste.mild{border-color:#fbbf2455;background:#fbbf2414;color:var(--warnton)}
 .warnleiste button{padding:.35rem .6rem;font-size:.8rem;min-height:2.2rem}
 .anhangreihe{display:flex;gap:.45rem;flex-wrap:wrap;padding:0 .9rem .6rem}
 .anh{display:inline-flex;align-items:center;gap:.4rem;padding:.45rem .6rem;
@@ -240,13 +299,13 @@ body.wahlmodus .fuss{display:none}
   min-height:2.6rem}
 .anh .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .anh .gr{color:var(--leiser);font-size:.72rem;flex:0 0 auto}
-#brief{width:100%;border:0;background:#161410;display:block;min-height:12rem}
+#brief{width:100%;border:0;background:var(--briefgrund);display:block;min-height:12rem}
 .tatleiste{flex:0 0 auto;display:flex;gap:.3rem;padding:.4rem .5rem;
   padding-bottom:calc(.4rem + var(--unten));border-top:1px solid var(--rand);
-  background:rgba(18,16,12,.94);backdrop-filter:blur(12px)}
+  background:var(--schleier);backdrop-filter:blur(12px)}
 .tatleiste button{flex:1 1 0;min-width:0;background:transparent;border-color:transparent;
   font-size:1.15rem;padding:.5rem 0}
-.tatleiste button.gefahr{color:#fca5a5}
+.tatleiste button.gefahr{color:var(--gefahr)}
 
 /* ── Sheets: more, search, compose ───────────────────────────────── */
 .gruppe{border:1px solid var(--rand);border-radius:var(--r);background:var(--karte);
@@ -261,10 +320,11 @@ body.wahlmodus .fuss{display:none}
 .reihe .txt span{font-size:.79rem;color:var(--leise);display:block}
 .reihe .stell{flex:0 0 auto;width:9.5rem;max-width:48%}
 .knebel{flex:0 0 auto;position:relative;width:3.1rem;height:1.85rem;border-radius:999px;
-  border:1px solid var(--rand);background:rgba(255,255,255,.07)}
+  border:1px solid var(--rand);background:var(--film2)}
 .knebel::after{content:"";position:absolute;top:2px;left:2px;width:1.45rem;
-  height:1.45rem;border-radius:50%;background:#e7ddcd;transition:transform .16s ease}
-.knebel[aria-checked="true"]{background:var(--akzent);border-color:var(--akzent)}
+  height:1.45rem;border-radius:50%;background:var(--griff);transition:transform .16s ease}
+.knebel[aria-checked="true"]{background:var(--akzent-fuell);
+  border-color:var(--akzent-fuell)}
 .knebel[aria-checked="true"]::after{transform:translateX(1.22rem);
   background:var(--akzent-tief)}
 label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
@@ -285,7 +345,7 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   border-bottom:1px solid var(--rand);scrollbar-width:none}
 .suchchips::-webkit-scrollbar{display:none}
 .suchchips button{flex:0 0 auto;font-size:.82rem;padding:.42rem .8rem;min-height:2.3rem}
-.suchchips button.an{background:var(--akzent);border-color:var(--akzent);
+.suchchips button.an{background:var(--akzent-fuell);border-color:var(--akzent-fuell);
   color:var(--akzent-tief)}
 
 /* ── The door ────────────────────────────────────────────────────── */
@@ -296,6 +356,10 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
 .wappen{width:3.4rem;height:3.4rem;margin:0 auto .8rem;display:grid;place-items:center;
   font-size:2rem;border-radius:50%;border:2px solid var(--akzent)}
 .torkarte h1{font-size:1.25rem;margin-bottom:.35rem}
+/* The slogan: small, in the house gold, right behind the name — a line that
+   says what the place is FOR, not a second headline. */
+.slogan{font-size:.78rem;font-weight:600;color:var(--akzent);letter-spacing:.01em;
+  white-space:nowrap}
 .torkarte p{margin:.3rem 0 1.1rem;font-size:.88rem;color:var(--leise);line-height:1.55}
 .torkarte input{text-align:center;margin-bottom:.7rem}
 .torkarte button{width:100%}
@@ -303,7 +367,7 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   background:var(--karte-voll);border:1px solid var(--rand2);border-radius:.9rem;
   padding:.7rem .9rem;font-size:.88rem;z-index:50;opacity:0;pointer-events:none;
   transition:opacity .2s ease,transform .2s ease;transform:translateY(.6rem);
-  box-shadow:0 12px 34px rgba(0,0,0,.5);text-align:center}
+  box-shadow:0 12px 34px var(--schatten);text-align:center}
 .melde.auf{opacity:1;transform:translateY(0)}
 .melde.gut{border-color:#34d39977} .melde.schlecht{border-color:#f8717199}
 .laedt{display:inline-block;width:1rem;height:1rem;border-radius:50%;
@@ -327,6 +391,8 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   <div class="torkarte">
     <div class="wappen">📬</div>
     <h1>Postwache</h1>
+    <div class="slogan" style="margin:-.1rem 0 .5rem">
+      <span data-t="allg.slogan"></span></div>
     <p id="tor_text" data-t="k.tor_text"></p>
     <div id="tor_neu" hidden>
       <input id="tor_wort1" type="password" autocomplete="new-password"
@@ -396,7 +462,7 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
 <div class="blatt" id="b_ziel">
   <div class="kopf">
     <button class="blank" onclick="zielZu()" data-t-titel="k.zurueck">‹</button>
-    <h1 data-t="k.verschieben_nach"></h1>
+    <h1 id="zielkopf" data-t="k.verschieben_nach"></h1>
   </div>
   <div class="rumpf" id="zielliste"></div>
 </div>
@@ -406,6 +472,12 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
     <button class="blank" onclick="blick('liste')" data-t-titel="k.zurueck">‹</button>
     <h1 data-t="k.ordner"></h1>
     <button class="blank" onclick="ordnerNeu()" data-t-titel="k.ordner_neu">＋</button>
+  </div>
+  <!-- The same kind of hint as for swiping: a gesture nobody knows about does
+       not exist. Shown once, then gone for good. -->
+  <div class="wischhinweis" id="ordnerhinweis" hidden>
+    <span data-t="k.ordner_ziehen_hilfe"></span>
+    <button class="blank" onclick="ordnerHinweisWeg()" aria-label="OK">✕</button>
   </div>
   <div class="rumpf" id="ordnerliste"></div>
   <div class="fuss" id="fussleiste2"></div>
@@ -428,6 +500,7 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   <div class="kopf">
     <button class="blank" onclick="blick('liste')" data-t-titel="k.zurueck">‹</button>
     <h1 data-t="k.einstellungen"></h1>
+    <button class="blank" id="lichttaste" onclick="lichtUm()"></button>
   </div>
   <div class="rumpf gepolstert" id="mehrleib"></div>
   <div class="fuss" id="fussleiste3"></div>
@@ -472,6 +545,73 @@ if (typeof T === "undefined") {
    NOT be duplicated is a DECISION: which folder plays which role, what a settings
    switch offers, how mail HTML is cleaned. All of that sits in the engine and
    arrives from there; both pages only draw it. */
+/* ── Day and night ─────────────────────────────────────────────────────────
+   Three positions, one button: automatic (whatever the device says), light, dark.
+   🔑 The choice lives on the DEVICE, not in the mailbox: a phone in a dark room
+   and a desk in the sun are two different answers to the same question, and one
+   setting on the server can only ever give one of them.
+   🔴 NOT called `ANSICHTEN`: on the watchman page that word is already the list
+   of tabs, and a second `const` of the same name is a PARSE error that kills the
+   whole script — while the page still draws its markup and looks perfectly
+   normal. All three pages use the same names, so the word stays free here too. */
+const LICHT_WAHLEN = ["auto", "hell", "dunkel"];
+const LICHT_ZEICHEN = {auto:"◐", hell:"☀", dunkel:"☾"};
+/* 🔴 Keys SPELLED OUT, never assembled from the state: assembled, no literal
+   exists anywhere, and the language bench can neither find a typo in it nor see
+   that the key is in use. */
+const LICHT_WORT = {auto:"allg.ansicht_auto", hell:"allg.ansicht_hell",
+                    dunkel:"allg.ansicht_dunkel"};
+/* 🔴 ONE variable holds the choice. Read it out of the store on every question
+   and a `?licht=` in the address would win for ever — the button would write
+   and write and nothing would move. */
+let LICHT_WAHL = (function(){
+  try{
+    const auf = new URLSearchParams(location.search).get("licht");
+    if(LICHT_WAHLEN.indexOf(auf) >= 0) return auf;
+  }catch(e){ /* no parameter, no matter */ }
+  try{
+    const w = localStorage.getItem("pw_ansicht");
+    if(LICHT_WAHLEN.indexOf(w) >= 0) return w;
+  }catch(e){ /* a browser may refuse the store — then it is „auto" */ }
+  return "auto";
+})();
+function istHell(){
+  return LICHT_WAHL === "hell" || (LICHT_WAHL === "auto" && window.matchMedia
+    && matchMedia("(prefers-color-scheme: light)").matches);
+}
+function lichtAnwenden(neuzeichnen){
+  const hell = istHell();
+  const wurzel = document.documentElement;
+  if(hell) wurzel.setAttribute("data-hell", "1");
+  else wurzel.removeAttribute("data-hell");
+  const grund = getComputedStyle(wurzel).getPropertyValue("--grund").trim();
+  const marke = document.querySelector('meta[name="theme-color"]');
+  if(marke && grund) marke.setAttribute("content", grund);
+  const knopf = document.getElementById("lichttaste");
+  if(knopf){
+    knopf.textContent = LICHT_ZEICHEN[LICHT_WAHL];
+    knopf.title = txt(LICHT_WORT[LICHT_WAHL]);
+    knopf.setAttribute("aria-label", knopf.title);
+  }
+  /* 🔑 The letter is a document of its own inside the frame, with a stylesheet
+     built by the ENGINE. It cannot be repainted from out here — so it is asked
+     for again. One request, for something somebody pressed on purpose. */
+  if(neuzeichnen && S.uid) mailOeffnen(S.uid, offenOrdner());
+}
+function lichtUm(){
+  LICHT_WAHL = LICHT_WAHLEN[(LICHT_WAHLEN.indexOf(LICHT_WAHL) + 1) % LICHT_WAHLEN.length];
+  try{ localStorage.setItem("pw_ansicht", LICHT_WAHL); }catch(e){}
+  lichtAnwenden(true);
+}
+/* The device switches at sunset — and so does the page, with nobody reaching for
+   anything. */
+if(window.matchMedia){
+  try{
+    matchMedia("(prefers-color-scheme: light)")
+      .addEventListener("change", () => lichtAnwenden(true));
+  }catch(e){ /* older browsers: the button still works */ }
+}
+
 function txt(schluessel, werte){
   let s = T[schluessel];
   if(s === undefined) return schluessel;
@@ -668,9 +808,16 @@ function ordnerMalen(){
   const tr = S.faehig && S.faehig.trenner ? S.faehig.trenner : ".";
   const zeile = (o, tief) => {
     const kinder = rest.some(x => x !== o && x.name.startsWith(o.name + tr));
+    /* 🔑 A long press picks the folder UP — the phone's answer to dragging it
+       across a desk. A special folder is a position and stays put, so it does
+       not react to the press at all. */
     return `<div class="o ${tief > 0 ? "unter" : ""} ${kinder ? "eltern" : ""}
         ${(!S.neu && o.name === S.ordner) ? "an" : ""}" style="--tief:${tief}"
-        onclick="ordnerWaehlen('${escJs(o.name)}')" role="button" tabindex="0">
+        onclick="ordnerWaehlen('${escJs(o.name)}')" role="button" tabindex="0"
+        ${o.rolle ? "" : `ontouchstart="ordnerDruckAn(event,'${escJs(o.name)}')"
+        ontouchend="ordnerDruckAus()" ontouchmove="ordnerDruckAus()"
+        ontouchcancel="ordnerDruckAus()"
+        oncontextmenu="event.preventDefault();ordnerZielAuf('${escJs(o.name)}')"`}>
       <span class="ic">${o.icon || "📁"}</span>
       <span class="nm">${esc(ordnerName(o))}</span>
       ${o.ungelesen ? `<span class="u">${o.ungelesen}</span>`
@@ -711,6 +858,10 @@ function ordnerName(o){
   return (o.name.toUpperCase() === "INBOX") ? txt("k.posteingang") : o.zeige;
 }
 async function ordnerWaehlen(name){
+  /* 🔴 The long press that picks a folder up sends a `click` afterwards — the
+     same bar as for the list rows, or the folder would open underneath its own
+     move sheet. */
+  if(Date.now() < sperreKlick) return;
   S.neu = false; wahlAus();
   S.ordner = name; S.seite = 1; S.uid = 0; S.offen = null; S.mails = [];
   ordnerMalen();
@@ -911,19 +1062,69 @@ function wahlMalen(){
 /* ── Where to ──────────────────────────────────────────────────────────
    The folders as a sheet, not as a `prompt()` with numbers to type. Serves the
    one open mail and a whole selection alike. */
+let zielOrdner = "";     // a whole folder on its way, instead of mails
 let zielFuer = [];              // (folder, number) pairs — never numbers alone
 function zielAuf(uids){
+  zielOrdner = "";
   zielFuer = posten(uids);
   if(!zielFuer.length) return melde(txt("k.nichts_gewaehlt"), false);
   zielMalen();
   blick("ziel");
 }
+/* ── A whole folder on its way ─────────────────────────────────────────────
+   der Besitzer, 28.09.2026: „man muss auch ganze ordner am besten per drag and drop
+   verschieben können mit mailinhalt, postwache soll das dann auch mitbekommen
+   wegen lernen und so."
+   🔑 On a phone nothing is dragged across a desk — it is picked up with a long
+   press and put down in the SAME sheet that mail is moved with. One list of
+   folders, two kinds of traveller. */
+let ordnerDruck = null;
+function ordnerDruckAn(ev, name){
+  clearTimeout(ordnerDruck);
+  ordnerDruck = setTimeout(() => {
+    ordnerDruck = null;
+    /* 🔴 A long press still sends a `click` afterwards — without the bar the
+       folder would open the moment it was picked up. */
+    sperreKlick = Date.now() + 800;
+    if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){}
+    ordnerZielAuf(name);
+  }, 550);
+}
+function ordnerDruckAus(){ clearTimeout(ordnerDruck); ordnerDruck = null; }
+function ordnerZielAuf(name){
+  const o = S.ordner_liste.find(x => x.name === name);
+  if(!o) return;
+  if(o.rolle) return melde(txt("k.ordner_fest"), false);
+  zielOrdner = name;
+  zielFuer = [];
+  zielMalen();
+  blick("ziel");
+}
+function ordnerHinweisWeg(){
+  $("#ordnerhinweis").hidden = true;
+  try{ localStorage.setItem("pw_ordnerzieh", "1"); }catch(e){ /* then it comes again */ }
+}
+function ordnerHinweisZeigen(){
+  let gesehen = "1";
+  try{ gesehen = localStorage.getItem("pw_ordnerzieh") || ""; }catch(e){ gesehen = "1"; }
+  if(!gesehen && ("ontouchstart" in window)) $("#ordnerhinweis").hidden = false;
+}
 function zielZu(){ blick(S.offen && S.blick === "ziel" && !S.wahl ? "mail" : "liste"); }
 function zielMalen(){
+  /* The same sheet answers two questions, so it says WHICH one it is answering. */
+  $("#zielkopf").textContent = txt(zielOrdner ? "k.ordner_ziehen" : "k.verschieben_nach");
   const rest = S.ordner_liste.filter(o => !o.rolle);
   const grund = rest.length ? Math.min(...rest.map(o => o.tiefe)) : 0;
+  const tr = (S.faehig && S.faehig.trenner) || ".";
   const aus = new Set(zielFuer.map(p => p.ordner));
-  const zeile = (o, tief) => o.waehlbar && !(aus.size === 1 && aus.has(o.name))
+  /* 🔴 A folder on its way may not land in itself, in one of its own children,
+     or in a special folder — and it must not be offered there either. Offering
+     something that will be refused is a worse answer than not offering it. */
+  const geht = (o) => zielOrdner
+    ? (!o.rolle && o.name !== zielOrdner && o.name.indexOf(zielOrdner + tr) !== 0
+       && o.name !== zielOrdner.split(tr).slice(0, -1).join(tr))
+    : (o.waehlbar && !(aus.size === 1 && aus.has(o.name)));
+  const zeile = (o, tief) => geht(o)
     ? `<div class="o ${tief > 0 ? "unter" : ""}" style="--tief:${tief}"
            role="button" tabindex="0" onclick="zielNehmen('${escJs(o.name)}')">
         <span class="ic">${o.icon || "📁"}</span>
@@ -931,14 +1132,46 @@ function zielMalen(){
   const teile = [S.ordner_liste.filter(o => o.rolle).map(o => zeile(o, 0)).join("")];
   if(rest.length){
     teile.push(`<div class="gruppentitel">${esc(txt("k.eigene_ordner"))}</div>`);
+    /* Only a FOLDER can go „to the top" — mail has no such place. */
+    if(zielOrdner && zielOrdner.indexOf(tr) > 0)
+      teile.push(`<div class="o" role="button" tabindex="0" onclick="zielNehmen('')">
+        <span class="ic">⇱</span>
+        <span class="nm">${esc(txt("k.ordner_oben"))}</span></div>`);
     teile.push(rest.map(o => zeile(o, o.tiefe - grund)).join(""));
   }
   $("#zielliste").innerHTML = teile.join("");
 }
 async function zielNehmen(name){
+  if(zielOrdner){
+    const welcher = zielOrdner;
+    zielOrdner = "";
+    blick("ordner");
+    return ordnerZiehen(welcher, name);
+  }
   const liste = zielFuer;
   blick("liste");
   await verschiebeListe(name, liste);
+}
+async function ordnerZiehen(name, ziel){
+  const o = S.ordner_liste.find(x => x.name === name);
+  const zo = S.ordner_liste.find(x => x.name === ziel);
+  if(!o) return;
+  if(!confirm(txt("k.ordner_ziehen_frage", {o:ordnerName(o),
+      ziel: zo ? ordnerName(zo) : txt("k.ordner_oben")}))) return;
+  S.laeuft = true;
+  let r;
+  try{ r = await sende("klient_ordner_ziehen", {ordner:name, ziel:ziel}); }
+  catch(e){ S.laeuft = false; return; }
+  S.laeuft = false;
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(!r.ok) return;
+  /* 🔴 The move HAPPENED even if the watchman could not follow — say which half
+     went wrong instead of calling the whole thing a failure. */
+  if(r.wache_fehler) melde(txt("k.wache_nicht_nachgezogen"), false);
+  const t = r.trenner || ((S.faehig && S.faehig.trenner) || ".");
+  if(S.ordner === r.alt) S.ordner = r.neu;
+  else if(S.ordner.indexOf(r.alt + t) === 0) S.ordner = r.neu + S.ordner.slice(r.alt.length);
+  await allesLaden();
 }
 
 /* ── Swiping ───────────────────────────────────────────────────────────
@@ -1010,7 +1243,8 @@ async function mailOeffnen(uid, ordner){
   $("#mailrumpf").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
   $("#tatleiste").innerHTML = "";
   let m;
-  try{ m = await sende("klient_mail", {ordner:ordner || ordnerVon(uid), uid:uid}); }
+  try{ m = await sende("klient_mail", {ordner:ordner || ordnerVon(uid), uid:uid,
+                                       hell:istHell()}); }
   catch(e){ return; }
   if(!m || !m.ok){
     $("#mailrumpf").innerHTML = `<div class="leerraum">${
@@ -1119,7 +1353,8 @@ async function mehrTaten(){
   zielAuf([m.uid]);
 }
 async function bilderLaden(){
-  const m = await sende("klient_mail", {ordner:offenOrdner(), uid:S.uid, bilder:1});
+  const m = await sende("klient_mail", {ordner:offenOrdner(), uid:S.uid, bilder:1,
+                                        hell:istHell()});
   if(m && m.ok){ S.offen = m; mailMalen(); }
 }
 
@@ -1212,8 +1447,33 @@ async function nachTat(uids, liste){
     blick("liste");
     if(naechste) S.uid = naechste.uid;
   }
+  await listeNachfuellen();
   const l = await sende("klient_ordner", {frisch:true});
   if(l.ok){ S.ordner_liste = l.ordner || S.ordner_liste; ordnerMalen(); fussMalen(); }
+}
+/* 🔴 Removing the rows by hand is the INSTANT answer, the refill is the RIGHT
+   one. Deleting 50 of 100 left the list EMPTY — the remaining fifty sat on the
+   next page, and „more" was gone with them. The phone stacks its pages, so it
+   asks for the span it has already shown: ONE request, and the reader keeps
+   their place. */
+async function listeNachfuellen(){
+  if(S.suche) return;                 // hits are not a folder page
+  if(S.neu) return ladeListe(false);
+  const wunsch = Math.max(S.pro, Math.min(200, S.pro * (S.seite || 1)));
+  const a = await sende("klient_liste", {ordner:S.ordner, seite:1, sieb:S.sieb,
+                                         suche:"", feld:"alle", pro_seite:wunsch});
+  if(!a || a.ok === false) return;
+  S.mails = a.mails || [];
+  S.gesamt = a.gesamt || 0;
+  S.seiten = Math.max(1, Math.ceil(S.gesamt / S.pro));
+  S.seite = Math.min(S.seiten, Math.max(1, Math.ceil(S.mails.length / S.pro)));
+  const u = $("#ungelesen");
+  u.hidden = !a.ordner_ungelesen;
+  u.textContent = a.ordner_ungelesen || "";
+  const o = S.ordner_liste.find(x => x.name === S.ordner);
+  if(o){ o.gesamt = a.ordner_gesamt; o.ungelesen = a.ordner_ungelesen; }
+  listeMalen();
+  fussMalen();
 }
 
 /* ── Search ────────────────────────────────────────────────────────────── */
@@ -1529,15 +1789,59 @@ function wischHinweisZeigen(){
   if(!gesehen && ("ontouchstart" in window)) $("#wischhinweis").hidden = false;
 }
 textenSetzen(document);
+lichtAnwenden(false);           /* the button needs its sign and its word */
 wahlMalen();
 wischHinweisZeigen();
+ordnerHinweisZeigen();
 suchchipsMalen();
 fussMalen();
 allesLaden();
-setInterval(async () => {
-  if(document.hidden || S.laeuft || S.blick === "schreiben") return;
-  if(/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName || "")) return;
-  if(S.seite !== 1) return;
+/* ── The listening post ─────────────────────────────────────────────────────
+   🔑 New mail has to show up BY ITSELF. So the phone does not ask every minute —
+   it LISTENS: one request stays waiting, and the server answers it the moment the
+   provider says a word (IMAP IDLE). The same loop is the fallback, so there is
+   only ONE place that decides how often anything happens. */
+const HORCH = {stand:0, marken:{}};
+function schlafen(ms){ return new Promise(r => setTimeout(r, ms)); }
+function angemeldet(){ return !$("#tor").classList.contains("auf"); }
+function horchOrte(){
+  const orte = ["INBOX"];
+  for(const o of [S.rollen.posteingang, S.ordner])
+    if(o && orte.indexOf(o) < 0) orte.push(o);
+  return orte;
+}
+async function horchSchleife(){
+  while(true){
+    /* A phone in a pocket asks for nothing — the screen is off, the tab is
+       hidden, and the listening post lets go of its connection by itself.
+       Picking the phone up refreshes at once, see `visibilitychange`. */
+    if(document.hidden || !angemeldet()){ await schlafen(1500); continue; }
+    let a = null;
+    try{
+      a = await sende("klient_horch", {ordner:horchOrte(), stand:HORCH.stand, warte:20});
+    }catch(e){ a = null; }
+    if(!a || a.ok === false){ await schlafen(20000); await nachziehen(false); continue; }
+    const vorher = HORCH.marken;
+    HORCH.marken = a.marken || {};
+    HORCH.stand = a.stand || 0;
+    /* 🔴 The first answer has no „before" — keeping it and doing nothing is the
+       point, otherwise every start would refetch the list it just drew. */
+    if(!Object.keys(vorher).length) continue;
+    let etwas = false, neuePost = false;
+    for(const ort in HORCH.marken){
+      const v = vorher[ort], n = HORCH.marken[ort];
+      if(!v) continue;
+      if(v.join() !== n.join()) etwas = true;
+      if(n[2] > v[2]) neuePost = true;      // UIDNEXT only grows when post ARRIVES
+    }
+    if(etwas) await nachziehen(neuePost);
+  }
+}
+/* 🔴 Nothing is redrawn under a thumb: while writing, while choosing several,
+   while a field has the keyboard up, or in a search. The folder NUMBERS are
+   updated anyway — a badge steals nobody's tap. */
+async function nachziehen(neuePost){
+  if(S.laeuft || !angemeldet() || S.blick === "schreiben") return;
   try{
     const l = await sende("klient_ordner", {frisch:true});
     if(!l.ok) return;
@@ -1545,9 +1849,17 @@ setInterval(async () => {
     S.ordner_liste = l.ordner || S.ordner_liste;
     ordnerMalen(); fussMalen();
     const jetzt = (S.ordner_liste.find(o => o.name === S.ordner) || {}).gesamt;
-    if(jetzt !== vorher && S.blick === "liste") await ladeListe(true);
+    if(S.wahl || S.suche) return;
+    if(/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName || "")) return;
+    if(S.blick !== "liste") return;
+    if(S.neu) await ladeListe(false);
+    else if(neuePost || jetzt !== vorher) await listeNachfuellen();
   }catch(e){ /* the next round tries again */ }
-}, 60000);
+}
+document.addEventListener("visibilitychange", () => {
+  if(!document.hidden && angemeldet()) nachziehen(false);
+});
+horchSchleife();
 </script>
 </body>
 </html>
