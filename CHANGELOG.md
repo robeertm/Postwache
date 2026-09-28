@@ -96,7 +96,7 @@ from 369 px to 0, and stopped the instant the drag ended.
 
 ### Test bench
 
-274 → **307 probes**, all green. The fake server now remembers `CREATE` and
+274 → **309 probes**, all green. The fake server now remembers `CREATE` and
 `DELETE` (a server that says OK and forgets proves nothing) and reports an honest
 **zero** for a folder created a moment ago.
 
