@@ -155,6 +155,15 @@ label{display:block;font-size:.8rem;color:var(--leise);margin:.6rem 0 .25rem}
   font:inherit;font-weight:600;cursor:pointer;min-height:44px}
 .reitertaste:hover{background:var(--karte2);color:var(--text)}
 .reitertaste.an{background:var(--akzent);border-color:var(--akzent);color:#2a1d0a}
+/* The door to the mailbox. Same size and same row as the tabs so it is found
+   without looking, a different edge so it is not mistaken for one. */
+.reitertaste.tuer{display:flex;align-items:center;justify-content:center;gap:.4rem;
+  text-decoration:none;border-color:rgba(224,164,88,.45);color:var(--akzent);
+  background:rgba(224,164,88,.09)}
+.reitertaste.tuer:hover{background:rgba(224,164,88,.17);color:var(--text);
+  border-color:var(--akzent)}
+.reitertaste.tuer::before{content:"📬";font-size:1rem;line-height:1}
+.reitertaste.tuer::after{content:"→";opacity:.6;font-weight:400}
 .pfwahl{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.9rem}
 .pfwahl:empty{display:none}
 .pftaste{padding:.42rem .8rem;border-radius:999px;border:1px solid var(--rand);
@@ -221,6 +230,10 @@ details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem
               onclick="zeigeAnsicht('umzug')" data-t="reiter.umzug"></button>
       <button class="reitertaste" data-ansicht="einstellungen"
               onclick="zeigeAnsicht('einstellungen')" data-t="reiter.einstellungen"></button>
+      <!-- 🔑 Not a tab: a door. The mailbox is a different place, not another
+           view of this page, so it is set apart instead of lined up — and it is
+           a real link, which means it works before any script has run. -->
+      <a class="reitertaste tuer" href="/post" data-t="reiter.postfach"></a>
     </nav>
   </div>
 

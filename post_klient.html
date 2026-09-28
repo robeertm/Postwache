@@ -22,10 +22,10 @@
   --ok:#34d399; --info:#60a5fa; --warnung:#fbbf24; --kritisch:#f87171;
   --r:1.1rem; --r2:.7rem;
   --ordner:16.5rem;         /* width of the folder column */
-  --zeile:4.35rem;          /* height of a list row — the density setting */
+  --zeile:5.05rem;          /* height of a list row — the density setting */
   --schrift:100%;
 }
-body[data-dichte="eng"]{--zeile:2.55rem}
+body[data-dichte="eng"]{--zeile:2.35rem}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%;font-size:var(--schrift)}
 html,body{margin:0;height:100%;overflow:hidden}
@@ -33,9 +33,14 @@ body{
   background:var(--grund); color:var(--text);
   font-family:ui-rounded,"SF Pro Rounded",system-ui,"Segoe UI",sans-serif;
   -webkit-font-smoothing:antialiased;
+  /* 🔑 The same three lights as the watchman's page, in the same order and the
+     same strengths. Two pages of one house do not get to have two grounds — and
+     the client had a weaker version of this one, which read as a colder page
+     rather than as a different one. */
   background-image:
-    radial-gradient(70rem 40rem at 3% -12%, rgba(224,164,88,.13), transparent 60%),
-    radial-gradient(50rem 32rem at 100% 0%, rgba(96,165,250,.07), transparent 58%);
+    radial-gradient(60rem 34rem at 8% -10%, rgba(224,164,88,.16), transparent 60%),
+    radial-gradient(46rem 30rem at 100% 4%, rgba(96,165,250,.08), transparent 58%),
+    radial-gradient(50rem 34rem at 50% 118%, rgba(224,164,88,.09), transparent 60%);
   background-attachment:fixed;
 }
 h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
@@ -75,9 +80,14 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
 ::-webkit-scrollbar-track{background:transparent}
 
 /* ── Frame ───────────────────────────────────────────────────────── */
-.app{display:grid;grid-template-rows:auto 1fr;height:100%;min-height:0}
-.leiste{display:flex;align-items:center;gap:.7rem;padding:.55rem .8rem;
-  border-bottom:1px solid var(--rand);background:rgba(18,16,12,.82);
+/* 🔑 The watchman's page is built of cards that float on the warm ground, and
+   the client was built of panes divided by hairlines. Same colours, different
+   house. So the panes are cards too: a gap between them, a rounded edge, and the
+   ground showing through. Nothing else about the layout changes. */
+.app{display:grid;grid-template-rows:auto 1fr;height:100%;min-height:0;
+  padding:.6rem .7rem .7rem;gap:.6rem}
+.leiste{display:flex;align-items:center;gap:.7rem;padding:.5rem .7rem;
+  border:1px solid var(--rand);border-radius:var(--r);background:var(--karte);
   backdrop-filter:blur(12px);position:relative;z-index:6}
 .wappen{width:2.1rem;height:2.1rem;display:grid;place-items:center;font-size:1.25rem;
   border-radius:50%;border:1.5px solid var(--akzent);opacity:.95;flex:0 0 auto}
@@ -93,7 +103,8 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
   color:var(--leise);padding:.2rem 1.4rem .2rem .4rem}
 .leiste .rechts{display:flex;gap:.4rem;align-items:center;margin-left:auto;flex:0 0 auto}
 
-.raum{display:grid;min-height:0;grid-template-columns:var(--ordner) minmax(19rem,1fr);
+.raum{display:grid;min-height:0;gap:.6rem;
+  grid-template-columns:var(--ordner) minmax(19rem,1fr);
   grid-template-areas:"ordner liste";}
 .raum[data-vorschau="rechts"]{grid-template-columns:var(--ordner) minmax(17rem,.95fr) minmax(21rem,1.25fr);
   grid-template-areas:"ordner liste lese"}
@@ -101,12 +112,11 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
   grid-template-rows:minmax(0,.95fr) minmax(0,1.05fr);
   grid-template-areas:"ordner liste" "ordner lese"}
 .spalte{min-width:0;min-height:0;display:flex;flex-direction:column;
-  border-right:1px solid var(--rand)}
-.spalte:last-child{border-right:0}
-.ordner{grid-area:ordner;overflow:auto;padding:.5rem .45rem 1.5rem}
+  border:1px solid var(--rand);border-radius:var(--r);background:var(--karte);
+  overflow:hidden}
+.ordner{grid-area:ordner;overflow:auto;padding:.55rem .5rem 1.5rem}
 .liste{grid-area:liste;overflow:hidden}
-.lese{grid-area:lese;overflow:hidden;border-top:0}
-.raum[data-vorschau="unten"] .lese{border-top:1px solid var(--rand)}
+.lese{grid-area:lese;overflow:hidden}
 
 /* ── Folder tree ─────────────────────────────────────────────────── */
 .obaum{display:flex;flex-direction:column;gap:1px}
@@ -130,59 +140,71 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
 .ofalt.zu{transform:rotate(-90deg)}
 
 /* ── Message list ────────────────────────────────────────────────── */
-.werkzeug{display:flex;align-items:center;gap:.4rem;padding:.45rem .55rem;
-  border-bottom:1px solid var(--rand);background:rgba(18,16,12,.6);flex-wrap:wrap}
+.werkzeug{display:flex;align-items:center;gap:.4rem;padding:.45rem .6rem;
+  border-bottom:1px solid var(--rand);background:rgba(255,255,255,.028);
+  flex-wrap:wrap}
 .werkzeug .trenn{width:1px;height:1.3rem;background:var(--rand);margin:0 .15rem}
 .werkzeug select{width:auto;font-size:.78rem;padding:.3rem 1.5rem .3rem .5rem}
 .blaettern{display:flex;align-items:center;gap:.3rem;margin-left:auto;font-size:.76rem;
   color:var(--leise)}
 .rollen{overflow:auto;flex:1 1 auto;min-height:0}
 .zeilen{display:flex;flex-direction:column}
-.z{display:grid;grid-template-columns:auto auto 1fr auto;gap:.1rem .6rem;
-  align-items:center;padding:.5rem .6rem;border-bottom:1px solid rgba(255,255,255,.055);
+/* 🔴 EVERY cell is placed by hand — column AND row, on every child. Automatic
+   placement put the date in the free column and pushed sender and subject to the
+   far right, with the second line under the checkbox. It looked like a layout
+   somebody had chosen. Nobody had. Since then the rule holds: in a grid that
+   carries a list, nothing is left to the cursor. */
+.z{display:grid;
+  grid-template-columns:auto auto minmax(0,1fr) auto;
+  grid-template-rows:auto auto auto;
+  column-gap:.7rem;row-gap:.12rem;align-items:center;
+  padding:.55rem .75rem;border-bottom:1px solid rgba(255,255,255,.05);
   cursor:pointer;min-height:var(--zeile);position:relative}
-.z:hover{background:var(--karte)}
-.z.an{background:rgba(224,164,88,.13);box-shadow:inset 3px 0 0 var(--akzent)}
-.z.gewaehlt{background:rgba(96,165,250,.12)}
+.z:hover{background:rgba(255,255,255,.055)}
+.z.an{background:rgba(224,164,88,.14);box-shadow:inset 3px 0 0 var(--akzent)}
+.z.gewaehlt{background:rgba(96,165,250,.13)}
 .z.weg{opacity:.45;text-decoration:line-through}
-.z .haken{grid-row:1/4;width:1.05rem;height:1.05rem;accent-color:var(--akzent);
-  margin:0;cursor:pointer;flex:0 0 auto;opacity:.25;transition:opacity .12s}
+.z .haken{grid-column:1;grid-row:1/4;width:1.05rem;height:1.05rem;
+  accent-color:var(--akzent);margin:0;cursor:pointer;justify-self:center;
+  opacity:.22;transition:opacity .12s}
 .z:hover .haken,.z .haken:checked,body.wahlmodus .z .haken{opacity:1}
-.z .kreis{grid-row:1/4;width:2.05rem;height:2.05rem;border-radius:50%;display:grid;
-  place-items:center;font-size:.76rem;font-weight:700;letter-spacing:-.02em;
-  flex:0 0 auto;color:#15120c}
-.z .kopfz{display:flex;align-items:baseline;gap:.4rem;min-width:0}
-.z .von{font-size:.87rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  flex:1 1 auto;min-width:0}
+.z .kreis{grid-column:2;grid-row:1/4;width:2.2rem;height:2.2rem;border-radius:50%;
+  display:grid;place-items:center;font-size:.78rem;font-weight:700;
+  letter-spacing:-.02em;color:#15120c;justify-self:center}
+/* Line 1: who — and when, right at the edge where the eye looks for it. */
+.z .von{grid-column:3;grid-row:1;font-size:.92rem;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;align-self:end}
+.z .wann{grid-column:4;grid-row:1;font-size:.74rem;color:var(--leise);
+  font-variant-numeric:tabular-nums;white-space:nowrap;align-self:end;
+  justify-self:end}
+/* Line 2: what it says — and the marks. */
+.z .bet{grid-column:3;grid-row:2;font-size:.89rem;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;color:var(--text);opacity:.94}
+.z .zeichen{grid-column:4;grid-row:2;display:flex;gap:.28rem;font-size:.74rem;
+  color:var(--leise);align-items:center;justify-self:end}
+/* Line 3: the first words of the letter itself, across the full width. */
+.z .aus{grid-column:3/5;grid-row:3;font-size:.79rem;color:var(--leiser);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.45}
 .z.neu .von,.z.neu .bet{font-weight:700}
 .z.neu .bet{color:#fffaf2}
-.z .bet{font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  color:var(--text);opacity:.92}
-/* 🔴 In the THIRD column, under the subject. Without the explicit column the
-   second line lands under the checkbox at the far left — the screenshot showed a
-   ragged edge that no test could see. */
-.z .aus{grid-column:3;font-size:.76rem;color:var(--leiser);overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
-.z .rand{grid-row:1/4;display:flex;flex-direction:column;align-items:flex-end;
-  gap:.2rem;flex:0 0 auto}
-.z .wann{font-size:.7rem;color:var(--leise);font-variant-numeric:tabular-nums;
-  white-space:nowrap}
-.z .zeichen{display:flex;gap:.22rem;font-size:.7rem;color:var(--leise);align-items:center}
-.z .punkt{width:.42rem;height:.42rem;border-radius:50%;background:var(--akzent);
+.z.neu .wann{color:var(--akzent)}
+.z .punkt{width:.45rem;height:.45rem;border-radius:50%;background:var(--akzent);
   flex:0 0 auto}
 .z .stern{color:var(--warnung)}
-body[data-dichte="eng"] .z{grid-template-columns:auto auto 1fr auto auto;
-  padding:.24rem .6rem;gap:.55rem}
+/* Dense: one line, five columns, and again every cell named. */
+body[data-dichte="eng"] .z{
+  grid-template-columns:auto minmax(7rem,13rem) minmax(0,1fr) auto auto;
+  grid-template-rows:auto;padding:.26rem .75rem;column-gap:.7rem}
 body[data-dichte="eng"] .z .kreis{display:none}
-body[data-dichte="eng"] .z .haken{grid-row:auto}
-body[data-dichte="eng"] .z .kopfz{display:contents}
-body[data-dichte="eng"] .z .von{max-width:13rem;flex:0 0 13rem}
+body[data-dichte="eng"] .z .haken{grid-row:1}
+body[data-dichte="eng"] .z .von{grid-column:2;grid-row:1;font-size:.86rem;
+  align-self:center}
+body[data-dichte="eng"] .z .bet{grid-column:3;grid-row:1;font-size:.86rem}
+body[data-dichte="eng"] .z .zeichen{grid-column:4;grid-row:1}
+body[data-dichte="eng"] .z .wann{grid-column:5;grid-row:1;align-self:center}
 body[data-dichte="eng"] .z .aus{display:none}
-body[data-dichte="eng"] .z .rand{grid-row:auto;flex-direction:row;align-items:center;
-  gap:.45rem}
-.z .strang{grid-column:3;font-size:.7rem;color:var(--leiser)}
-.z.antwort{padding-left:1.7rem}
-.z.antwort::before{content:"⤷";position:absolute;left:.7rem;top:50%;
+.z.antwort{padding-left:1.9rem}
+.z.antwort::before{content:"⤷";position:absolute;left:.75rem;top:50%;
   transform:translateY(-50%);color:var(--leiser);font-size:.8rem}
 
 /* ── Reading pane ────────────────────────────────────────────────── */
@@ -344,8 +366,8 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
   .ordner{padding:.7rem .7rem 2rem}
 }
 @media (min-width:1800px){
-  :root{--ordner:21rem;--zeile:4.7rem}
-  body[data-dichte="eng"]{--zeile:2.7rem}
+  :root{--ordner:21rem;--zeile:5.35rem}
+  body[data-dichte="eng"]{--zeile:2.5rem}
   /* At this width the letter no longer needs the extra room — a newsletter is
      600 px wide and text keeps its measure. So the LIST gets more of it. */
   .raum[data-vorschau="rechts"]{
@@ -368,7 +390,6 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
   .raum,.raum[data-vorschau="rechts"],.raum[data-vorschau="unten"]{
     grid-template-columns:1fr;grid-template-rows:1fr;
     grid-template-areas:"liste"}
-  .spalte{border-right:0}
   .ordner,.lese{display:none}
   body[data-blick="ordner"] .ordner{display:flex;grid-area:liste}
   body[data-blick="ordner"] .liste{display:none}
@@ -915,6 +936,7 @@ function listeMalen(){
     const wer = S.einst.absender_zeigen === "adresse" ? m.adresse
               : S.einst.absender_zeigen === "beides"
                 ? (m.von || "") + " · " + (m.adresse || "") : (m.von || m.adresse);
+    const dritte = zweitzeile(m);
     const zeichen = [
       m.markiert ? '<span class="stern">★</span>' : "",
       m.beantwortet ? "<span>↩</span>" : "",
@@ -931,31 +953,32 @@ function listeMalen(){
              onclick="event.stopPropagation();wahlUm(${m.uid},${i},event.shiftKey)">
       <span class="kreis" style="background:${farbe(m.adresse)}"
             >${esc(initialen(m.von, m.adresse))}</span>
-      <div class="kopfz">
-        <span class="von" title="${esc(m.adresse)}">${esc(wer)}</span>
-        ${eng ? `<span class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</span>` : ""}
-      </div>
-      ${eng ? "" : `<div class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</div>`}
-      <div class="rand">
-        <span class="wann">${esc(wann(m.zeit))}</span>
-        <span class="zeichen">${zeichen}</span>
-      </div>
-      ${(!eng && S.einst.vorschautext) ? `<div class="aus">${
-        esc(zweitzeile(m))}</div>` : ""}
+      <span class="von" title="${esc(m.adresse)}">${esc(wer)}</span>
+      <span class="wann">${esc(wann(m.zeit))}</span>
+      <span class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</span>
+      <span class="zeichen">${zeichen}</span>
+      ${(!eng && S.einst.vorschautext && dritte) ? `<span class="aus">${
+        esc(dritte)}</span>` : ""}
     </div>`;
   }).join("");
   spanneMalen();
   wahlLeisteMalen();
 }
-/* 🔴 „To der Besitzer Marlow" under every single row of the INBOX says nothing — of
-   course it is to me. In the sent folder the opposite is true: there the
-   recipient is the only interesting name. Seen in the screenshot; in the source
-   one line looked as good as the other. */
+/* The third line of a row: the first words of the letter itself. That is what
+   makes a list worth reading — sender and subject tell you who and about what,
+   the excerpt tells you whether it can wait.
+
+   🔴 Where there is none — a mail that is only an attachment, or a folder whose
+   excerpts were not asked for — the row says what else is worth knowing instead
+   of leaving a gap. And „To der Besitzer Marlow" under every row of the INBOX is not
+   it: of course it is to me. In the sent folder the recipient is the opposite,
+   the only interesting name. */
 function zweitzeile(m){
+  if(m.auszug) return m.auszug;
   const raus = [];
   const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(S.ordner);
   if(gesendet && m.an) raus.push(txt("k.an") + ": " + m.an);
-  else if(m.adresse && S.einst.absender_zeigen === "name") raus.push(m.adresse);
+  else if(m.adresse) raus.push(m.adresse);
   if(m.groesse) raus.push(gr(m.groesse));
   return raus.join(" · ");
 }
@@ -1329,7 +1352,12 @@ async function verfassen(art, uid){
     feld.focus();
     /* On a reply the cursor belongs BEFORE the quote, not behind it — with the
        quote below, that is position 0. */
-    if(feld === $("#v_text") && S.einst.zitat !== "oben") feld.setSelectionRange(0, 0);
+    if(feld === $("#v_text") && S.einst.zitat !== "oben"){
+      feld.setSelectionRange(0, 0);
+      /* 🔴 And to the top. Setting the cursor is not the same as scrolling
+         there — the first line of the quote was cut off at the upper edge. */
+      feld.scrollTop = 0;
+    }
   }, 70);
 }
 function verfassenZu(){

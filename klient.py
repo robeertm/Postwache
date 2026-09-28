@@ -65,6 +65,8 @@ VERSUCHE_FREI = 4                   # up to this many failures without waiting
 LEERLAUF = 300                      # close an unused IMAP connection after 5 min
 MAX_ANHANG = 25 * 1024 * 1024       # per mail, adjustable up to this hard ceiling
 TEXT_GRENZE = 900 * 1024            # never render more body than this
+AUSZUG_BYTES = 900                  # how much of a body a list excerpt costs
+AUSZUG_ZEICHEN = 180                # and how much of it a row shows
 
 # Special folders are recognised by their FLAG, not by their name — a mailbox in
 # French calls its bin „Corbeille", and a name-based guess misses every mailbox
@@ -144,7 +146,7 @@ VORGABEN = {
     "richtung": "ab",
     "strang": False,               # group a conversation
     "nur_ungelesen": False,
-    "vorschautext": True,          # snippet line in the list
+    "vorschautext": True,          # two lines of the body in each list row
     "absender_zeigen": "name",
     "gelesen_nach": -1,            # -1 by hand, 0 at once, otherwise seconds
     "bilder": "nie",
@@ -767,7 +769,7 @@ class Briefkasten(W.Postfach if W is not None else object):
                     return []
         return []
 
-    def koepfe(self, uids: list) -> dict:
+    def koepfe(self, uids: list, auszug: bool = False) -> dict:
         """{uid: header record} for a page of the list — two FETCHes, no more.
 
         🔴 The metadata and the header block are fetched TOGETHER, the blueprint
@@ -799,6 +801,52 @@ class Briefkasten(W.Postfach if W is not None else object):
             anh, _ = anhang_und_inline(strukturen.get(uid))
             satz["anhang"] = len(anh)
             satz["anhang_gross"] = sum(a["b"] for a in anh)
+        if auszug:
+            for uid, text in self.auszuege(strukturen).items():
+                if uid in raus:
+                    satz = raus.get(uid)
+                    satz["auszug"] = text
+        return raus
+
+    def auszuege(self, strukturen: dict) -> dict:
+        """The first two lines of every letter in the list.
+
+        A list that shows only who wrote and what the subject says makes the
+        reader open a mail to find out whether it is worth opening. Two lines of
+        the text answer that in the list.
+
+        🔴 Still `BODY.PEEK`, and still only a PIECE of the part: the fetch asks
+        for the first AUSZUG_BYTES bytes of the body, never for the mail. A page
+        of fifty costs a few kilobytes that way, and a letter with a
+        ten-megabyte picture in it costs exactly as much as one without.
+
+        🔑 And it is ONE question per shape, not one per mail: the mails are
+        grouped by part number and encoding, so a page usually needs two or three
+        FETCHes — most letters carry their text in the same place.
+        """
+        raus, gruppen = {}, {}
+        for uid, struct in (strukturen or {}).items():
+            teile = W._teile(struct) if struct else []
+            t = _erster_text(teile, "plain") or _erster_text(teile, "html")
+            if not t:
+                continue
+            schluessel = (t["nr"], (t.get("kodierung") or "").upper(),
+                          t.get("zeichensatz") or "", t["subtyp"].lower())
+            gruppen.setdefault(schluessel, []).append(uid)
+        for (nr, kod, satz, sub), liste in gruppen.items():
+            for i in range(0, len(liste), 100):
+                teil = ",".join(str(u) for u in sorted(liste[i:i + 100]))
+                try:
+                    typ, daten = self.m.uid(
+                        "FETCH", teil,
+                        "(UID BODY.PEEK[%s]<0.%d>)" % (nr, AUSZUG_BYTES))
+                except Exception as e:
+                    log("Auszug nicht lesbar: %s" % str(e)[:120])
+                    continue
+                if typ != "OK":
+                    continue
+                for uid, roh in _stuecke_je_uid(daten):
+                    raus[uid] = _auszug_aus(roh, kod, satz, sub == "html")
         return raus
 
     @staticmethod
@@ -900,6 +948,14 @@ class Briefkasten(W.Postfach if W is not None else object):
         html, blockiert, links = ("", 0, [])
         if roh_html:
             html, blockiert, links = html_saeubern(roh_html, bilder, inline, ordner, uid)
+        # The filter handed back nothing readable. Then the letter is shown as
+        # text — made out of the HTML if there is no plain part. A reading pane
+        # that stays empty tells the reader the mail is empty, and that is a lie.
+        if roh_html and not html and not text:
+            text = _html.unescape(re.sub(
+                r"<[^>]+>", " ",
+                re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", roh_html)))
+            text = re.sub(r"[ \t]{2,}", " ", re.sub(r"\n{3,}", "\n\n", text))
         kopf = W.kopf_lesen(msg, text[:3000])
         urteil = W.einordnen(kopf, text[:3000]) if kopf.get("adresse") else {}
         return {
@@ -920,7 +976,9 @@ class Briefkasten(W.Postfach if W is not None else object):
             "kopfzeilen": _kopfzeilen_liste(msg),
             "text": text[:TEXT_GRENZE],
             "html": html[:TEXT_GRENZE * 2],
-            "hat_text": bool(text), "hat_html": bool(roh_html),
+            # 🔑 „There is an HTML view" means one that shows something. Where
+            # the filter kept nothing, the switch to it would lead to a blank page.
+            "hat_text": bool(text), "hat_html": bool(roh_html and html),
             "fern_blockiert": blockiert,
             "links_verdacht": [l for l in links if l.get("warnung")][:12],
             "links_gesamt": len(links),
@@ -1127,6 +1185,69 @@ def _erster_text(teile: list, art: str) -> dict:
     return {}
 
 
+def _stuecke_je_uid(daten) -> list:
+    """(UID, bytes) out of an answer that carries several mails at once.
+
+    🔴 The UID stands in the piece BEFORE the literal — and with some servers in
+    the one after it. Both are read; the same two lines that `_koepfe_lesen()`
+    needs, for the same reason."""
+    raus, stuecke = [], list(daten or [])
+    for i, el in enumerate(stuecke):
+        if not (isinstance(el, tuple) and len(el) >= 2):
+            continue
+        nach = (stuecke[i + 1]
+                if i + 1 < len(stuecke) and isinstance(stuecke[i + 1], bytes) else b"")
+        rand = ((el[0] or b"") + b" " + nach).decode("utf-8", "replace")
+        t = re.search(r"UID\s+(\d+)", rand)
+        if t:
+            raus.append((int(t.group(1)), el[1] or b""))
+    return raus
+
+
+def _auszug_aus(roh: bytes, kodierung: str, zeichensatz: str, ist_html: bool) -> str:
+    """A readable line or two out of the first bytes of a body part.
+
+    🔴 The piece is CUT OFF by design, and that breaks both transfer encodings in
+    its own way: base64 needs a length divisible by four, quoted-printable must
+    not end in the middle of an `=XX`. Trimming the tail costs two lines and is
+    the difference between an excerpt and an empty row."""
+    k = (kodierung or "").upper()
+    if k == "BASE64":
+        sauber = re.sub(rb"[^A-Za-z0-9+/=]", b"", roh or b"")
+        roh = sauber[:len(sauber) - (len(sauber) % 4)]
+    elif k == "QUOTED-PRINTABLE":
+        roh = re.sub(rb"=[0-9A-Fa-f]?$", b"", roh or b"")
+    gepackt = W.teil_entpacken(roh, k)
+    # 🔴 And the same again one level up: a piece cut at byte 900 can end in the
+    # middle of a CHARACTER. Decoded as it stands, an umlaut turns into two
+    # question marks at the end of every excerpt — so the tail is shortened
+    # until what is left decodes.
+    for _ in range(4):
+        try:
+            gepackt.decode(zeichensatz or "utf-8")
+            break
+        except UnicodeDecodeError:
+            gepackt = gepackt[:-1]
+        except LookupError:
+            break
+    text = _text_dekodieren(gepackt, zeichensatz)
+    if ist_html:
+        text = re.sub(r"(?is)<(script|style|head)\b.*?</\1>", " ", text)
+        text = _html.unescape(re.sub(r"<[^>]+>", " ", text))
+    zeilen = []
+    for zeile in text.splitlines():
+        zeile = zeile.strip()
+        # Quoted passages and the signature are the part of a letter that is
+        # least worth two lines in a list.
+        if not zeile or zeile.startswith(">") or zeile in ("--", "-- "):
+            continue
+        zeilen.append(zeile)
+        if sum(len(z) for z in zeilen) > AUSZUG_ZEICHEN * 2:
+            break
+    ganz = re.sub(r"\s+", " ", " ".join(zeilen)).strip()
+    return ganz[:AUSZUG_ZEICHEN]
+
+
 def _text_dekodieren(roh: bytes, zeichensatz: str) -> str:
     """Bytes to text — with the charset the mail itself names.
 
@@ -1187,16 +1308,29 @@ ERLAUBTE_TAGS = {
     "sub", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "time", "tr",
     "tt", "u", "ul", "var", "wbr",
 }
+# 🔴 EVERY void element of HTML, not just the ones a letter uses for layout.
+# This set carries the whole weight of the rule below: a void element never has
+# an end tag, so it must never open a region that waits for one. `meta` was
+# missing here and stood in the silent list at the same time — and with that one
+# `<meta http-equiv="Content-Type">` at the top of nearly every newsletter the
+# counter went to 1 and never came back. Everything after it was dropped; only
+# the style block survived, because it is read before the counter is asked. The
+# letter arrived complete and the reader saw an empty page (5.0.1).
+LEERE_TAGS = {"area", "base", "basefont", "br", "col", "embed", "frame", "hr",
+              "img", "input", "isindex", "keygen", "link", "meta", "param",
+              "source", "track", "wbr"}
 # Tags whose CONTENT has to go as well — text inside <script> is code, text
 # inside <title> is not part of the letter.
 # 🔑 `style` is NOT in here. A newsletter carries its layout in a style block,
 # and throwing it away makes every mail look broken. So the block stays and its
 # CONTENT is cleaned — see `_css_saeubern()`.
-STILLE_TAGS = {"script", "head", "title", "noscript", "template",
-               "svg", "math", "object", "embed", "applet", "iframe", "frame",
-               "frameset", "form", "input", "button", "select", "textarea",
-               "option", "link", "meta", "base", "audio", "video", "source"}
-LEERE_TAGS = {"br", "hr", "img", "col", "wbr"}
+# 🔑 And only tags whose content is really not for reading belong in here. `head`,
+# `body`, `form`, `button` and `option` were in it and are not: their content IS
+# the letter in a great many mails. A tag that is simply not allowed disappears
+# on its own — what is inside it stays readable.
+STILLE_TAGS = {"script", "title", "noscript", "template", "svg", "math",
+               "object", "applet", "iframe", "frameset", "audio", "video",
+               "textarea", "select"}
 ERLAUBTE_ATTRIBUTE = {
     "*": {"style", "class", "title", "dir", "lang", "align", "valign",
           "bgcolor", "color", "width", "height"},
@@ -1233,6 +1367,7 @@ class _Saeuberer(HTMLParser):
         self.blockiert = 0
         self.links = []
         self.still = 0          # depth inside a tag whose content is dropped
+        self.stille_namen = []  # which tags hold that silence, innermost last
         self.stapel = []
         self.stil_puffer = None  # not None while inside a <style> block
 
@@ -1251,9 +1386,15 @@ class _Saeuberer(HTMLParser):
         if tag == "style":
             self.stil_puffer = []
             return
-        if tag in STILLE_TAGS:
-            if tag not in LEERE_TAGS:
-                self.still += 1
+        # 🔴 A void element and a self-closed tag NEVER open a region. Written
+        # the other way round, a single `<meta …/>` silences the whole rest of
+        # the letter, because the end tag it waits for cannot exist.
+        if leer or tag in LEERE_TAGS:
+            if tag in STILLE_TAGS or tag not in ERLAUBTE_TAGS:
+                return
+        elif tag in STILLE_TAGS:
+            self.still += 1
+            self.stille_namen.append(tag)
             return
         if self.still or tag not in ERLAUBTE_TAGS:
             return
@@ -1310,8 +1451,15 @@ class _Saeuberer(HTMLParser):
             if css:
                 self.raus.append("<style>%s</style>" % css)
             return
+        # Closed by NAME, not by counting: a mail that forgets a `</script>` must
+        # not take the rest of the letter with it, and a stray `</iframe>` must
+        # not lift a silence that was never set.
         if tag in STILLE_TAGS:
-            if self.still:
+            if tag in self.stille_namen:
+                while self.stille_namen:
+                    if self.stille_namen.pop() == tag:
+                        break
+                    self.still -= 1
                 self.still -= 1
             return
         if self.still or tag not in ERLAUBTE_TAGS or tag in LEERE_TAGS:
@@ -1441,6 +1589,14 @@ def links_pruefen(links: list, text_je_link: dict) -> list:
     return raus
 
 
+def _sichtbar(html: str) -> bool:
+    """Is there anything in there a reader would see — text or a picture?"""
+    if re.search(r"(?i)<img\b", html or ""):
+        return True
+    ohne = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", html or "")
+    return bool(_html.unescape(re.sub(r"<[^>]+>", " ", ohne)).strip())
+
+
 def html_saeubern(roh: str, bilder: bool, inline: list, ordner: str,
                   uid: int) -> tuple:
     """(clean HTML, number of blocked remote references, links)."""
@@ -1452,6 +1608,16 @@ def html_saeubern(roh: str, bilder: bool, inline: list, ordner: str,
         log("HTML nicht säuberbar: %s" % str(e)[:120])
         return _html.escape(roh[:4000]), 0, []
     saubere = s.ergebnis()
+    # 🔴 The wall behind the rule. A filter that rebuilds a letter out of the
+    # allowed can, if it is wrong about one tag, hand back a page with nothing on
+    # it — and a blank reading pane looks exactly like a mail with no content.
+    # So the result is ASKED whether anything readable is in it, and where the
+    # answer is no and the original did have text, the letter is shown as text
+    # rather than not at all. Measured, not assumed (5.0.1).
+    if not _sichtbar(saubere) and _sichtbar(re.sub(r"(?is)<(script|style)\b.*?</\1>",
+                                                  " ", roh)):
+        log("HTML-Säuberung ergab nichts Sichtbares — Textfassung gezeigt")
+        return "", 0, []
     # The visible text per link — for the comparison „says A, goes to B".
     text_je_link = {}
     for treffer in re.finditer(r'<a\b[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
@@ -2121,7 +2287,7 @@ def liste(d: dict) -> dict:
         seiten = max(1, (gesamt + pro - 1) // pro)
         nr = min(seite, seiten)
         teil = uids[(nr - 1) * pro:nr * pro]
-        koepfe = k.koepfe(teil)
+        koepfe = k.koepfe(teil, auszug=bool(einst["vorschautext"]))
         gesamt_o, ungelesen_o = k.zaehlen(ordner)
         return {
             "ok": True, "ordner": ordner, "gesamt": gesamt, "seite": nr,
@@ -2166,12 +2332,26 @@ def mail_zeigen(d: dict) -> dict:
     uid = int(d.get("uid") or 0)
     einst = einstellungen()
     wunsch = d.get("bilder")
-    m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=False))
+    # 🔑 Where the answer does not depend on the sender, it is known BEFORE the
+    # mail is fetched — and then the mail is fetched once instead of twice. Only
+    # „known senders" has to see the address first; that alone costs a second
+    # pass, and with the setting on „always" der Besitzer paid it on every single mail.
+    vorab = (None if wunsch is None and einstellungen()["bilder"] == "bekannte"
+             else _bilder_erlaubt(pf_id, "", wunsch))
+    m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=bool(vorab)))
     if not m:
         return {"ok": False, "text": txt("k.mail_weg")}
-    bilder = _bilder_erlaubt(pf_id, m.get("adresse") or "", wunsch)
-    if bilder and m.get("hat_html"):
-        m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=True))
+    bilder = vorab if vorab is not None else _bilder_erlaubt(
+        pf_id, m.get("adresse") or "", wunsch)
+    if bilder and vorab is None and m.get("hat_html"):
+        zweit = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=True))
+        # 🔴 And never let the second pass empty the letter: a connection that
+        # goes stale between the two answers must not turn a readable mail into
+        # a blank page.
+        if zweit:
+            m = zweit
+        else:
+            bilder = False
     ansicht = str(d.get("ansicht") or "")
     if not ansicht:
         ansicht = "html" if (m.get("hat_html") and einst["html_zuerst"]) else "text"

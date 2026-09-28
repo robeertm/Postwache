@@ -44,7 +44,13 @@ body{
   background:var(--grund); color:var(--text);
   font-family:ui-rounded,"SF Pro Rounded",system-ui,"Segoe UI",sans-serif;
   -webkit-font-smoothing:antialiased;
-  background-image:radial-gradient(40rem 26rem at 50% -14%,rgba(224,164,88,.15),transparent 62%);
+  /* 🔑 The same three lights as the watchman's page and the wide client, laid
+     out for a narrow screen. One house, one ground. */
+  background-image:
+    radial-gradient(36rem 24rem at 10% -8%, rgba(224,164,88,.16), transparent 62%),
+    radial-gradient(30rem 22rem at 100% 5%, rgba(96,165,250,.08), transparent 60%),
+    radial-gradient(34rem 24rem at 50% 116%, rgba(224,164,88,.09), transparent 62%);
+  background-attachment:fixed;
 }
 h1,h2,h3{margin:0;font-weight:600}
 /* 🔴 16 px on every input. Below that iOS zooms into the field when it gets the
@@ -663,10 +669,19 @@ function zeileHtml(m){
       <span class="rand"><span class="wann">${esc(wann(m.zeit))}</span>
         <span class="zeichen">${zeichen}</span></span>
       <span class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</span>
-      <span class="aus">${esc([S.rollen.gesendet, S.rollen.entwuerfe].includes(S.ordner)
-        && m.an ? txt("k.an") + ": " + m.an : m.adresse)}${
-        m.anhang ? " · " + esc(gr(m.anhang_gross)) : ""}</span>
+      <span class="aus">${esc(dritteZeile(m))}</span>
     </div></div>`;
+}
+
+/* The third line: the first words of the letter. On a phone that matters more
+   than anywhere else — the screen shows eight rows, and the excerpt is what
+   saves opening six of them. Where there is none, the row says what else is
+   worth knowing about the mail. */
+function dritteZeile(m){
+  if(m.auszug) return m.auszug;
+  const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(S.ordner);
+  const wer = gesendet && m.an ? txt("k.an") + ": " + m.an : m.adresse;
+  return wer + (m.anhang ? " · " + gr(m.anhang_gross) : "");
 }
 
 /* ── Swiping ───────────────────────────────────────────────────────────
@@ -941,7 +956,12 @@ async function verfassen(art, uid){
   setTimeout(() => {
     const feld = (art === "neu" || art === "weiter") ? $("#s_an") : $("#s_text");
     feld.focus();
-    if(feld === $("#s_text") && S.einst.zitat !== "oben") feld.setSelectionRange(0, 0);
+    if(feld === $("#s_text") && S.einst.zitat !== "oben"){
+      feld.setSelectionRange(0, 0);
+      /* 🔴 And to the top. Setting the cursor is not the same as scrolling
+         there — the first line of the quote was cut off at the upper edge. */
+      feld.scrollTop = 0;
+    }
   }, 90);
 }
 function schreibenZu(){

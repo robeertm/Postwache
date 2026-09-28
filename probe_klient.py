@@ -290,8 +290,13 @@ class FalscherIMAP(threading.Thread):
         # `[HEADER.FIELDS (…)]`; reading that as part number „HEADER" is how the
         # fake server answered every single mail with nothing and made six real
         # probes fail without a real fault behind them.
-        teil = re.search(r"BODY\.PEEK\[([^\]]*)\]", was, re.I)
+        teil = re.search(r"BODY\.PEEK\[([^\]]*)\](?:<(\d+)\.(\d+)>)?", was, re.I)
         nummer = teil.group(1) if teil else None
+        # A real server hands back exactly the piece that was asked for — and
+        # says from which octet. The excerpt in the list lives on that, so the
+        # fake server has to cut as well, or the probe would test nothing.
+        von = int(teil.group(2)) if teil and teil.group(2) else None
+        wieviel = int(teil.group(3)) if teil and teil.group(3) else None
         for nr, uid in enumerate(uids, 1):
             if "BODYSTRUCTURE" in wasu:
                 raus("* %d FETCH (UID %d BODYSTRUCTURE %s)\r\n"
@@ -306,8 +311,13 @@ class FalscherIMAP(threading.Thread):
                 roh = TEILE.get((uid, nummer), b"")
                 if not roh and nummer == "":
                     roh = KOEPFE.get(uid, b"") + TEXT_101
-                raus("* %d FETCH (UID %d BODY[%s] {%d}\r\n"
-                     % (nr, uid, nummer, len(roh)), roh, ")\r\n")
+                if von is not None:
+                    roh = roh[von:von + (wieviel or len(roh))]
+                    raus("* %d FETCH (UID %d BODY[%s]<%d> {%d}\r\n"
+                         % (nr, uid, nummer, von, len(roh)), roh, ")\r\n")
+                else:
+                    raus("* %d FETCH (UID %d BODY[%s] {%d}\r\n"
+                         % (nr, uid, nummer, len(roh)), roh, ")\r\n")
         raus("%s OK fertig\r\n" % marke)
 
     def halt(self):
@@ -612,6 +622,81 @@ probe("eine nackte Adresse im Text wird anklickbar",
 probe("ein Verweis im Text traegt noopener",
       "noopener" in K.text_zu_html("sieh https://erfunden.example"))
 
+# 🔴 The one that cost der Besitzer every HTML mail (5.0.1). A void element has no end
+# tag — so it must never open a region that waits for one. `<meta>` stood in the
+# silent list and NOT in the void list, and with that the counter went to 1 at
+# the top of nearly every newsletter and never came back: everything after it
+# was dropped, only the style block survived. The reading pane was empty and the
+# mail was complete. Every one of these probes FAILS against the old code.
+ECHTER_KOPF = (
+    '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"\n'
+    ' "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
+    '<html xmlns="http://www.w3.org/1999/xhtml"><head>\n'
+    '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />\n'
+    '<meta name="viewport" content="width=device-width" />\n'
+    '<title>Nicht der Brief</title>\n'
+    '<style>.k{color:#333}</style></head><body>\n'
+    '<table><tr><td class="k">Der Brief steht hier.</td></tr></table>\n'
+    '<img src="cid:logo1" /><p>Und hier noch etwas.</p></body></html>')
+sauber, _, _ = K.html_saeubern(ECHTER_KOPF, False, [], "INBOX", 1)
+probe("eine Mail mit echtem Kopf zeigt ihren Text",
+      "Der Brief steht hier." in sauber and "Und hier noch etwas." in sauber,
+      "%d Zeichen" % len(sauber))
+probe("und ihren Stilblock behaelt sie trotzdem", ".k{color:#333}" in sauber)
+probe("der Titel gehoert NICHT zum Brief", "Nicht der Brief" not in sauber)
+for name, roh in (
+        ("ein einzelnes <meta/>", '<meta charset="utf-8" /><p>danach</p>'),
+        ("ein <link>", '<link rel="stylesheet" href="https://x.example/a.css"><p>danach</p>'),
+        ("ein <base>", '<base href="https://x.example/"><p>danach</p>'),
+        ("ein nie geschlossenes <input>", '<input name="pw"><p>danach</p>'),
+        ("ein selbstschliessendes <div/>", '<div/><p>danach</p>'),
+        ("ein <source> ohne Ende", '<source src="a.mp3"><p>danach</p>'),
+        ("ein Formular um den Brief", '<form action="x"><p>danach</p></form>')):
+    sauber, _, _ = K.html_saeubern(roh, False, [], "INBOX", 1)
+    probe("bringt den Rest des Briefes nicht zum Schweigen: %s" % name,
+          "danach" in sauber, repr(sauber[:60]))
+sauber, _, _ = K.html_saeubern('<script>boese()</script><p>danach</p>', False,
+                               [], "INBOX", 1)
+probe("ein Skript schweigt weiterhin — mit seinem Inhalt",
+      "boese" not in sauber and "danach" in sauber, repr(sauber[:60]))
+sauber, _, _ = K.html_saeubern('<script>a<p>b</p>', False, [], "INBOX", 1)
+probe("ein Skript OHNE Ende nimmt den Rest mit (und nichts davon kommt durch)",
+      "a" not in sauber and "<p>" not in sauber, repr(sauber[:60]))
+sauber, _, _ = K.html_saeubern('</iframe><script>heimlich</script><p>da</p>',
+                               False, [], "INBOX", 1)
+probe("ein herrenloses </iframe> hebt keine Stille auf, die es nie gab",
+      "heimlich" not in sauber and "da" in sauber, repr(sauber[:60]))
+# 🔴 And the wall behind the rule: if the filter ever hands back a page with
+# nothing on it, the letter is shown as TEXT instead of not at all.
+leer, _, _ = K.html_saeubern("<title>nur der Titel</title>", False, [], "INBOX", 1)
+probe("was nichts Sichtbares ergibt, wird nicht als HTML gezeigt", leer == "",
+      repr(leer[:60]))
+voll, _, _ = K.html_saeubern("<p>ein Wort</p>", False, [], "INBOX", 1)
+probe("was etwas ergibt, wird gezeigt", "ein Wort" in voll)
+nur_bild, _, _ = K.html_saeubern('<img src="cid:logo1">', False,
+                                 [{"id": "logo1", "nr": "3", "k": "BASE64"}], "INBOX", 1)
+probe("ein Brief, der NUR ein Bild ist, gilt als sichtbar", "<img" in nur_bild)
+
+# ── The excerpt for the list: cut pieces, and both encodings survive it ──
+probe("ein abgeschnittenes Quoted-Printable verliert nur das halbe Zeichen",
+      K._auszug_aus("Gr=C3=BC=C3".encode(), "QUOTED-PRINTABLE", "utf-8", False)
+      .startswith("Gr\u00fc"),
+      repr(K._auszug_aus("Gr=C3=BC=C3".encode(), "QUOTED-PRINTABLE", "utf-8", False)))
+roh64 = __import__("base64").b64encode("Ein laengerer Brief zum Abschneiden".encode())
+probe("ein abgeschnittenes Base64 ergibt trotzdem Text",
+      "Ein laenger" in K._auszug_aus(roh64[:23], "BASE64", "utf-8", False),
+      repr(K._auszug_aus(roh64[:23], "BASE64", "utf-8", False)))
+probe("aus HTML wird fuer die Liste reiner Text",
+      K._auszug_aus(b"<style>a{}</style><p>Hallo <b>du</b></p>", "", "utf-8", True)
+      == "Hallo du",
+      repr(K._auszug_aus(b"<style>a{}</style><p>Hallo <b>du</b></p>", "", "utf-8", True)))
+probe("zitierte Zeilen und die Signatur stehen nicht in der Liste",
+      K._auszug_aus(b"> altes Zitat\nNeuer Satz.\n--\nGruss", "", "utf-8", False)
+      == "Neuer Satz. Gruss",
+      repr(K._auszug_aus(b"> altes Zitat\nNeuer Satz.\n--\nGruss", "", "utf-8", False)))
+probe("ein Auszug bleibt kurz",
+      len(K._auszug_aus(("Wort " * 400).encode(), "", "utf-8", False)) <= K.AUSZUG_ZEICHEN)
+
 
 # ══ 4. What really goes over the wire ═════════════════════════════════════
 print("\n── 4. Die Befehle am falschen Server ──")
@@ -671,6 +756,29 @@ probe("der Gesprächsfaden zeigt auf die erste Mail",
       koepfe[103]["strang"] == "eins@erfunden.example", koepfe[103]["strang"])
 probe("das Logo zaehlt NICHT als Anhang, die Rechnung schon",
       k102.get("anhang") == 1, "%s Anhang/Anhaenge" % k102.get("anhang"))
+
+# ── The excerpt in the list: what it costs, and what it does NOT do ──────
+vor = len(server.befehle)
+mit = kasten.koepfe([101, 102, 103], auszug=True)
+neue = [b for b in server.befehle[vor:] if "BODY.PEEK[" in b and "HEADER" not in b]
+probe("die Liste zeigt den Anfang des Briefes",
+      mit.get(101, {}).get("auszug", "").startswith("Hallo der Besitzer"),
+      repr(mit.get(101, {}).get("auszug")))
+probe("auch wenn der Brief in windows-1252 geschrieben ist",
+      "49,90 €" in mit.get(102, {}).get("auszug", ""),
+      repr(mit.get(102, {}).get("auszug")))
+probe("der Auszug wird nur STUECKWEISE geholt, nie ganz",
+      neue and all(re.search(r"<0\.\d+>", b) for b in neue),
+      "; ".join(b[-40:] for b in neue[:2]))
+probe("und er kostet EINEN Abruf je Bauform, nicht einen je Mail",
+      len(neue) <= 3, "%d Abruf(e) fuer 3 Mails" % len(neue))
+probe("auch der Auszug fasst nichts an: kein Abruf ohne PEEK",
+      not [b for b in server.befehle[vor:] if re.search(r"\bBODY\[", b)])
+probe("und er setzt keine Flagge",
+      not [b for b in server.befehle[vor:] if " STORE " in b])
+ohne = kasten.koepfe([101], auszug=False)
+probe("ohne Einstellung wird gar nichts nachgeholt",
+      "auszug" not in ohne.get(101, {}))
 
 mail = kasten.mail("INBOX", 102)
 probe("der Textteil wird mit SEINEM Zeichensatz gelesen",
