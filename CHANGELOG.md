@@ -7,6 +7,69 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.3.0] – 2026-09-28
+
+### 🔴 `[hidden]` loses to every class with a `display`
+
+The ✕ on the swipe hint **worked**: it set `hidden` and remembered it in
+`localStorage`. The bar simply never went away — `.wischhinweis{display:flex}` is
+a class selector and beats the browser's own `[hidden]{display:none}`. The
+bookkeeping was right; the cascade was not.
+
+Measured, not guessed: after the ✕ the element had `hidden: true`,
+`localStorage: "1"` — and `getComputedStyle(...).display === "flex"`.
+
+One line on all three pages settles it:
+
+```css
+[hidden]{display:none!important}
+```
+
+And it took **three more bugs** with it that nobody had reported: the Cc and Bcc
+rows in the compose window (wide *and* phone) were always visible although they
+carried `hidden` — so the “+ Cc” button did nothing visible. The test bench now
+guards the line.
+
+### Several at once — on the phone
+
+* Two ways in: a **long press** on a row (what a phone teaches you) and a
+  **button** in the bar (what you find when you do not know that).
+* The avatars become **ticks**, in the same place, so the list does not shift.
+* Header: ✕ · “N selected” · **Select all**. At the bottom a selection bar
+  replaces the tabs: read · unread · flag · **move** · delete.
+* 🔴 A long press still sends a `click` afterwards — the row would have been
+  unchosen again immediately. The tap is barred for 800 ms.
+* Swiping is off while choosing; back leaves the selection first.
+
+### Moving is a sheet, not a number to type
+
+Moving used to be a `prompt()` with a numbered list. Now it is the same folder
+sheet as everywhere, with tree, indentation and guide line — for the one open
+mail and for a whole selection. The folder the mails are already in is left out.
+
+### 🔴 A UID is only valid inside its folder — for the selection too
+
+The selection was keyed by **number**. In the “New” view the same number stands
+in three folders: **one tick marked three rows**, and “mark read” would have gone
+to the inbox three times. Measured: three ticks out of one click.
+
+* The key is **folder + number** now, on both pages.
+* Actions work on **(folder, number) pairs**, grouped per folder.
+* Rows are addressed by their **place in the list**, not by number — otherwise a
+  tap on the row from *House* opens the mail from the inbox.
+* After an action rows are removed by **key**, not by number.
+
+**Measured against the running server:** three mails from three folders chosen →
+**three** requests, one per folder, each with the right number.
+
+### 🔴 And one only the picture showed
+
+The selection background was **translucent** — and behind every row lie the two
+swipe actions. On every chosen mail that had been read, the bin shone through.
+Two rules above it stands the comment warning about exactly that.
+
+**Test bench:** `probe_klient.py` 216 → **225 probes**, all green.
+
 ## [5.2.0] – 2026-09-28
 
 ### ✨ Everything new, in one view

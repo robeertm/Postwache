@@ -20,6 +20,13 @@
   --ok:#34d399; --info:#60a5fa; --warnung:#fbbf24; --kritisch:#f87171;
   --r:1.1rem;
 }
+/* 🔴 The browser's own `[hidden]{display:none}` is ONE selector — every class
+   with a `display` beats it. `.wischhinweis{display:flex}` did, so the swipe
+   hint carried `hidden`, remembered that it had been dismissed, and stood there
+   anyway: the bookkeeping was right and only the cascade was wrong. Measured,
+   not guessed — `getComputedStyle` said `flex` while `hidden` was set. This one
+   line settles it for every element on the page (5.3.0). */
+[hidden]{display:none!important}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 /* overflow-x on body alone is not enough: if a child overflows, the html
    element grows with it and the whole page becomes wider than the window. */

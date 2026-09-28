@@ -26,6 +26,13 @@
   --schrift:100%;
 }
 body[data-dichte="eng"]{--zeile:2.35rem}
+/* 🔴 The browser's own `[hidden]{display:none}` is ONE selector — every class
+   with a `display` beats it. `.wischhinweis{display:flex}` did, so the swipe
+   hint carried `hidden`, remembered that it had been dismissed, and stood there
+   anyway: the bookkeeping was right and only the cascade was wrong. Measured,
+   not guessed — `getComputedStyle` said `flex` while `hidden` was set. This one
+   line settles it for every element on the page (5.3.0). */
+[hidden]{display:none!important}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%;font-size:var(--schrift)}
 html,body{margin:0;height:100%;overflow:hidden}
@@ -971,17 +978,39 @@ function offenOrdner(){
   return (S.offen && S.offen.ordner) || S.ordner;
 }
 function ordnerVon(uid){
+  /* 🔴 The open mail answers for itself. Searching the list by number finds the
+     FIRST row with that number — and in the „New" view the same number stands in
+     three folders, so the answer would be right by luck. */
+  if(S.offen && S.offen.uid === uid && S.offen.ordner) return S.offen.ordner;
   const m = S.mails.find(x => x.uid === uid);
   return (m && m.ordner) || S.ordner;
 }
-/* Selected mails grouped by their folder. In a normal folder that is exactly one
-   group and exactly one request — the same behaviour as before. */
-function nachOrdnern(uids){
+/* 🔴 A UID is unique inside ITS FOLDER and nowhere else. Keyed by UID alone, one
+   tick in the „New" view marked three rows — the same number 101 exists in the
+   inbox, in House and in People. The key of a chosen mail is therefore folder
+   AND number, and every action works on (folder, number) pairs. Measured: three
+   ticks drawn from one click. */
+function wahlSchluessel(m){
+  return (m.ordner || S.ordner) + "\u0000" + m.uid;
+}
+function gewaehlteMails(){
+  return S.mails.filter(m => S.gewaehlt.has(wahlSchluessel(m)));
+}
+/* What an action really works on. Given numbers (one open mail, a keyboard
+   shortcut) it asks the row for the folder; given nothing it takes the
+   selection, which carries its folders with it. */
+function posten(uids){
+  if(uids && uids.length)
+    return uids.map(u => ({ordner: ordnerVon(u), uid: u}));
+  return gewaehlteMails().map(m => ({ordner: m.ordner || S.ordner, uid: m.uid}));
+}
+/* Grouped by folder. In a normal folder that is exactly one group and exactly
+   one request — the same behaviour as before. */
+function nachOrdnern(liste){
   const karte = new Map();
-  for(const uid of uids){
-    const o = ordnerVon(uid);
-    if(!karte.has(o)) karte.set(o, []);
-    karte.get(o).push(uid);
+  for(const p of liste){
+    if(!karte.has(p.ordner)) karte.set(p.ordner, []);
+    karte.get(p.ordner).push(p.uid);
   }
   return [...karte.entries()];
 }
@@ -1065,7 +1094,7 @@ function listeMalen(){
   z.innerHTML = S.mails.map((m, i) => {
     const gleich = S.einst.strang && m.strang && m.strang === vorher;
     vorher = m.strang || "";
-    const gewaehlt = S.gewaehlt.has(m.uid);
+    const gewaehlt = S.gewaehlt.has(wahlSchluessel(m));
     const wer = S.einst.absender_zeigen === "adresse" ? m.adresse
               : S.einst.absender_zeigen === "beides"
                 ? (m.von || "") + " · " + (m.adresse || "") : (m.von || m.adresse);
@@ -1086,7 +1115,7 @@ function listeMalen(){
         ${gewaehlt ? "gewaehlt" : ""} ${m.geloescht ? "weg" : ""} ${gleich ? "antwort" : ""}"
         data-uid="${m.uid}" data-i="${i}" tabindex="0"
         onclick="zeileKlick(event,${m.uid},${i})"
-        onkeydown="if(event.key==='Enter')mailOeffnen(${m.uid})">
+        onkeydown="if(event.key==='Enter')mailOeffnen(${m.uid},'${escJs(m.ordner || "")}')">
       <input type="checkbox" class="haken" ${gewaehlt ? "checked" : ""}
              onclick="event.stopPropagation();wahlUm(${m.uid},${i},event.shiftKey)">
       <span class="kreis" style="background:${farbe(m.adresse)}"
@@ -1186,21 +1215,22 @@ async function blaettern(d){
 function zeileKlick(ev, uid, i){
   if(ev.metaKey || ev.ctrlKey){ wahlUm(uid, i, false); return; }
   if(ev.shiftKey){ wahlUm(uid, i, true); return; }
-  mailOeffnen(uid);
+  mailOeffnen(uid, (S.mails[i] || {}).ordner);
 }
 function wahlUm(uid, i, bereich){
   if(bereich && S.letzteWahl != null){
     const [a, b] = [Math.min(S.letzteWahl, i), Math.max(S.letzteWahl, i)];
-    for(let k = a; k <= b; k++) S.gewaehlt.add(S.mails[k].uid);
+    for(let k = a; k <= b; k++) S.gewaehlt.add(wahlSchluessel(S.mails[k]));
   }else{
-    S.gewaehlt.has(uid) ? S.gewaehlt.delete(uid) : S.gewaehlt.add(uid);
+    const k = wahlSchluessel(S.mails[i] || {uid:uid});
+    S.gewaehlt.has(k) ? S.gewaehlt.delete(k) : S.gewaehlt.add(k);
     S.letzteWahl = i;
   }
   listeMalen();
 }
 function alleWaehlen(an){
   S.gewaehlt.clear();
-  if(an) S.mails.forEach(m => S.gewaehlt.add(m.uid));
+  if(an) S.mails.forEach(m => S.gewaehlt.add(wahlSchluessel(m)));
   listeMalen();
 }
 function wahlLeisteMalen(){
@@ -1211,9 +1241,6 @@ function wahlLeisteMalen(){
   $("#alle_haken").indeterminate = n > 0 && n < S.mails.length;
   document.body.classList.toggle("wahlmodus", n > 0);
 }
-function gewaehlteUids(){
-  return S.gewaehlt.size ? [...S.gewaehlt] : (S.uid ? [S.uid] : []);
-}
 
 /* ── Acting ────────────────────────────────────────────────────────────────── */
 /* 🔴 An action asks the ROW which folder it is in, never the view. In a folder
@@ -1222,10 +1249,10 @@ function gewaehlteUids(){
    have flagged, moved or deleted the wrong mail in five of them. ONE place
    answers it: `nachOrdnern()`. */
 async function stapel(was, an, uids){
-  uids = uids || gewaehlteUids();
-  if(!uids.length) return melde(txt("k.nichts_gewaehlt"), false);
+  const liste = posten(uids);
+  if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
   let gut = true;
-  for(const [ordner, teil] of nachOrdnern(uids)){
+  for(const [ordner, teil] of nachOrdnern(liste)){
     const r = await sende("klient_flaggen", {ordner:ordner, uids:teil, was:was, an:an});
     if(!r.ok){ gut = false; melde(r.text || txt("k.ging_nicht"), false); continue; }
     if(was === "gelesen"){
@@ -1234,6 +1261,7 @@ async function stapel(was, an, uids){
     }
   }
   if(!gut) return;
+  uids = liste.map(p => p.uid);
   /* Do not refetch the whole list for a flag: the server has confirmed it, and a
      list that jumps after every click is a list you stop clicking in. */
   S.mails.forEach(m => { if(uids.includes(m.uid)) m[was] = an; });
@@ -1244,22 +1272,23 @@ async function stapel(was, an, uids){
 }
 async function stapelVerschieben(ziel, uids){
   if(!ziel) return;
-  uids = uids || gewaehlteUids();
+  const liste = posten(uids);
   $("#stapel_ziel").value = "";
-  if(!uids.length) return melde(txt("k.nichts_gewaehlt"), false);
+  if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
   let gut = true, zahl = 0, letzte = "";
-  for(const [ordner, teil] of nachOrdnern(uids)){
+  for(const [ordner, teil] of nachOrdnern(liste)){
     if(ordner === ziel){ continue; }        // already there — nothing to do
     const r = await sende("klient_verschieben", {ordner:ordner, uids:teil, ziel:ziel});
     if(r.ok){ zahl += teil.length; letzte = r.text || letzte; }
     else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
   }
   if(gut) melde(letzte, true);
-  if(zahl) await nachTat(uids);
+  if(zahl) await nachTat(liste.map(p => p.uid), liste);
 }
 async function stapelLoeschen(uids, endgueltig){
-  uids = uids || gewaehlteUids();
-  if(!uids.length) return melde(txt("k.nichts_gewaehlt"), false);
+  const liste = posten(uids);
+  if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
+  uids = liste.map(p => p.uid);
   /* 🔴 One mail is not „1 mails". A count that reads as a sentence needs both
      forms — everywhere else the number stands at the end, where no form is
      needed at all. */
@@ -1267,13 +1296,13 @@ async function stapelLoeschen(uids, endgueltig){
                                   : txt("k.loeschen_sicher", {n:uids.length});
   if(S.einst.sicherheitsfrage && !confirm(frage)) return;
   let gut = true, letzte = "";
-  for(const [ordner, teil] of nachOrdnern(uids)){
+  for(const [ordner, teil] of nachOrdnern(liste)){
     const r = await sende("klient_loeschen", {ordner:ordner, uids:teil,
                                               endgueltig:!!endgueltig});
     if(r.ok) letzte = r.text || letzte;
     else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
   }
-  if(gut){ melde(letzte, true); await nachTat(uids); }
+  if(gut){ melde(letzte, true); await nachTat(uids, liste); }
 }
 async function wieWache(uid, adresse){
   const r = await sende("klient_wie_wache", {ordner:ordnerVon(uid), uids:[uid],
@@ -1284,14 +1313,19 @@ async function wieWache(uid, adresse){
 /* After a move or a delete the mails are gone from this folder. Instead of
    refetching everything: take them out of the list, open the next one — that is
    what a reader working through a folder expects. */
-async function nachTat(uids){
+async function nachTat(uids, liste){
   const stelle = S.mails.findIndex(m => m.uid === S.uid);
-  S.mails = S.mails.filter(m => !uids.includes(m.uid));
+  /* 🔴 Removed by KEY where the caller knows the folders — in the „New" view the
+     same number stands in three folders, and filtering by number alone would
+     take two rows out of the list that nothing happened to. */
+  const weg = new Set((liste || []).map(p => p.ordner + "\u0000" + p.uid));
+  S.mails = S.mails.filter(m => liste ? !weg.has(wahlSchluessel(m))
+                                      : !uids.includes(m.uid));
   S.gewaehlt.clear();
   if(uids.includes(S.uid)){
     const naechste = S.mails[Math.min(stelle, S.mails.length - 1)];
     S.uid = 0; S.offen = null; leseLeeren();
-    if(naechste && S.einst.vorschau !== "aus") mailOeffnen(naechste.uid);
+    if(naechste && S.einst.vorschau !== "aus") mailOeffnen(naechste.uid, naechste.ordner);
   }
   listeMalen();
   const l = await sende("klient_ordner", {frisch:true});
@@ -1330,14 +1364,15 @@ function leseLeeren(){
   $("#lese").innerHTML = `<div class="leer"><div><span class="gross">✉️</span>
     ${esc(txt("k.nichts_offen"))}</div></div>`;
 }
-async function mailOeffnen(uid){
+async function mailOeffnen(uid, ordner){
   clearTimeout(S.lesemarke);
   S.uid = uid;
+  S.uid_ordner = ordner || ordnerVon(uid);
   listeMalen();
   blick("lese");
   $("#lese").innerHTML = `<div class="leer"><div><span class="laedt"></span></div></div>`;
   let m;
-  try{ m = await sende("klient_mail", {ordner:ordnerVon(uid), uid:uid}); }
+  try{ m = await sende("klient_mail", {ordner:S.uid_ordner, uid:uid}); }
   catch(e){ return; }
   if(!m || !m.ok){
     $("#lese").innerHTML = `<div class="leer"><div>${esc((m && m.text) || txt("k.ging_nicht"))}</div></div>`;
@@ -1899,7 +1934,7 @@ document.addEventListener("keydown", (ev) => {
   const i = S.mails.findIndex(m => m.uid === S.uid);
   const gehe = (d) => {
     const n = S.mails[Math.max(0, Math.min(S.mails.length - 1, (i < 0 ? -1 : i) + d))];
-    if(n) mailOeffnen(n.uid);
+    if(n) mailOeffnen(n.uid, n.ordner);
   };
   switch(ev.key){
     case "j": case "ArrowDown": ev.preventDefault(); gehe(1); break;

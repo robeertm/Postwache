@@ -37,6 +37,13 @@
   --fuss:3.7rem;
   --schrift:100%;
 }
+/* 🔴 The browser's own `[hidden]{display:none}` is ONE selector — every class
+   with a `display` beats it. `.wischhinweis{display:flex}` did, so the swipe
+   hint carried `hidden`, remembered that it had been dismissed, and stood there
+   anyway: the bookkeeping was right and only the cascade was wrong. Measured,
+   not guessed — `getComputedStyle` said `flex` while `hidden` was set. This one
+   line settles it for every element on the page (5.3.0). */
+[hidden]{display:none!important}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%;font-size:var(--schrift)}
 html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none}
@@ -80,6 +87,7 @@ body[data-blick="mail"] #b_mail,
 body[data-blick="ordner"] #b_ordner,
 body[data-blick="suche"] #b_suche,
 body[data-blick="mehr"] #b_mehr,
+body[data-blick="ziel"] #b_ziel,
 body[data-blick="schreiben"] #b_schreiben{display:flex}
 .kopf{flex:0 0 auto;height:var(--kopf);display:flex;align-items:center;gap:.4rem;
   padding:0 .35rem;border-bottom:1px solid var(--rand);
@@ -118,6 +126,38 @@ body[data-blick="schreiben"] #b_schreiben{display:flex}
 .kreis{grid-column:1;grid-row:1/4;width:2.5rem;height:2.5rem;border-radius:50%;
   display:grid;place-items:center;font-size:.85rem;font-weight:700;color:#15120c;
   align-self:center}
+/* ── Choosing several ────────────────────────────────────────────
+   🔑 The tick takes the avatar's PLACE, it does not stand next to it. A phone
+   row has no room for a column that is empty six days a week, and a list that
+   shifts sideways when you start choosing is a list you lose your place in. */
+.z .haken{display:none}
+body.wahlmodus .z .kreis{display:none}
+body.wahlmodus .z .haken{grid-column:1;grid-row:1/4;width:2.5rem;height:2.5rem;
+  border-radius:50%;display:grid;place-items:center;align-self:center;
+  border:2px solid var(--rand2);color:#15120c;font-size:1.05rem;font-weight:700;
+  flex:0 0 auto}
+body.wahlmodus .z.gewaehlt .haken{background:var(--akzent);border-color:var(--akzent)}
+/* 🔴 OPAQUE, like every row — the comment two rules up says why, and I still
+   wrote a translucent one: behind the row lie the swipe actions, and in the
+   picture the bin shone through every chosen mail that had been read. Layered
+   over the ground instead of mixed with what is behind it. */
+.z.gewaehlt{background:linear-gradient(rgba(224,164,88,.16),rgba(224,164,88,.16)),
+  var(--grund)}
+.z.gewaehlt.neu{background:linear-gradient(90deg,rgba(224,164,88,.2),rgba(224,164,88,.12) 45%),
+  var(--grund)}
+/* The bar of the selection replaces the tab bar — same height, same place, so
+   the thumb does not have to learn a second one. */
+.wahlfuss{flex:0 0 auto;display:none;border-top:1px solid var(--rand);
+  background:rgba(30,24,14,.97);backdrop-filter:blur(12px);
+  padding-bottom:var(--unten)}
+body.wahlmodus .wahlfuss{display:flex}
+body.wahlmodus .fuss{display:none}
+.wahlfuss button{flex:1 1 0;min-width:0;border:0;background:transparent;border-radius:0;
+  display:flex;flex-direction:column;align-items:center;gap:.1rem;
+  padding:.45rem 0 .5rem;color:var(--text);font-size:.66rem;min-height:var(--fuss)}
+.wahlfuss button:disabled{opacity:.35}
+.wahlfuss button i{font-style:normal;font-size:1.28rem;line-height:1.1}
+.wahlfuss button.gefahr{color:#fca5a5}
 .z .von{grid-column:2;grid-row:1;font-size:.95rem;min-width:0;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .z.neu .von,.z.neu .bet{font-weight:700}
@@ -306,13 +346,21 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
 
 <!-- ── The list ─────────────────────────────────────────────────────────── -->
 <div class="blatt" id="b_liste">
-  <div class="kopf">
+  <div class="kopf" id="listenkopf">
     <button class="blank" onclick="blick('ordner')" data-t-titel="k.ordner">☰</button>
     <h1 id="ordnername">Postwache</h1>
     <span class="u" id="ungelesen" hidden></span>
+    <button class="blank" onclick="wahlAn()" id="wahlknopf"
+            data-t-titel="k.auswaehlen">☑︎</button>
     <button class="blank" onclick="siebUm()" id="siebknopf"
             data-t-titel="k.sieb_ungelesen">◐</button>
     <button class="blank" onclick="blick('suche')" data-t-titel="k.t_suche">🔍</button>
+  </div>
+  <!-- The same bar, in the same place, while several mails are chosen. -->
+  <div class="kopf" id="wahlkopf" hidden>
+    <button class="blank" onclick="wahlAus()" aria-label="OK">✕</button>
+    <h1 id="wahlzahl"></h1>
+    <button class="blank" onclick="alleWaehlen()" data-t="k.alle_waehlen"></button>
   </div>
   <div class="rumpf" id="rollen">
     <!-- A gesture nobody knows about does not exist. Shown once, then gone. -->
@@ -326,6 +374,7 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
     </div>
   </div>
   <div class="fuss" id="fussleiste"></div>
+  <div class="wahlfuss" id="wahlfuss"></div>
 </div>
 
 <!-- ── One mail ─────────────────────────────────────────────────────────── -->
@@ -341,6 +390,17 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
 </div>
 
 <!-- ── Folders ──────────────────────────────────────────────────────────── -->
+<!-- 🔑 Moving used to be a `prompt()` with a numbered list — type „7" and hope.
+     The folders are already a sheet; moving deserves the same one. It serves both
+     the single open mail and a whole selection. -->
+<div class="blatt" id="b_ziel">
+  <div class="kopf">
+    <button class="blank" onclick="zielZu()" data-t-titel="k.zurueck">‹</button>
+    <h1 data-t="k.verschieben_nach"></h1>
+  </div>
+  <div class="rumpf" id="zielliste"></div>
+</div>
+
 <div class="blatt" id="b_ordner">
   <div class="kopf">
     <button class="blank" onclick="blick('liste')" data-t-titel="k.zurueck">‹</button>
@@ -437,7 +497,9 @@ const S = {
   mails:[], uid:0, offen:null, ordner_liste:[], rollen:{}, einst:{}, faehig:{},
   oberflaeche:[], postfaecher:[], brief:null, seiten:1, gesamt:0, laeuft:false,
   version:"", blick:"liste",
-  neu:false                // the „New" view instead of a folder
+  neu:false,               // the „New" view instead of a folder
+  wahl:false,              // choosing several at once
+  gewaehlt:new Set()       // …and which ones
 };
 
 function melde(text, gut){
@@ -507,7 +569,7 @@ function blick(was){
   /* 🔴 Every sheet has its own scroll position. Without this, opening a mail
      leaves you halfway down the letter because the list was scrolled there. */
   const r = {liste:"#rollen", mail:"#mailrumpf", ordner:"#ordnerliste",
-             mehr:"#mehrleib"}[was];
+             mehr:"#mehrleib", ziel:"#zielliste"}[was];
   if(was === "mail" && $(r)) $(r).scrollTop = 0;
 }
 
@@ -649,7 +711,7 @@ function ordnerName(o){
   return (o.name.toUpperCase() === "INBOX") ? txt("k.posteingang") : o.zeige;
 }
 async function ordnerWaehlen(name){
-  S.neu = false;
+  S.neu = false; wahlAus();
   S.ordner = name; S.seite = 1; S.uid = 0; S.offen = null; S.mails = [];
   ordnerMalen();
   blick("liste");
@@ -658,7 +720,7 @@ async function ordnerWaehlen(name){
 /* The view the watchman makes necessary: it carries new post into folders, so
    „what came in" is no longer one folder but twelve. Here they are one list. */
 async function neuWaehlen(){
-  S.neu = true;
+  S.neu = true; wahlAus();
   S.seite = 1; S.uid = 0; S.offen = null; S.mails = [];
   ordnerMalen();
   blick("liste");
@@ -667,6 +729,10 @@ async function neuWaehlen(){
 /* Which folder a row really lives in — every action asks here instead of
    assuming the view. */
 function ordnerVon(uid){
+  /* 🔴 The open mail answers for itself. Searching the list by number finds the
+     FIRST row with that number — and in the „New" view the same number stands in
+     three folders, so the answer would be right by luck. */
+  if(S.offen && S.offen.uid === uid && S.offen.ordner) return S.offen.ordner;
   const m = S.mails.find(x => x.uid === uid);
   return (m && m.ordner) || S.ordner;
 }
@@ -730,23 +796,26 @@ function listeMalen(){
     $("#mehrknopf").hidden = true;
     return;
   }
-  $("#zeilen").innerHTML = S.mails.map(m => zeileHtml(m)).join("");
+  $("#zeilen").innerHTML = S.mails.map((m, i) => zeileHtml(m, i)).join("");
   $("#mehrknopf").hidden = S.seite >= S.seiten;
 }
-function zeileHtml(m){
+function zeileHtml(m, i){
   const zeichen = [
     m.markiert ? '<span class="stern">★</span>' : "",
     m.beantwortet ? "<span>↩</span>" : "",
     m.anhang ? "<span>📎</span>" : "",
     !m.gelesen ? '<span class="punkt"></span>' : ""
   ].filter(Boolean).join("");
+  const gewaehlt = S.gewaehlt.has(wahlSchluessel(m));
   return `<div class="zeile" data-uid="${m.uid}">
     <div class="wischen"><span class="links">📦</span><span class="rechts">🗑️</span></div>
-    <div class="z ${m.gelesen ? "" : "neu"}" role="button" tabindex="0"
-         onclick="mailOeffnen(${m.uid})"
-         ontouchstart="wischStart(event,this)" ontouchmove="wischZug(event,this)"
-         ontouchend="wischEnde(event,this,${m.uid})"
-         ontouchcancel="wischEnde(event,this,${m.uid},true)">
+    <div class="z ${m.gelesen ? "" : "neu"} ${gewaehlt ? "gewaehlt" : ""}"
+         role="button" tabindex="0"
+         onclick="zeileKlick(${i})"
+         ontouchstart="wischStart(event,this,${i})" ontouchmove="wischZug(event,this)"
+         ontouchend="wischEnde(event,this,${i})"
+         ontouchcancel="wischEnde(event,this,${i},true)">
+      <span class="haken">${gewaehlt ? "✓" : ""}</span>
       <span class="kreis" style="background:${farbe(m.adresse)}"
         >${esc(initialen(m.von, m.adresse))}</span>
       <span class="von">${esc(m.von || m.adresse)}</span>
@@ -774,16 +843,128 @@ function dritteZeile(m){
   return wer + (m.anhang ? " · " + gr(m.anhang_gross) : "");
 }
 
+/* ── Choosing several ──────────────────────────────────────────────────
+   🔑 Two ways in, because both are learned behaviour: a long press on a row
+   (what a phone teaches you) and a button in the bar (what you find when you do
+   not know that). Once inside, a tap chooses instead of opening — a mode that
+   changes what a tap means has to be visible, and it is: the avatars turn into
+   ticks and the bar at the bottom is a different one. */
+let sperreKlick = 0;          // a long press must not also count as a tap
+function zeileKlick(i){
+  if(Date.now() < sperreKlick) return;
+  const m = S.mails[i];
+  if(!m) return;
+  if(S.wahl) return wahlUm(i);
+  mailOeffnen(m.uid, m.ordner);
+}
+function wahlAn(){ S.wahl = true; wahlMalen(); listeMalen(); }
+function wahlAus(){
+  S.wahl = false; S.gewaehlt.clear(); wahlMalen(); listeMalen();
+}
+function wahlUm(i){
+  S.wahl = true;
+  const m = S.mails[i];
+  if(!m) return;
+  const k = wahlSchluessel(m);
+  S.gewaehlt.has(k) ? S.gewaehlt.delete(k) : S.gewaehlt.add(k);
+  wahlMalen(); listeMalen();
+}
+function alleWaehlen(){
+  const schon = S.gewaehlt.size === S.mails.length && S.mails.length > 0;
+  S.gewaehlt.clear();
+  if(!schon) S.mails.forEach(m => S.gewaehlt.add(wahlSchluessel(m)));
+  wahlMalen(); listeMalen();
+}
+/* 🔴 A UID is unique inside ITS FOLDER and nowhere else. Keyed by number alone,
+   one tick in the „New" view marked three rows — the same 101 stands in the
+   inbox, in House and in People. So the key is folder AND number, and every
+   action works on (folder, number) pairs. Measured, not assumed. */
+function wahlSchluessel(m){
+  return (m.ordner || S.ordner) + "\u0000" + m.uid;
+}
+function gewaehlteMails(){
+  return S.mails.filter(m => S.gewaehlt.has(wahlSchluessel(m)));
+}
+function posten(uids){
+  if(uids && uids.length)
+    return uids.map(u => ({ordner: ordnerVon(u), uid: u}));
+  return gewaehlteMails().map(m => ({ordner: m.ordner || S.ordner, uid: m.uid}));
+}
+function wahlMalen(){
+  const n = S.gewaehlt.size;
+  document.body.classList.toggle("wahlmodus", S.wahl);
+  $("#listenkopf").hidden = S.wahl;
+  $("#wahlkopf").hidden = !S.wahl;
+  $("#wahlzahl").textContent = n ? txt("k.gewaehlt", {n:n}) : txt("k.auswaehlen");
+  $("#wahlfuss").innerHTML = [
+    ["📖", "k.gelesen", "stapel('gelesen',true)", ""],
+    ["✉️", "k.ungelesen", "stapel('gelesen',false)", ""],
+    ["⭐", "k.markieren", "stapel('markiert',true)", ""],
+    ["📁", "k.verschieben", "zielAuf()", ""],
+    ["🗑️", "k.loeschen", "stapelLoeschen()", "gefahr"],
+  ].map(([ic, k, tat, art]) =>
+    `<button class="${art}" onclick="${tat}" ${n ? "" : "disabled"}
+       aria-label="${esc(txt(k))}"><i>${ic}</i><span>${esc(txt(k))}</span></button>`
+  ).join("");
+}
+
+/* ── Where to ──────────────────────────────────────────────────────────
+   The folders as a sheet, not as a `prompt()` with numbers to type. Serves the
+   one open mail and a whole selection alike. */
+let zielFuer = [];              // (folder, number) pairs — never numbers alone
+function zielAuf(uids){
+  zielFuer = posten(uids);
+  if(!zielFuer.length) return melde(txt("k.nichts_gewaehlt"), false);
+  zielMalen();
+  blick("ziel");
+}
+function zielZu(){ blick(S.offen && S.blick === "ziel" && !S.wahl ? "mail" : "liste"); }
+function zielMalen(){
+  const rest = S.ordner_liste.filter(o => !o.rolle);
+  const grund = rest.length ? Math.min(...rest.map(o => o.tiefe)) : 0;
+  const aus = new Set(zielFuer.map(p => p.ordner));
+  const zeile = (o, tief) => o.waehlbar && !(aus.size === 1 && aus.has(o.name))
+    ? `<div class="o ${tief > 0 ? "unter" : ""}" style="--tief:${tief}"
+           role="button" tabindex="0" onclick="zielNehmen('${escJs(o.name)}')">
+        <span class="ic">${o.icon || "📁"}</span>
+        <span class="nm">${esc(ordnerName(o))}</span></div>` : "";
+  const teile = [S.ordner_liste.filter(o => o.rolle).map(o => zeile(o, 0)).join("")];
+  if(rest.length){
+    teile.push(`<div class="gruppentitel">${esc(txt("k.eigene_ordner"))}</div>`);
+    teile.push(rest.map(o => zeile(o, o.tiefe - grund)).join(""));
+  }
+  $("#zielliste").innerHTML = teile.join("");
+}
+async function zielNehmen(name){
+  const liste = zielFuer;
+  blick("liste");
+  await verschiebeListe(name, liste);
+}
+
 /* ── Swiping ───────────────────────────────────────────────────────────
    🔴 Only when the finger really moves SIDEWAYS. Deciding on the first pixel
    turns every scroll into an archive action — so nothing happens until the
    horizontal distance beats the vertical one, and `touch-action: pan-y` leaves
    the scrolling to the browser. */
-let wisch = null;
-function wischStart(ev, el){
+let wisch = null, langDruck = null;
+function wischStart(ev, el, i){
+  /* While several are chosen a sideways drag is scrolling, not a gesture — an
+     archive action in the middle of choosing is the last thing anybody means. */
+  if(S.wahl) return;
   const t = ev.touches[0];
   wisch = {x:t.clientX, y:t.clientY, dx:0, quer:false};
   el.style.transition = "none";
+  /* 🔴 A long press opens the selection — and must NOT also count as a tap. The
+     browser sends `click` on touchend all the same, so the tap is barred for a
+     moment. Without that the row is chosen and immediately unchosen again. */
+  clearTimeout(langDruck);
+  langDruck = setTimeout(() => {
+    if(!wisch || wisch.quer) return;
+    sperreKlick = Date.now() + 800;
+    wisch = null;
+    try{ if(navigator.vibrate) navigator.vibrate(12); }catch(e){}
+    wahlUm(i);
+  }, 480);
 }
 function wischZug(ev, el){
   if(!wisch) return;
@@ -792,11 +973,13 @@ function wischZug(ev, el){
   if(!wisch.quer){
     if(Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 12) return;
     wisch.quer = true;
+    clearTimeout(langDruck);          // a finger that moves is not a long press
   }
   wisch.dx = dx;
   el.style.transform = "translateX(" + dx + "px)";
 }
-function wischEnde(ev, el, uid, abbruch){
+function wischEnde(ev, el, i, abbruch){
+  clearTimeout(langDruck);
   const dx = wisch ? wisch.dx : 0;
   const quer = wisch && wisch.quer;
   wisch = null;
@@ -804,9 +987,11 @@ function wischEnde(ev, el, uid, abbruch){
   el.style.transform = "translateX(0)";
   if(abbruch || !quer || Math.abs(dx) < 90) return;
   ev.preventDefault();
-  if(dx > 0 && S.rollen.archiv) stapelVerschieben(S.rollen.archiv, [uid]);
+  const m = S.mails[i];
+  if(!m) return;
+  if(dx > 0 && S.rollen.archiv) stapelVerschieben(S.rollen.archiv, [m.uid]);
   else if(dx > 0) melde(txt("k.kein_archiv"), false);
-  else stapelLoeschen([uid]);
+  else stapelLoeschen([m.uid]);
 }
 async function siebUm(){
   S.sieb = S.sieb ? "" : "ungelesen";
@@ -817,7 +1002,7 @@ async function siebUm(){
 
 <script>
 /* ── Reading ───────────────────────────────────────────────────────────── */
-async function mailOeffnen(uid){
+async function mailOeffnen(uid, ordner){
   clearTimeout(S.lesemarke);
   S.uid = uid;
   blick("mail");
@@ -825,7 +1010,7 @@ async function mailOeffnen(uid){
   $("#mailrumpf").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
   $("#tatleiste").innerHTML = "";
   let m;
-  try{ m = await sende("klient_mail", {ordner:ordnerVon(uid), uid:uid}); }
+  try{ m = await sende("klient_mail", {ordner:ordner || ordnerVon(uid), uid:uid}); }
   catch(e){ return; }
   if(!m || !m.ok){
     $("#mailrumpf").innerHTML = `<div class="leerraum">${
@@ -926,51 +1111,83 @@ function briefHoehe(){
 function mailNachbar(d){
   const i = S.mails.findIndex(m => m.uid === S.uid);
   const n = S.mails[i + d];
-  if(n) mailOeffnen(n.uid); else melde(txt(d > 0 ? "k.letzte_mail" : "k.erste_mail"));
+  if(n) mailOeffnen(n.uid, n.ordner); else melde(txt(d > 0 ? "k.letzte_mail" : "k.erste_mail"));
 }
 async function mehrTaten(){
   const m = S.offen;
   if(!m) return;
-  const ziele = S.ordner_liste.filter(o => o.waehlbar && o.name !== offenOrdner());
-  const wahl = prompt(txt("k.verschieben_frage") + "\n\n"
-    + ziele.map((o, i) => (i + 1) + ") " + o.pfad).join("\n"));
-  const nr = parseInt(wahl || "0", 10);
-  if(nr >= 1 && nr <= ziele.length) stapelVerschieben(ziele[nr - 1].name, [m.uid]);
+  zielAuf([m.uid]);
 }
 async function bilderLaden(){
   const m = await sende("klient_mail", {ordner:offenOrdner(), uid:S.uid, bilder:1});
   if(m && m.ok){ S.offen = m; mailMalen(); }
 }
 
-/* ── Acting ────────────────────────────────────────────────────────────── */
+/* ── Acting ──────────────────────────────────────────────────────────────
+   🔴 Every action asks the ROW which folder it is in, and a selection is split
+   by folder before anything is sent. In a folder that is one group and one
+   request, exactly as before; in „New" the chosen mails can live in six folders
+   and one `S.ordner` would have hit the wrong mail in five of them. */
+function nachOrdnern(liste){
+  const karte = new Map();
+  for(const p of liste){
+    if(!karte.has(p.ordner)) karte.set(p.ordner, []);
+    karte.get(p.ordner).push(p.uid);
+  }
+  return [...karte.entries()];
+}
 async function stapel(was, an, uids){
-  const r = await sende("klient_flaggen", {ordner:ordnerVon(uids[0]), uids:uids,
-                                           was:was, an:an});
-  if(!r.ok) return melde(r.text || txt("k.ging_nicht"), false);
+  const liste = posten(uids);
+  if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
+  uids = liste.map(p => p.uid);
+  let gut = true;
+  for(const [ordner, teil] of nachOrdnern(liste)){
+    const r = await sende("klient_flaggen", {ordner:ordner, uids:teil, was:was, an:an});
+    if(!r.ok){ gut = false; melde(r.text || txt("k.ging_nicht"), false); continue; }
+    const o = S.ordner_liste.find(x => x.name === ordner);
+    if(was === "gelesen" && o)
+      o.ungelesen = Math.max(0, (o.ungelesen || 0) + (an ? -teil.length : teil.length));
+  }
+  if(!gut) return;
   S.mails.forEach(m => { if(uids.includes(m.uid)) m[was] = an; });
   if(S.offen && uids.includes(S.offen.uid)){ S.offen[was] = an; mailMalen(); }
-  listeMalen();
-  const o = S.ordner_liste.find(x => x.name === ordnerVon(uids[0]));
-  if(was === "gelesen" && o)
-    o.ungelesen = Math.max(0, (o.ungelesen || 0) + (an ? -uids.length : uids.length));
+  if(S.wahl) wahlAus(); else listeMalen();
   fussMalen();
 }
 async function stapelVerschieben(ziel, uids){
-  const r = await sende("klient_verschieben", {ordner:ordnerVon(uids[0]), uids:uids,
-                                               ziel:ziel});
-  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
-  if(r.ok) await nachTat(uids);
+  return verschiebeListe(ziel, posten(uids));
+}
+async function verschiebeListe(ziel, liste){
+  if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
+  let gut = true, zahl = 0, letzte = "";
+  for(const [ordner, teil] of nachOrdnern(liste)){
+    if(ordner === ziel) continue;             // already there — nothing to do
+    const r = await sende("klient_verschieben", {ordner:ordner, uids:teil, ziel:ziel});
+    if(r.ok){ zahl += teil.length; letzte = r.text || letzte; }
+    else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
+  }
+  if(gut) melde(letzte, true);
+  if(S.wahl) wahlAus();
+  if(zahl) await nachTat(liste.map(p => p.uid), liste);
 }
 async function stapelLoeschen(uids){
+  const liste = posten(uids);
+  if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
+  uids = liste.map(p => p.uid);
   /* 🔴 One mail is not „1 mails". A count that reads as a sentence needs both
      forms — everywhere else the number stands at the end, where no form is
      needed at all. */
   const frage = uids.length === 1 ? txt("k.loeschen_sicher_eine")
                                   : txt("k.loeschen_sicher", {n:uids.length});
   if(S.einst.sicherheitsfrage && !confirm(frage)) return;
-  const r = await sende("klient_loeschen", {ordner:ordnerVon(uids[0]), uids:uids});
-  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
-  if(r.ok) await nachTat(uids);
+  let gut = true, letzte = "";
+  for(const [ordner, teil] of nachOrdnern(liste)){
+    const r = await sende("klient_loeschen", {ordner:ordner, uids:teil});
+    if(r.ok) letzte = r.text || letzte;
+    else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
+  }
+  if(S.wahl) wahlAus();
+  if(gut){ melde(letzte, true); await nachTat(uids, liste); }
 }
 async function wieWache(uid, adresse){
   const r = await sende("klient_wie_wache", {ordner:ordnerVon(uid), uids:[uid],
@@ -978,9 +1195,14 @@ async function wieWache(uid, adresse){
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
   if(r.ok) await nachTat([uid]);
 }
-async function nachTat(uids){
+async function nachTat(uids, liste){
   const stelle = S.mails.findIndex(m => m.uid === S.uid);
-  S.mails = S.mails.filter(m => !uids.includes(m.uid));
+  /* 🔴 By KEY where the caller knows the folders — in the „New" view the same
+     number stands in three folders, and filtering by number alone would take
+     rows out of the list that nothing happened to. */
+  const weg = new Set((liste || []).map(p => p.ordner + "\u0000" + p.uid));
+  S.mails = S.mails.filter(m => liste ? !weg.has(wahlSchluessel(m))
+                                      : !uids.includes(m.uid));
   listeMalen();
   if(uids.includes(S.uid)){
     const naechste = S.mails[Math.min(stelle, S.mails.length - 1)];
@@ -1286,8 +1508,12 @@ async function wortAendern(){
    that is the most natural gesture there is. Each sheet pushes one state, and
    „back" goes to the list instead of out of the app. */
 window.addEventListener("popstate", () => {
+  /* 🔑 Back leaves the innermost thing first. Choosing several IS a state the
+     reader is inside — jumping straight out of the sheet would leave a mode on
+     that nothing on the next screen explains. */
+  if(S.wahl){ wahlAus(); history.pushState({}, ""); return; }
   if(S.blick === "liste") return;
-  blick(S.blick === "mail" ? "liste" : "liste");
+  blick("liste");
   history.pushState({}, "");
 });
 history.pushState({}, "");
@@ -1303,6 +1529,7 @@ function wischHinweisZeigen(){
   if(!gesehen && ("ontouchstart" in window)) $("#wischhinweis").hidden = false;
 }
 textenSetzen(document);
+wahlMalen();
 wischHinweisZeigen();
 suchchipsMalen();
 fussMalen();
