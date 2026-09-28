@@ -7,6 +7,156 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.4.0] – 2026-09-28
+
+### The listening post — hearing instead of asking
+
+The page used to ask every minute whether anything new had arrived. That is, at
+best, a minute late. IMAP has `IDLE` for exactly this: the server speaks up on
+its own. So the page now leaves **one request waiting**, and it comes back the
+moment the provider says a word.
+
+**Measured on a running page**, a mail dropped into the mailbox, nobody touching
+anything:
+
+```
+wide version:  the new mail is in the list after 0.13 s
+phone:         after 0.22 s
+requests used: 3 (two while loading, one waiting)
+```
+
+The listening post keeps **its own connection**, and that is not a detail: an
+`IDLE` sits on a connection for minutes, and the warm connection is the one every
+click goes through. Put the post on that lock and opening a mail would wait for
+the next new mail.
+
+* It belongs to the **mailbox**, not to the tab: three open tabs ask **one** post,
+  which holds **one** connection at the provider.
+* It **cannot write** — not out of discipline but by construction: the connection
+  opens every folder `EXAMINE`, read-only.
+* It **lets go**: 90 seconds without a listener and the connection is closed. A
+  tab left open at night holds nothing at the provider until morning.
+* A server **without** `IDLE` is not a reason to give up but a reason to ask
+  politely: every 20 seconds. Still three times closer than before.
+* Coming back to the tab refreshes at once.
+* 🔑 Nothing is ever redrawn under your hands: a selection, an open window, a
+  focused field, a search, any page but the first — each of them holds the list
+  still. The folder **counts** move anyway; a counter steals nobody's click.
+* `UIDNEXT` only grows when something actually **arrives** — that is how the page
+  tells “new mail” from “something changed”.
+
+### 🔴 The empty page after a delete
+
+Delete 50 of 100 mails spread over two pages: the mails go, and “page 1 of 2”
+stands there **empty** until you click to page two. The rows were taken out **by
+hand**, and it stopped there — the counter, the page count and the rows that move
+up into the gap all live on the server.
+
+Taking the rows out is the **instant** answer; refetching is the **right** one —
+in that order. Measured with a real delete on a running page:
+
+```
+before   page 1 of 2 · 15 mails · 10 rows · “1–5 of 15”
+after    page 1 of 1 ·  5 mails ·  5 rows · “1–5 of 5”
+counter-test without that one line:  0 rows, counter still says “1–5 of 5”
+```
+
+On the phone, which stacks its pages, the refill asks for exactly the span that
+was already shown — **one** request, and the reader keeps their place.
+
+### A day mode, in the same colours
+
+Nothing is exchanged for another colour family: the brown-black night becomes
+**warm paper**, the gold stays gold, the three lights over the page stay where
+they are.
+
+* **Three positions, one button**: automatic (follows the device) · day · night.
+  On all three pages, in the same corner.
+* The choice lives on the **device**, not in the mailbox: a phone in a dark room
+  and a desk in the sun are two different answers to the same question.
+* When the device switches at sunset, the page switches with it.
+* 🔑 **Two golds**: one to **write** with, one to **fill** with. In the dark they
+  are the same colour; on paper `#e0a458` as text is a hint, not a word — so the
+  writing gold goes a few shades deeper while the filling gold stays exactly the
+  Postwache's own.
+* The **letter** turns light as well: it is a document of its own inside the
+  frame, built by the engine, so the page says with every mail which time of day
+  is in force.
+* Signal colours go darker. `#34d399` on white is a colour nobody can read.
+* `?licht=hell` in the address shows the other side without touching your own
+  setting — that is also how the documentation takes its pictures.
+
+### 🔴 Two names that were already taken
+
+`const ANSICHTEN` for the day/night button — and `ANSICHTEN` is already **the
+list of tabs** on the watchman page. A duplicate `const` is a **parse error**, and
+a parse error kills the **whole** script: the page still draws its markup and
+looks perfectly normal in a screenshot while not one line of it runs. Found
+because the button stayed empty; the test bench now looks for a name declared
+twice in any page (counter-test: it reports exactly `ANSICHTEN`).
+
+The same one floor down: `?ansicht=` already means **wide or phone** for the
+client. The parameter for the theme is therefore `?licht=`.
+
+### Whole folders travel — and the watchman is told
+
+* **Wide version:** drag a folder onto another one. The “own folders” heading is
+  the target for “back to the top”.
+* **Mail travels the same way:** drag a row onto a folder. Drag a row that is part
+  of the **selection** and the whole selection goes; drag one outside it and only
+  that one goes.
+* **Phone:** press and hold a folder — it then travels in the same sheet that mail
+  is moved with.
+* The move is **one** IMAP command: `RENAME`. The server takes the mail **and** the
+  subfolders with it, and the numbers stay. Copying would be thousands of mails
+  over the wire and a window in which the same post lies in two places.
+* **Special folders stay.** Sent, Drafts, Trash and Junk are not drawers somebody
+  sorted into, they are **positions** — every mail program looks for them there.
+* Into itself, into one of its own children, onto a name already taken: all
+  refused beforehand. The subscription is renewed, for the folder and every child.
+
+And the larger half: the provider needs one command, the watchman's memory needs
+more. Carried over in the same breath:
+
+| What | Why |
+|---|---|
+| the learned filing map | 🔴 it decides where post goes. Leave the old name in it and the next run files into a folder that is not there — **and filing creates it**. The mail would end up split. |
+| the document index | it reaches for an attachment by folder and number. Old name, no attachment. |
+| the journal | it is the **way back** for every mail the watchman ever moved. |
+| what it kept of each mail | that is where the page reads which folder a mail went to. |
+| folders pinned by hand in the settings | whoever chose their own archive should not lose it. |
+
+If that half fails, the page says **both** halves: the folder has moved, the
+watchman did not understand it. “Did not work” would be a lie, and the reader
+would press again.
+
+### And a slogan
+
+„Hier geht die Post ab" — a German idiom for a place where things are really
+happening, with the word for *mail* sitting in the middle of it. Every language
+gets its own idiom about mail that moves, not a translation of the German one:
+*Where the mail gets moving* · *Ici, ça bouge dans la boîte* · *Aquí el correo no
+para* · *Qui la posta vola*.
+
+### 🔴 A checkbox is not a text field
+
+`input,select{…width:100%}` also applied to checkboxes and radio buttons: they
+stretched across the whole row and pushed their own labels to the far edge. The
+redirect card had looked broken since the day it was built, and two other places
+had patched it with an inline style of their own — a rule that needs patching at
+the call site is a rule in the wrong place. Now it is one rule, and the boxes
+wear the house gold instead of the browser's blue.
+
+### Test bench
+
+242 → **274 probes**, all green. New: the listening post against the fake server
+(which has learned `IDLE`, `UIDNEXT` and how to speak unasked), the folder move
+including the memory, what each page promises about its day mode (**every light
+token needs a dark counterpart** — a colour that only exists in daylight does not
+exist at night), and the duplicate name. The language bench now also reads
+`post_web.html` for keys that stand there as a **value**; it had been missing
+from that list, and that is exactly where the three new ones were.
+
 ## [5.3.0] – 2026-09-28
 
 ### 🔴 `[hidden]` loses to every class with a `display`

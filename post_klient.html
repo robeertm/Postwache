@@ -4,6 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Postwache</title>
+<script>
+/* 🔴 In the HEAD, and nowhere else. This decides the colours BEFORE the page is
+   drawn; one line further down and the reader watches the night flash past on
+   the way to the day. It reads the choice and nothing else — the machinery
+   lives below, with the other functions. */
+(function(){
+  var wahl = "auto";
+  /* 🔴 `licht`, NOT `ansicht`: this page already answers to `?ansicht=breit`
+     and `?ansicht=mobil` — that is which of the two surfaces is served. A second
+     meaning for the same word in the same address is a bug waiting for the day
+     somebody sends the link. */
+  try{ wahl = new URLSearchParams(location.search).get("licht") || ""; }catch(e){}
+  if(wahl !== "hell" && wahl !== "dunkel" && wahl !== "auto"){
+    wahl = "auto";
+    try{ wahl = localStorage.getItem("pw_ansicht") || "auto"; }catch(e){}
+  }
+  var hell = wahl === "hell" || (wahl === "auto" && window.matchMedia
+    && matchMedia("(prefers-color-scheme: light)").matches);
+  if(hell) document.documentElement.setAttribute("data-hell", "1");
+})();
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
 <style>
 /* ── The client wears the watchman's clothes ─────────────────────────────
@@ -18,12 +39,53 @@
   --karte-voll:#1d1b17;
   --rand:rgba(255,255,255,.10); --rand2:rgba(255,255,255,.18);
   --text:#f4efe6; --leise:#a99c88; --leiser:#7d7264;
-  --akzent:#e0a458; --akzent-tief:#2a1d0a;
+  /* 🔑 TWO golds: `--akzent` is the one to WRITE with, `--akzent-fuell` the one
+     to FILL with. In the dark they are the same colour; on paper #e0a458 as text
+     is a hint, not a word — so the writing gold goes deeper while the filling
+     gold stays exactly the Postwache's own. `--akzent-tief` is what stands ON
+     the gold, in both. */
+  --akzent:#e0a458; --akzent-fuell:#e0a458; --akzent-tief:#2a1d0a;
   --ok:#34d399; --info:#60a5fa; --warnung:#fbbf24; --kritisch:#f87171;
+  /* A wash over the ground (hover, stripes), the field colour and the shadows —
+     they all stood in the rules as „a little lighter than the ground", which is
+     exactly what cannot survive a light ground. */
+  --film:rgba(255,255,255,.055); --film2:rgba(255,255,255,.12);
+  --feld:rgba(0,0,0,.28); --griff:#e7ddcd; --stark:#fffaf2;
+  --schatten:rgba(0,0,0,.45); --schatten-tief:rgba(0,0,0,.6);
+  /* Red and amber as TEXT need the other end of their scale on paper — a pale
+     #fca5a5 is a warning nobody can read on white. And the frame the letter sits
+     in is painted by the engine, so its ground is named here the same way. */
+  --gefahr:#fca5a5; --warnton:#fcd34d; --briefgrund:#161410;
+  --wahl:rgba(96,165,250,.13); --offen:rgba(224,164,88,.14);
+  --licht1:rgba(224,164,88,.16); --licht2:rgba(96,165,250,.08);
+  --licht3:rgba(224,164,88,.09);
   --r:1.1rem; --r2:.7rem;
   --ordner:16.5rem;         /* width of the folder column */
   --zeile:5.05rem;          /* height of a list row — the density setting */
   --schrift:100%;
+}
+/* ── Day mode ───────────────────────────────────────────────────────────────
+   der Besitzer, 28.09.2026: „soll aber den stiel von ups farben beibehalten nur in
+   hell, find ich total klasse die farbwahl." So the night is not exchanged for
+   another family — it becomes PAPER: the same brown, the same gold, the same
+   three lights over the page. Only the signal colours go darker, because
+   #34d399 on white is a colour nobody can read. */
+html[data-hell]{
+  color-scheme: light;
+  --grund:#f5efe3;
+  --karte:rgba(255,255,255,.72); --karte2:rgba(255,255,255,.92);
+  --karte-voll:#fffdf8;
+  --rand:rgba(61,44,22,.14); --rand2:rgba(61,44,22,.28);
+  --text:#2b2015; --leise:#6e6353; --leiser:#8a7f6d;
+  --akzent:#9a5a17;
+  --ok:#0f7a4f; --info:#1a5fc8; --warnung:#95600a; --kritisch:#b42318;
+  --film:rgba(61,44,22,.05); --film2:rgba(61,44,22,.10);
+  --feld:#fffdf8; --griff:#8d8371; --stark:#1d1409;
+  --schatten:rgba(61,44,22,.16); --schatten-tief:rgba(61,44,22,.22);
+  --gefahr:#b42318; --warnton:#8a5a06; --briefgrund:#fffdf8;
+  --wahl:rgba(26,95,200,.12); --offen:rgba(224,164,88,.28);
+  --licht1:rgba(224,164,88,.34); --licht2:rgba(96,165,250,.10);
+  --licht3:rgba(224,164,88,.22);
 }
 body[data-dichte="eng"]{--zeile:2.35rem}
 /* 🔴 The browser's own `[hidden]{display:none}` is ONE selector — every class
@@ -45,26 +107,34 @@ body{
      the client had a weaker version of this one, which read as a colder page
      rather than as a different one. */
   background-image:
-    radial-gradient(60rem 34rem at 8% -10%, rgba(224,164,88,.16), transparent 60%),
-    radial-gradient(46rem 30rem at 100% 4%, rgba(96,165,250,.08), transparent 58%),
-    radial-gradient(50rem 34rem at 50% 118%, rgba(224,164,88,.09), transparent 60%);
+    radial-gradient(60rem 34rem at 8% -10%, var(--licht1), transparent 60%),
+    radial-gradient(46rem 30rem at 100% 4%, var(--licht2), transparent 58%),
+    radial-gradient(50rem 34rem at 50% 118%, var(--licht3), transparent 60%);
   background-attachment:fixed;
 }
 h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
 button{font:inherit;color:var(--text);background:var(--karte2);cursor:pointer;
   border:1px solid var(--rand);border-radius:var(--r2);padding:.42rem .75rem;
   transition:background .15s ease,border-color .15s ease,transform .06s ease}
-button:hover{background:rgba(255,255,255,.12);border-color:var(--rand2)}
+button:hover{background:var(--film2);border-color:var(--rand2)}
 button:active{transform:translateY(1px)}
 button:disabled{opacity:.42;cursor:not-allowed}
-button.haupt{background:var(--akzent);border-color:var(--akzent);color:var(--akzent-tief);
+button.haupt{background:var(--akzent-fuell);border-color:var(--akzent-fuell);
+  color:var(--akzent-tief);
   font-weight:600}
 button.haupt:hover{filter:brightness(1.07)}
 button.blank{background:transparent;border-color:transparent;padding:.34rem .45rem}
 button.blank:hover{background:var(--karte2);border-color:var(--rand)}
-button.gefahr:hover{background:#f871711f;border-color:#f8717166;color:#fca5a5}
-input,select,textarea{font:inherit;color:var(--text);background:rgba(0,0,0,.28);
+button.gefahr:hover{background:#f871711f;border-color:#f8717166;color:var(--gefahr)}
+input,select,textarea{font:inherit;color:var(--text);background:var(--feld);
   border:1px solid var(--rand);border-radius:var(--r2);padding:.46rem .6rem;width:100%}
+/* 🔴 `width:100%` is right for a text field and wrong for a BOX. A checkbox with
+   it stretches across the whole row and pushes its own label to the far edge —
+   that is what made the redirect card look broken, and it had been that way since
+   the card was built. Two places had patched it with an inline style of their
+   own; a rule that needs patching at the call site is a rule in the wrong place. */
+input[type="checkbox"],input[type="radio"]{width:auto;flex:0 0 auto;margin:0;
+  accent-color:var(--akzent-fuell);cursor:pointer}
 /* Sliders and checkboxes in the house colour — the browser's blue is the one
    thing on the page that belongs to somebody else. */
 input[type=range],input[type=checkbox]{accent-color:var(--akzent)}
@@ -81,9 +151,9 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
 .leise{color:var(--leise)} .klein{font-size:.8rem} .kleiner{font-size:.72rem}
 .zahl{font-variant-numeric:tabular-nums}
 ::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:rgba(255,255,255,.13);border-radius:99px;
+::-webkit-scrollbar-thumb{background:var(--film2);border-radius:99px;
   border:3px solid transparent;background-clip:content-box}
-::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24);background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--rand2);background-clip:content-box}
 ::-webkit-scrollbar-track{background:transparent}
 
 /* ── Frame ───────────────────────────────────────────────────────── */
@@ -102,7 +172,7 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
 .marke b{font-size:1.02rem;letter-spacing:-.01em}
 .marke span{font-size:.7rem;color:var(--leiser)}
 .suchfeld{flex:1 1 20rem;min-width:7rem;display:flex;gap:.35rem;align-items:center;
-  background:rgba(0,0,0,.3);border:1px solid var(--rand);border-radius:99px;
+  background:var(--feld);border:1px solid var(--rand);border-radius:99px;
   padding:.1rem .35rem .1rem .75rem;max-width:44rem}
 .suchfeld:focus-within{border-color:var(--akzent)}
 .suchfeld input{border:0;background:transparent;padding:.4rem 0}
@@ -140,7 +210,13 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
 .o{display:flex;align-items:center;gap:.5rem;border-radius:.6rem;cursor:pointer;
   border:1px solid transparent;min-width:0;position:relative;
   padding:.4rem .55rem .4rem calc(.55rem + var(--tief, 0) * 1.05rem)}
-.o:hover{background:rgba(255,255,255,.055)}
+.o:hover{background:var(--film)}
+/* Where the thing in the air may land. A dashed ring instead of a fill: the row
+   keeps its own colours, so the reader still sees WHICH folder it is. */
+.o.ziel,.ogruppe.ziel{outline:2px dashed var(--akzent);outline-offset:-2px;
+  border-radius:.55rem;background:var(--offen)}
+.ogruppe.ziel{color:var(--akzent)}
+body.zieht .z,body.zieht .o{cursor:grabbing}
 .o.an{background:rgba(224,164,88,.15);border-color:rgba(224,164,88,.35)}
 /* The line that binds a group: it stands where the parent's icon stands, so a
    child is visibly hanging under something and not floating next to it. */
@@ -155,7 +231,7 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
 .o.an .nm{font-weight:600}
 .o .n{flex:0 0 auto;font-size:.7rem;color:var(--leiser);font-variant-numeric:tabular-nums}
 .o .u{flex:0 0 auto;font-size:.68rem;font-weight:700;color:var(--akzent-tief);
-  background:var(--akzent);border-radius:99px;padding:.05rem .4rem;
+  background:var(--akzent-fuell);border-radius:99px;padding:.05rem .4rem;
   font-variant-numeric:tabular-nums}
 .ogruppe{margin:.9rem .55rem .3rem;font-size:.66rem;letter-spacing:.09em;
   text-transform:uppercase;color:var(--leiser)}
@@ -180,7 +256,7 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
 
 /* ── Message list ────────────────────────────────────────────────── */
 .werkzeug{display:flex;align-items:center;gap:.4rem;padding:.45rem .6rem;
-  border-bottom:1px solid var(--rand);background:rgba(255,255,255,.028);
+  border-bottom:1px solid var(--rand);background:var(--film);
   flex-wrap:wrap}
 .werkzeug .trenn{width:1px;height:1.3rem;background:var(--rand);margin:0 .15rem}
 .werkzeug select{width:auto;font-size:.78rem;padding:.3rem 1.5rem .3rem .5rem}
@@ -197,11 +273,11 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
   grid-template-columns:auto auto minmax(0,1fr) auto;
   grid-template-rows:auto auto auto;
   column-gap:.7rem;row-gap:.12rem;align-items:center;
-  padding:.55rem .75rem;border-bottom:1px solid rgba(255,255,255,.05);
+  padding:.55rem .75rem;border-bottom:1px solid var(--rand);
   cursor:pointer;min-height:var(--zeile);position:relative}
-.z:hover{background:rgba(255,255,255,.055)}
-.z.an{background:rgba(224,164,88,.14);box-shadow:inset 3px 0 0 var(--akzent)}
-.z.gewaehlt{background:rgba(96,165,250,.13)}
+.z:hover{background:var(--film)}
+.z.an{background:var(--offen);box-shadow:inset 3px 0 0 var(--akzent)}
+.z.gewaehlt{background:var(--wahl)}
 .z.weg{opacity:.45;text-decoration:line-through}
 .z .haken{grid-column:1;grid-row:1/4;width:1.05rem;height:1.05rem;
   accent-color:var(--akzent);margin:0;cursor:pointer;justify-self:center;
@@ -225,7 +301,7 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
 .z .aus{grid-column:3/5;grid-row:3;font-size:.79rem;color:var(--leiser);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.45}
 .z.neu .von,.z.neu .bet{font-weight:700}
-.z.neu .bet{color:#fffaf2}
+.z.neu .bet{color:var(--stark)}
 .z.neu .wann{color:var(--akzent)}
 .z .punkt{width:.45rem;height:.45rem;border-radius:50%;background:var(--akzent);
   flex:0 0 auto}
@@ -248,7 +324,7 @@ body[data-dichte="eng"] .z .aus{display:none}
 
 /* ── Reading pane ────────────────────────────────────────────────── */
 .lesekopf{padding:.75rem .9rem .6rem;border-bottom:1px solid var(--rand);
-  background:rgba(255,255,255,.02)}
+  background:var(--film)}
 .lesekopf h2{font-size:1.06rem;line-height:1.35;margin:0 0 .4rem}
 .wer{display:flex;gap:.6rem;align-items:flex-start}
 .wer .kreis{width:2.5rem;height:2.5rem;border-radius:50%;display:grid;place-items:center;
@@ -269,17 +345,17 @@ body[data-dichte="eng"] .z .aus{display:none}
 .chip.kritisch{color:var(--kritisch);border-color:#f8717155;background:#f871711a}
 .chip.info{color:var(--info);border-color:#60a5fa55;background:#60a5fa1a}
 .chip.tat{cursor:pointer}
-.chip.tat:hover{background:rgba(255,255,255,.14);color:var(--text)}
+.chip.tat:hover{background:var(--film2);color:var(--text)}
 .warnleiste{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;
   margin:.55rem .9rem 0;padding:.5rem .7rem;border-radius:var(--r2);font-size:.8rem;
-  border:1px solid #f8717155;background:#f871711a;color:#fca5a5}
-.warnleiste.mild{border-color:#fbbf2455;background:#fbbf2414;color:#fcd34d}
+  border:1px solid #f8717155;background:#f871711a;color:var(--gefahr)}
+.warnleiste.mild{border-color:#fbbf2455;background:#fbbf2414;color:var(--warnton)}
 .warnleiste button{padding:.24rem .55rem;font-size:.76rem}
 .anhangreihe{display:flex;gap:.45rem;flex-wrap:wrap;padding:.55rem .9rem 0}
 .anh{display:inline-flex;align-items:center;gap:.4rem;padding:.3rem .55rem;
   border-radius:.6rem;border:1px solid var(--rand);background:var(--karte2);
   font-size:.78rem;max-width:20rem;text-decoration:none;color:var(--text)}
-.anh:hover{border-color:var(--rand2);background:rgba(255,255,255,.12)}
+.anh:hover{border-color:var(--rand2);background:var(--film2)}
 .anh .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .anh .gr{color:var(--leiser);font-size:.7rem;flex:0 0 auto}
 .kopftabelle{margin:.55rem .9rem 0;font-size:.74rem;border-collapse:collapse;
@@ -294,7 +370,7 @@ body[data-dichte="eng"] .z .aus{display:none}
    loading — see `briefHoehe()`. */
 .lesescroll{flex:1 1 auto;min-height:0;overflow:auto;display:flex;
   flex-direction:column}
-#brief{width:100%;border:0;background:#161410;display:block;min-height:11rem;
+#brief{width:100%;border:0;background:var(--briefgrund);display:block;min-height:11rem;
   flex:0 0 auto}
 .nichtschmal{display:inline}
 /* Preview „off": the letter takes the place of the list instead of squeezing it. */
@@ -312,17 +388,17 @@ body[data-blick="lese"] .raum[data-vorschau="aus"] .liste{display:none}
 .fenster{position:fixed;z-index:21;left:50%;top:50%;transform:translate(-50%,-50%);
   width:min(56rem,94vw);max-height:92vh;display:none;flex-direction:column;
   background:var(--karte-voll);border:1px solid var(--rand2);border-radius:var(--r);
-  box-shadow:0 24px 70px rgba(0,0,0,.6);overflow:hidden}
+  box-shadow:0 24px 70px var(--schatten-tief);overflow:hidden}
 .fenster.auf{display:flex}
 .fkopf{display:flex;align-items:center;gap:.6rem;padding:.65rem .8rem;
-  border-bottom:1px solid var(--rand);background:rgba(255,255,255,.03)}
+  border-bottom:1px solid var(--rand);background:var(--film)}
 .fkopf h2{font-size:.98rem;flex:1 1 auto}
 .fleib{padding:.8rem;overflow:auto;flex:1 1 auto;min-height:0}
 .ffuss{display:flex;gap:.5rem;align-items:center;padding:.65rem .8rem;
-  border-top:1px solid var(--rand);background:rgba(255,255,255,.02);flex-wrap:wrap}
+  border-top:1px solid var(--rand);background:var(--film);flex-wrap:wrap}
 .schublade{position:fixed;z-index:21;top:0;right:0;height:100%;width:min(34rem,96vw);
   background:var(--karte-voll);border-left:1px solid var(--rand2);display:none;
-  flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.5)}
+  flex-direction:column;box-shadow:-20px 0 60px var(--schatten)}
 .schublade.auf{display:flex}
 .gruppe{border:1px solid var(--rand);border-radius:var(--r2);padding:.7rem .8rem;
   margin-bottom:.7rem;background:var(--karte)}
@@ -336,10 +412,11 @@ body[data-blick="lese"] .raum[data-vorschau="aus"] .liste{display:none}
 .reihe .txt span{font-size:.76rem;color:var(--leise)}
 .reihe .stell{flex:0 0 auto;width:11rem;max-width:45%}
 .knebel{flex:0 0 auto;position:relative;width:46px;height:27px;border-radius:999px;
-  border:1px solid var(--rand);background:rgba(255,255,255,.07);cursor:pointer}
+  border:1px solid var(--rand);background:var(--film2);cursor:pointer}
 .knebel::after{content:"";position:absolute;top:2px;left:2px;width:21px;height:21px;
-  border-radius:50%;background:#e7ddcd;transition:transform .16s ease}
-.knebel[aria-checked="true"]{background:var(--akzent);border-color:var(--akzent)}
+  border-radius:50%;background:var(--griff);transition:transform .16s ease}
+.knebel[aria-checked="true"]{background:var(--akzent-fuell);
+  border-color:var(--akzent-fuell)}
 .knebel[aria-checked="true"]::after{transform:translateX(19px);background:var(--akzent-tief)}
 .feldpaar{display:flex;gap:.6rem;flex-wrap:wrap}
 .feldpaar > div{flex:1 1 12rem;min-width:0}
@@ -347,7 +424,7 @@ body[data-blick="lese"] .raum[data-vorschau="aus"] .liste{display:none}
 .empf label{flex:0 0 3.2rem;margin:0;text-align:right}
 .vorschlag{position:absolute;z-index:30;background:var(--karte-voll);
   border:1px solid var(--rand2);border-radius:var(--r2);overflow:hidden;
-  box-shadow:0 12px 34px rgba(0,0,0,.5);display:none;max-height:16rem;overflow-y:auto}
+  box-shadow:0 12px 34px var(--schatten);display:none;max-height:16rem;overflow-y:auto}
 .vorschlag.auf{display:block}
 .vorschlag div{padding:.4rem .6rem;cursor:pointer;font-size:.82rem}
 .vorschlag div:hover,.vorschlag div.an{background:rgba(224,164,88,.18)}
@@ -361,12 +438,16 @@ body[data-blick="lese"] .raum[data-vorschau="aus"] .liste{display:none}
   border-radius:var(--r);padding:1.4rem 1.3rem;backdrop-filter:blur(8px);text-align:center}
 .torkarte .wappen{margin:0 auto .8rem;width:3.2rem;height:3.2rem;font-size:1.9rem}
 .torkarte h1{font-size:1.2rem;margin-bottom:.3rem}
+/* The slogan: small, in the house gold, right behind the name — a line that
+   says what the place is FOR, not a second headline. */
+.slogan{font-size:.78rem;font-weight:600;color:var(--akzent);letter-spacing:.01em;
+  white-space:nowrap}
 .torkarte p{margin:.3rem 0 1rem;font-size:.82rem;color:var(--leise);line-height:1.5}
 .torkarte input{text-align:center;margin-bottom:.6rem}
 .melde{position:fixed;left:50%;bottom:1.3rem;transform:translateX(-50%) translateY(2rem);
   background:var(--karte-voll);border:1px solid var(--rand2);border-radius:99px;
   padding:.5rem 1rem;font-size:.84rem;z-index:50;opacity:0;pointer-events:none;
-  transition:opacity .2s ease,transform .2s ease;box-shadow:0 10px 30px rgba(0,0,0,.45);
+  transition:opacity .2s ease,transform .2s ease;box-shadow:0 10px 30px var(--schatten);
   max-width:calc(100vw - 2rem)}
 .melde.auf{opacity:1;transform:translateX(-50%) translateY(0)}
 .melde.gut{border-color:#34d39977}
@@ -449,6 +530,8 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
   <div class="torkarte">
     <div class="wappen">📬</div>
     <h1>Postwache</h1>
+    <div class="slogan" style="margin:-.1rem 0 .5rem">
+      <span data-t="allg.slogan"></span></div>
     <p id="tor_text" data-t="k.tor_text"></p>
     <div id="tor_neu" hidden>
       <input id="tor_wort1" type="password" autocomplete="new-password"
@@ -493,6 +576,7 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
       <button class="haupt" onclick="verfassen('neu')"><span>✏️</span>
         <span class="nichtschmal" data-t="k.verfassen"></span></button>
       <button class="blank" onclick="allesLaden(true)" data-t-titel="k.neu_laden">⟳</button>
+      <button class="blank" id="lichttaste" onclick="lichtUm()"></button>
       <button class="blank" onclick="einstAuf()" data-t-titel="k.einstellungen">⚙️</button>
       <button class="blank" onclick="hilfeAuf()" data-t-titel="k.tastenhilfe">⌨️</button>
       <button class="blank" onclick="location.href='/?wache=1'"
@@ -632,6 +716,73 @@ if (typeof T === "undefined") {
   globalThis.LANG = "de";
   globalThis.SPRACHEN = [["de", "Deutsch"]];
 }
+/* ── Day and night ─────────────────────────────────────────────────────────
+   Three positions, one button: automatic (whatever the device says), light, dark.
+   🔑 The choice lives on the DEVICE, not in the mailbox: a phone in a dark room
+   and a desk in the sun are two different answers to the same question, and one
+   setting on the server can only ever give one of them.
+   🔴 NOT called `ANSICHTEN`: on the watchman page that word is already the list
+   of tabs, and a second `const` of the same name is a PARSE error that kills the
+   whole script — while the page still draws its markup and looks perfectly
+   normal. All three pages use the same names, so the word stays free here too. */
+const LICHT_WAHLEN = ["auto", "hell", "dunkel"];
+const LICHT_ZEICHEN = {auto:"◐", hell:"☀", dunkel:"☾"};
+/* 🔴 Keys SPELLED OUT, never assembled from the state: assembled, no literal
+   exists anywhere, and the language bench can neither find a typo in it nor see
+   that the key is in use. */
+const LICHT_WORT = {auto:"allg.ansicht_auto", hell:"allg.ansicht_hell",
+                    dunkel:"allg.ansicht_dunkel"};
+/* 🔴 ONE variable holds the choice. Read it out of the store on every question
+   and a `?licht=` in the address would win for ever — the button would write
+   and write and nothing would move. */
+let LICHT_WAHL = (function(){
+  try{
+    const auf = new URLSearchParams(location.search).get("licht");
+    if(LICHT_WAHLEN.indexOf(auf) >= 0) return auf;
+  }catch(e){ /* no parameter, no matter */ }
+  try{
+    const w = localStorage.getItem("pw_ansicht");
+    if(LICHT_WAHLEN.indexOf(w) >= 0) return w;
+  }catch(e){ /* a browser may refuse the store — then it is „auto" */ }
+  return "auto";
+})();
+function istHell(){
+  return LICHT_WAHL === "hell" || (LICHT_WAHL === "auto" && window.matchMedia
+    && matchMedia("(prefers-color-scheme: light)").matches);
+}
+function lichtAnwenden(neuzeichnen){
+  const hell = istHell();
+  const wurzel = document.documentElement;
+  if(hell) wurzel.setAttribute("data-hell", "1");
+  else wurzel.removeAttribute("data-hell");
+  const grund = getComputedStyle(wurzel).getPropertyValue("--grund").trim();
+  const marke = document.querySelector('meta[name="theme-color"]');
+  if(marke && grund) marke.setAttribute("content", grund);
+  const knopf = document.getElementById("lichttaste");
+  if(knopf){
+    knopf.textContent = LICHT_ZEICHEN[LICHT_WAHL];
+    knopf.title = txt(LICHT_WORT[LICHT_WAHL]);
+    knopf.setAttribute("aria-label", knopf.title);
+  }
+  /* 🔑 The letter is a document of its own inside the frame, with a stylesheet
+     built by the ENGINE. It cannot be repainted from out here — so it is asked
+     for again. One request, for something somebody pressed on purpose. */
+  if(neuzeichnen && S.uid) mailOeffnen(S.uid, offenOrdner());
+}
+function lichtUm(){
+  LICHT_WAHL = LICHT_WAHLEN[(LICHT_WAHLEN.indexOf(LICHT_WAHL) + 1) % LICHT_WAHLEN.length];
+  try{ localStorage.setItem("pw_ansicht", LICHT_WAHL); }catch(e){}
+  lichtAnwenden(true);
+}
+/* The device switches at sunset — and so does the page, with nobody reaching for
+   anything. */
+if(window.matchMedia){
+  try{
+    matchMedia("(prefers-color-scheme: light)")
+      .addEventListener("change", () => lichtAnwenden(true));
+  }catch(e){ /* older browsers: the button still works */ }
+}
+
 function txt(schluessel, werte){
   let s = T[schluessel];
   if(s === undefined) return schluessel;
@@ -870,9 +1021,18 @@ function ordnerMalen(){
       ? `<span class="ofalt ${S.zu.has(o.name) ? "zu" : ""}"
              onclick="faltenUm(event,'${escJs(o.name)}')">▾</span>`
       : `<span class="ofalt"></span>`;
+    /* 🔑 Draggable, and at the same time a target: a folder can be carried
+       somewhere else, and mail can be carried INTO it. A special folder is a
+       position, not a drawer — it does not travel, but post may land in it. */
     return `<div class="o ${tief > 0 ? "unter" : ""} ${kinder ? "eltern" : ""}
         ${(!S.neu && o.name === S.ordner) ? "an" : ""}" tabindex="0"
         style="--tief:${tief}"
+        ${o.rolle ? "" : 'draggable="true"'}
+        ondragstart="ordnerZiehStart(event,'${escJs(o.name)}')"
+        ondragend="ziehEnde()"
+        ondragover="ziehUeber(event,this,'${escJs(o.name)}',${o.rolle ? 1 : 0})"
+        ondragleave="this.classList.remove('ziel')"
+        ondrop="ziehAb(event,this,'${escJs(o.name)}',${o.rolle ? 1 : 0})"
         onclick="ordnerWaehlen('${escJs(o.name)}')"
         onkeydown="if(event.key==='Enter')ordnerWaehlen('${escJs(o.name)}')"
         title="${esc(o.pfad)} — ${o.gesamt} ${esc(txt("k.mails"))}">
@@ -894,7 +1054,12 @@ function ordnerMalen(){
   </div>`);
   teile.push(`<div class="obaum">${sonder.map(o => zeile(o, 0, false)).join("")}</div>`);
   if(rest.length){
-    teile.push(`<div class="ogruppe">${esc(txt("k.eigene_ordner"))}</div>`);
+    /* The heading is the target for „to the top": a folder that has to come
+       OUT of a branch needs a place to be dropped, and there is no row for the
+       level above the first one. */
+    teile.push(`<div class="ogruppe" ondragover="ziehUeber(event,this,'',0)"
+      ondragleave="this.classList.remove('ziel')"
+      ondrop="ziehAb(event,this,'',0)">${esc(txt("k.eigene_ordner"))}</div>`);
     /* 🔑 One branch per top-level folder, with air between the branches. A flat
        run of rows leaves the reader counting indents to see where one family
        ends and the next begins. */
@@ -1113,7 +1278,8 @@ function listeMalen(){
     ].filter(Boolean).join("");
     return `<div class="z ${m.gelesen ? "" : "neu"} ${m.uid === S.uid ? "an" : ""}
         ${gewaehlt ? "gewaehlt" : ""} ${m.geloescht ? "weg" : ""} ${gleich ? "antwort" : ""}"
-        data-uid="${m.uid}" data-i="${i}" tabindex="0"
+        data-uid="${m.uid}" data-i="${i}" tabindex="0" draggable="true"
+        ondragstart="mailZiehStart(event,${i})" ondragend="ziehEnde()"
         onclick="zeileKlick(event,${m.uid},${i})"
         onkeydown="if(event.key==='Enter')mailOeffnen(${m.uid},'${escJs(m.ordner || "")}')">
       <input type="checkbox" class="haken" ${gewaehlt ? "checked" : ""}
@@ -1272,8 +1438,13 @@ async function stapel(was, an, uids){
 }
 async function stapelVerschieben(ziel, uids){
   if(!ziel) return;
-  const liste = posten(uids);
   $("#stapel_ziel").value = "";
+  return verschiebeListe(ziel, posten(uids));
+}
+/* 🔑 The same road for the toolbar and for a dragged row: one function that gets
+   a LIST of (folder, number) — where that list came from is the caller's
+   business, not this one's. */
+async function verschiebeListe(ziel, liste){
   if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
   let gut = true, zahl = 0, letzte = "";
   for(const [ordner, teil] of nachOrdnern(liste)){
@@ -1310,6 +1481,99 @@ async function wieWache(uid, adresse){
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
   if(r.ok) await nachTat([uid]);
 }
+/* ── Carrying things with the mouse ────────────────────────────────────────
+   der Besitzer, 28.09.2026: „man muss auch ganze ordner am besten per drag and drop
+   verschieben können mit mailinhalt, postwache soll das dann auch mitbekommen
+   wegen lernen und so."
+
+   🔑 Two different things travel to the same targets: a handful of MAILS and a
+   whole FOLDER. So one variable says what is in the air, and every target asks
+   it — instead of two sets of handlers that would have to agree with each
+   other. */
+let ZIEHT = null;
+function trenner(){ return S.faehig.trenner || "."; }
+function mailZiehStart(ev, i){
+  const m = S.mails[i];
+  if(!m) return;
+  /* 🔴 Dragging a row that is PART of the selection takes the whole selection;
+     dragging one outside it takes that one alone and leaves the selection
+     standing. Anything else and a careless drag moves fifty mails. */
+  const liste = S.gewaehlt.has(wahlSchluessel(m))
+    ? posten() : [{ordner: m.ordner || S.ordner, uid: m.uid}];
+  ZIEHT = {art:"mails", liste:liste};
+  try{
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", String(liste.length));
+  }catch(e){ /* a browser that refuses the clipboard still drags */ }
+  document.body.classList.add("zieht");
+}
+function ordnerZiehStart(ev, name){
+  ZIEHT = {art:"ordner", name:name};
+  try{
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", name);
+  }catch(e){}
+  document.body.classList.add("zieht");
+}
+function ziehEnde(){
+  ZIEHT = null;
+  document.body.classList.remove("zieht");
+  $$(".ziel").forEach(el => el.classList.remove("ziel"));
+}
+/* 🔴 A target that does not call `preventDefault` is NOT a target — that is how
+   the browser is told „yes, this may be dropped here". So the same question is
+   asked here that the drop will ask again: what is in the air, and does it
+   belong here? */
+function ziehUeber(ev, el, ziel, rolle){
+  if(!ZIEHT) return;
+  if(ZIEHT.art === "ordner"){
+    if(rolle) return;                                   // a position, not a drawer
+    if(!ziel && !S.ordner_liste.length) return;
+    if(ziel === ZIEHT.name) return;                     // onto itself
+    if(ziel && ziel.indexOf(ZIEHT.name + trenner()) === 0) return;  // into its own child
+  }else if(!ziel){
+    return;                                             // mail has no „top level"
+  }
+  ev.preventDefault();
+  try{ ev.dataTransfer.dropEffect = "move"; }catch(e){}
+  el.classList.add("ziel");
+}
+async function ziehAb(ev, el, ziel, rolle){
+  ev.preventDefault();
+  el.classList.remove("ziel");
+  const z = ZIEHT;
+  ziehEnde();
+  if(!z) return;
+  if(z.art === "mails"){
+    if(!ziel) return;
+    return verschiebeListe(ziel, z.liste);
+  }
+  return ordnerZiehen(z.name, ziel);
+}
+async function ordnerZiehen(name, ziel){
+  const o = S.ordner_liste.find(x => x.name === name);
+  const zo = S.ordner_liste.find(x => x.name === ziel);
+  if(!o) return;
+  if(!confirm(txt("k.ordner_ziehen_frage", {o:ordnerName(o),
+      ziel: zo ? ordnerName(zo) : txt("k.ordner_oben")}))) return;
+  S.laeuft = true;
+  let r;
+  try{ r = await sende("klient_ordner_ziehen", {ordner:name, ziel:ziel}); }
+  catch(e){ S.laeuft = false; return; }
+  S.laeuft = false;
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(!r.ok) return;
+  /* 🔴 The move HAPPENED even when the watchman could not follow. Saying so is
+     the only honest answer — and it names which half went wrong. */
+  if(r.wache_fehler) melde(txt("k.wache_nicht_nachgezogen"), false);
+  /* What was open may BE the folder that moved, or a child of it. */
+  const t = r.trenner || trenner();
+  if(S.ordner === r.alt) S.ordner = r.neu;
+  else if(S.ordner.indexOf(r.alt + t) === 0) S.ordner = r.neu + S.ordner.slice(r.alt.length);
+  if(S.zu.has(r.alt)){ S.zu.delete(r.alt); S.zu.add(r.neu); }
+  await allesLaden(false);
+}
+
 /* After a move or a delete the mails are gone from this folder. Instead of
    refetching everything: take them out of the list, open the next one — that is
    what a reader working through a folder expects. */
@@ -1328,6 +1592,11 @@ async function nachTat(uids, liste){
     if(naechste && S.einst.vorschau !== "aus") mailOeffnen(naechste.uid, naechste.ordner);
   }
   listeMalen();
+  /* 🔴 Taking the rows out by hand is the INSTANT answer, refetching the page is
+     the RIGHT one — in that order. Deleting 50 of 100 left „1 of 2" standing
+     there with an empty list until somebody clicked to page two: the counter, the
+     page count and the rows that move up into the gap all live on the server. */
+  await ladeListe(false);
   const l = await sende("klient_ordner", {frisch:true});
   if(l.ok){ S.ordner_liste = l.ordner || S.ordner_liste; ordnerMalen(); }
 }
@@ -1372,7 +1641,7 @@ async function mailOeffnen(uid, ordner){
   blick("lese");
   $("#lese").innerHTML = `<div class="leer"><div><span class="laedt"></span></div></div>`;
   let m;
-  try{ m = await sende("klient_mail", {ordner:S.uid_ordner, uid:uid}); }
+  try{ m = await sende("klient_mail", {ordner:S.uid_ordner, uid:uid, hell:istHell()}); }
   catch(e){ return; }
   if(!m || !m.ok){
     $("#lese").innerHTML = `<div class="leer"><div>${esc((m && m.text) || txt("k.ging_nicht"))}</div></div>`;
@@ -1535,7 +1804,8 @@ function briefHoehe(){
   setTimeout(messen, 1200);
 }
 async function bilderLaden(){
-  const m = await sende("klient_mail", {ordner:offenOrdner(), uid:S.uid, bilder:1});
+  const m = await sende("klient_mail", {ordner:offenOrdner(), uid:S.uid, bilder:1,
+                                        hell:istHell()});
   if(m && m.ok){ S.offen = m; leseMalen(); }
 }
 async function bilderImmer(){
@@ -1545,6 +1815,7 @@ async function bilderImmer(){
 async function ansichtUm(){
   const neu = S.offen.ansicht === "html" ? "text" : "html";
   const m = await sende("klient_mail", {ordner:offenOrdner(), uid:S.uid, ansicht:neu,
+                                        hell:istHell(),
                                         bilder: S.offen.bilder ? 1 : 0});
   if(m && m.ok){ S.offen = m; leseMalen(); }
 }
@@ -1958,14 +2229,57 @@ document.addEventListener("keydown", (ev) => {
 
 /* ── Start ─────────────────────────────────────────────────────────────────── */
 textenSetzen(document);
+lichtAnwenden(false);           /* the button needs its sign and its word */
 leseLeeren();
 allesLaden(true);
-/* New mail should show up without pressing anything — but never while somebody is
-   working. Selection, an open window, a focused field: all three block it. */
-setInterval(async () => {
-  if(document.hidden || S.laeuft || offeneFenster() || S.gewaehlt.size) return;
-  if(/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName || "")) return;
-  if(S.seite !== 1 || S.suche) return;
+/* ── The listening post ─────────────────────────────────────────────────────
+   🔑 New mail has to show up BY ITSELF — and it does not do that by asking every
+   minute, it does it by LISTENING. The page leaves one request waiting; the
+   server answers it the moment the provider says a word (IMAP IDLE). Twenty
+   seconds per wait, and the same loop is the fallback: if the listening post
+   cannot be reached, it asks again after a pause. ONE place decides how often. */
+const HORCH = {stand:0, marken:{}};
+function schlafen(ms){ return new Promise(r => setTimeout(r, ms)); }
+function angemeldet(){ return !$("#tor").classList.contains("auf"); }
+function horchOrte(){
+  const orte = ["INBOX"];
+  for(const o of [S.rollen.posteingang, S.ordner])
+    if(o && orte.indexOf(o) < 0) orte.push(o);
+  return orte;
+}
+async function horchSchleife(){
+  while(true){
+    /* A tab nobody is looking at asks for nothing: the listening post drops its
+       connection at the provider after a minute and a half, and coming back
+       refreshes at once — see the `visibilitychange` below. */
+    if(document.hidden || !angemeldet()){ await schlafen(1500); continue; }
+    let a = null;
+    try{
+      a = await sende("klient_horch", {ordner:horchOrte(), stand:HORCH.stand, warte:20});
+    }catch(e){ a = null; }
+    if(!a || a.ok === false){ await schlafen(20000); await nachziehen(false); continue; }
+    const vorher = HORCH.marken;
+    HORCH.marken = a.marken || {};
+    HORCH.stand = a.stand || 0;
+    /* 🔴 The FIRST answer has no „before" to compare against. Keeping it and
+       doing nothing is the whole point — otherwise every page load would refetch
+       the list it has just drawn. */
+    if(!Object.keys(vorher).length) continue;
+    let etwas = false, neuePost = false;
+    for(const ort in HORCH.marken){
+      const v = vorher[ort], n = HORCH.marken[ort];
+      if(!v) continue;
+      if(v.join() !== n.join()) etwas = true;
+      if(n[2] > v[2]) neuePost = true;      // UIDNEXT only grows when post ARRIVES
+    }
+    if(etwas) await nachziehen(neuePost);
+  }
+}
+/* 🔴 Never redraw the list under somebody's hands: a selection, an open window, a
+   focused field, a search, a page other than the first — each of them blocks it.
+   The folder NUMBERS are updated anyway; a counter steals nobody's click. */
+async function nachziehen(neuePost){
+  if(S.laeuft || !angemeldet()) return;
   try{
     const l = await sende("klient_ordner", {frisch:true});
     if(!l.ok) return;
@@ -1973,9 +2287,17 @@ setInterval(async () => {
     S.ordner_liste = l.ordner || S.ordner_liste;
     ordnerMalen();
     const jetzt = (S.ordner_liste.find(o => o.name === S.ordner) || {}).gesamt;
-    if(jetzt !== vorher) await ladeListe(false);
+    if(offeneFenster() || S.gewaehlt.size || S.suche) return;
+    if(/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName || "")) return;
+    if(!S.neu && S.seite !== 1) return;
+    if(S.neu || neuePost || jetzt !== vorher) await ladeListe(false);
   }catch(e){ /* the next round tries again */ }
-}, 60000);
+}
+/* Coming back to the tab is a question, and it deserves an answer right away. */
+document.addEventListener("visibilitychange", () => {
+  if(!document.hidden && angemeldet()) nachziehen(false);
+});
+horchSchleife();
 </script>
 </body>
 </html>

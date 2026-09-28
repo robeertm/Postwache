@@ -1765,6 +1765,10 @@ KLIENT_AKTIONEN = {
     "klient_ordner": lambda d, marke: {"ok": True, "ordner": KL.tu(
         _pf(d), lambda k: k.baum(bool(d.get("frisch"))))},
     "klient_liste": lambda d, marke: KL.liste(dict(d, pf=_pf(d))),
+    # 🔑 The waiting request. It comes back when the provider says something (IMAP
+    # IDLE) — that is what makes new mail appear without anybody pressing
+    # anything. It holds one thread of this server and NOT the mailbox lock.
+    "klient_horch": lambda d, marke: KL.horch(dict(d, pf=_pf(d))),
     # Everything new, out of every folder at once — the view the watchman makes
     # necessary, because it is the one that moved the new mail away.
     "klient_neu": lambda d, marke: KL.neu_liste(dict(d, pf=_pf(d))),
@@ -1773,6 +1777,9 @@ KLIENT_AKTIONEN = {
     "klient_verschieben": lambda d, marke: KL.verschieben(dict(d, pf=_pf(d))),
     "klient_loeschen": lambda d, marke: KL.loeschen(dict(d, pf=_pf(d))),
     "klient_ordner_neu": lambda d, marke: KL.ordner_neu(dict(d, pf=_pf(d))),
+    # A whole folder, with its mail, its subfolders — and the watchman's memory
+    # of it carried over in the same breath.
+    "klient_ordner_ziehen": lambda d, marke: KL.ordner_ziehen(dict(d, pf=_pf(d))),
     "klient_vorlage": lambda d, marke: KL.vorlage(dict(d, pf=_pf(d))),
     "klient_senden": lambda d, marke: KL.senden(dict(d, pf=_pf(d))),
     "klient_entwurf": lambda d, marke: KL.entwurf_speichern(dict(d, pf=_pf(d))),

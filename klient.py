@@ -37,6 +37,7 @@ import json
 import mimetypes
 import os
 import re
+import select
 import smtplib
 import socket
 import sys
@@ -63,6 +64,16 @@ SITZUNG_MIN = 720                   # session lifetime in minutes, adjustable
 SPERRZEIT = (30, 60, 120, 300, 900)  # seconds after 5, 6, 7, 8, 9+ failures
 VERSUCHE_FREI = 4                   # up to this many failures without waiting
 LEERLAUF = 300                      # close an unused IMAP connection after 5 min
+# ── The listening post ───────────────────────────────────────────────────
+# 🔑 A mail program that ASKS every minute is a minute late. IMAP has IDLE for
+# exactly this: the server speaks up on its own when something happens. So the
+# page no longer polls — it leaves ONE request waiting, and that request comes
+# back the moment the provider says a word.
+HORCH_FRIST = 90.0                  # seconds without a waiting reader, then it closes
+HORCH_WARTE = 25.0                  # how long one waiting request is held at most
+HORCH_FENSTER = 300.0               # one IDLE lasts this long, then it is renewed
+HORCH_TAKT = 20.0                   # a server without IDLE gets asked this often
+HORCH_ORDNER = 6                    # how many folders one reader may have watched
 MAX_ANHANG = 25 * 1024 * 1024       # per mail, adjustable up to this hard ceiling
 TEXT_GRENZE = 900 * 1024            # never render more body than this
 AUSZUG_BYTES = 900                  # how much of a body a list excerpt costs
@@ -566,8 +577,11 @@ class Briefkasten(W.Postfach if W is not None else object):
     an action actually has to write. Both are inherited, and both are checked by
     the test bench against the real command text."""
 
-    def __init__(self, zug: dict):
-        super().__init__(zug, True)
+    def __init__(self, zug: dict, schreiben: bool = True):
+        # 🔑 `schreiben=False` makes a connection that CANNOT write — the folder
+        # is opened read-only from the login on. The listening post uses it: not
+        # „it does not write" out of discipline, but out of construction.
+        super().__init__(zug, schreiben)
         self.ordner = ""            # which folder is selected
         self.schreibend = False     # and in which mode
         self.faehig = set()
@@ -575,7 +589,7 @@ class Briefkasten(W.Postfach if W is not None else object):
 
     def __enter__(self):
         super().__enter__()
-        self.ordner, self.schreibend = "INBOX", True
+        self.ordner, self.schreibend = "INBOX", bool(self.schreiben)
         try:
             typ, dat = self.m.capability()
             if typ == "OK" and dat:
@@ -696,6 +710,69 @@ class Briefkasten(W.Postfach if W is not None else object):
         g = re.search(r"MESSAGES\s+(\d+)", s, re.I)
         u = re.search(r"UNSEEN\s+(\d+)", s, re.I)
         return (int(g.group(1)) if g else 0), (int(u.group(1)) if u else 0)
+
+    def stand(self, name: str) -> tuple:
+        """(total, unread, next number) — one STATUS, without selecting.
+
+        🔑 The third number is the one that says „mail has ARRIVED". Total and
+        unread both move when something is read, deleted or moved away; UIDNEXT
+        only ever grows, and only when something comes in. The listening post
+        needs both kinds: what changed at all, and whether it is new post.
+        """
+        try:
+            typ, dat = self.m.status(self._zitat(name), "(MESSAGES UNSEEN UIDNEXT)")
+        except Exception:
+            return (0, 0, 0)
+        if typ != "OK" or not dat:
+            return (0, 0, 0)
+        s = dat[0].decode("utf-8", "replace") if isinstance(dat[0], bytes) else str(dat[0])
+        zahl = {}
+        for feld in ("MESSAGES", "UNSEEN", "UIDNEXT"):
+            t = re.search(feld + r"\s+(\d+)", s, re.I)
+            zahl[feld] = int(t.group(1)) if t else 0
+        return (zahl["MESSAGES"], zahl["UNSEEN"], zahl["UIDNEXT"])
+
+    def lauschen(self, sekunden: float, weiter=None) -> bool:
+        """Wait for the server to say something. True = it did.
+
+        🔴 Exactly ONE line is read by hand here — the „+ idling" that the server
+        sends at once. Everything that follows is read by `imaplib` itself, after
+        DONE. That is the whole trick: `imaplib` is not built for untagged lines
+        arriving unasked, and a connection read half by hand and half by the
+        library is a connection out of step with itself. This way it cannot
+        happen — whatever the server said in between, the library picks it up
+        with the tagged answer and the state is its own again.
+
+        🔑 And the waiting itself does not read at all: `select` only asks the
+        socket whether something is there. A timeout can therefore never cut a
+        line in half.
+        """
+        m = self.m
+        marke = m._new_tag()                        # registers the tag as pending
+        m.send(marke + b" IDLE\r\n")
+        zeile = m.readline()
+        if not zeile.startswith(b"+"):
+            raise imaplib.IMAP4.abort("IDLE abgelehnt: %r" % zeile[:80])
+        # 🔴 In slices, not in one long wait: `weiter` is how the post learns
+        # that nobody is listening any more. A single `select` over five minutes
+        # would keep a connection open for five minutes after the last tab
+        # closed.
+        ende = time.monotonic() + max(1.0, sekunden)
+        bereit = False
+        try:
+            while True:
+                rest = min(15.0, ende - time.monotonic())
+                if rest <= 0:
+                    break
+                if select.select([m.socket()], [], [], rest)[0]:
+                    bereit = True
+                    break
+                if weiter is not None and not weiter():
+                    break
+        finally:
+            m.send(b"DONE\r\n")
+            m._get_tagged_response(marke)
+        return bereit
 
     # ── Which mails, in which order ─────────────────────────────────
     # 🔴 NO `UTF8=ACCEPT`. The server would then name its folders in plain UTF-8
@@ -1134,6 +1211,71 @@ class Briefkasten(W.Postfach if W is not None else object):
         except Exception as e:
             log("Anhängen in %s fehlgeschlagen: %s" % (ordner, str(e)[:140]))
             return False
+
+    def ordner_ziehen(self, alt: str, ziel: str) -> dict:
+        """Move a folder — with its mail and with everything hanging under it.
+
+        🔑 IMAP has ONE command for this, and it is not „copy every mail":
+        `RENAME` moves the folder, its messages and its subfolders in a single
+        step, and the numbers stay what they were. Copying would mean thousands of
+        mails over the wire and a window in which the same post lies twice.
+
+        🔴 A special folder stays where it is. Sent, Drafts, Trash and Junk are
+        not folders somebody sorted into, they are POSITIONS — every mail program
+        on this mailbox looks for them where they are, and the watchman files
+        against them too.
+        """
+        alle = self.ordner_liste()
+        if alt not in alle or alt == "INBOX":
+            return {"ok": False, "text": txt("k.ordner_fort")}
+        rollen = {o["name"]: o["rolle"] for o in self.baum()}
+        if rollen.get(alt):
+            return {"ok": False, "text": txt("k.ordner_fest")}
+        t = self.trenner
+        if ziel and ziel not in alle:
+            return {"ok": False, "text": txt("k.ordner_fort")}
+        if ziel == alt or (ziel and ziel.startswith(alt + t)):
+            # 🔴 Into itself, or into one of its own children: the server would
+            # refuse it — but not before it had done half of it.
+            return {"ok": False, "text": txt("k.ordner_in_sich")}
+        kurz = alt.rsplit(t, 1)[-1]
+        if ziel:
+            neu = ziel + t + kurz
+        else:
+            # The top level of the own folders: whatever prefix the shallowest of
+            # them carries. Asked, not assumed — on one server that is „INBOX.",
+            # on the next it is nothing at all.
+            eigen = [o for o in alle if o != "INBOX" and not rollen.get(o)]
+            flach = min((o.count(t) for o in eigen), default=0)
+            muster = next((o for o in eigen if o.count(t) == flach), "")
+            wurzel = muster.rsplit(t, 1)[0] if t in muster else ""
+            neu = (wurzel + t + kurz) if wurzel else kurz
+        if neu == alt:
+            return {"ok": False, "text": txt("k.ordner_schon_da")}
+        if neu in alle:
+            return {"ok": False, "text": txt("k.ordner_name_belegt")}
+        mails = self.zaehlen(alt)[0]
+        kinder = [o for o in alle if o.startswith(alt + t)]
+        typ, _ = self.m.rename(self._zitat(alt), self._zitat(neu))
+        if typ != "OK":
+            return {"ok": False, "text": txt("k.ordner_ging_nicht")}
+        # A subscription does not travel with every server — so it is renewed,
+        # for the folder and for every child that came along.
+        for name in [alt] + kinder:
+            try:
+                self.m.unsubscribe(self._zitat(name))
+            except Exception:
+                pass
+        for name in [neu] + [neu + o[len(alt):] for o in kinder]:
+            try:
+                self.m.subscribe(self._zitat(name))
+            except Exception:
+                pass
+        self.baum_stand = (0.0, [])          # the tree is a different one now
+        if self.ordner == alt or self.ordner.startswith(alt + t):
+            self.ordner = ""                 # whatever was selected is not there
+        return {"ok": True, "alt": alt, "neu": neu, "mails": mails,
+                "kinder": len(kinder), "trenner": t}
 
     def ordner_neu(self, pfad: str) -> dict:
         """Create a folder — under the inbox, with the server's separator, and the
@@ -1761,9 +1903,12 @@ def rahmen(inhalt: str, bilder: bool, dunkel: bool = True) -> str:
                "font-src data:; script-src 'none'; object-src 'none'; "
                "frame-src 'none'; form-action 'none'; base-uri 'none'"
                % bild_quellen)
+    # 🔑 The same four colours the page itself uses in that mode — the letter is
+    # the only part of the view the browser paints from a stylesheet of OUR
+    # making, and a letter on white inside a page on paper shows the seam.
     grund, schrift, leise, akzent = (("#161410", "#f4efe6", "#a99c88", "#e0a458")
                                      if dunkel else
-                                     ("#ffffff", "#1a1712", "#6b6151", "#a8622a"))
+                                     ("#fffdf8", "#2b2015", "#6e6353", "#9a5a17"))
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
         '<meta http-equiv="Content-Security-Policy" content="%s">'
@@ -1874,11 +2019,174 @@ def tu(pf_id: str, aufgabe):
 
 def verbindungen_schliessen() -> None:
     """Hang up everywhere — for the end of the process and for the test bench."""
+    horch_halt()
     with _V_SCHLOSS:
         for e in _VERBINDUNGEN.values():
             if e["pf"] is not None:
                 _schliessen(e["pf"])
             e["pf"] = None
+
+
+# ── The listening post: hearing instead of asking ───────────────────────
+# 🔑 It has its OWN connection, and that is not a detail: an IDLE sits on its
+# connection for minutes, and the warm one is guarded by a lock that every click
+# goes through. Put the listening post on that lock and reading a mail would wait
+# for the next new mail. So: one connection, read-only (EXAMINE), no command that
+# writes anything — it listens, nothing else.
+#
+# 🔑 And it belongs to the MAILBOX, not to the browser tab. Three tabs open ask
+# ONE post, and that post holds ONE connection at the provider. Nobody waits
+# alone.
+_HORCH = {}
+_H_SCHLOSS = threading.Lock()
+
+
+def _horch_posten(pf_id: str) -> dict:
+    with _H_SCHLOSS:
+        posten = _HORCH.get(pf_id)
+        if posten is None:
+            posten = {"wache": threading.Condition(), "marken": {}, "stand": 0,
+                      "wunsch": 0.0, "ordner": {}, "faden": None, "idle": None,
+                      "fehler": "", "runden": 0}
+            _HORCH[pf_id] = posten
+        return posten
+
+
+def _horch_orte(posten: dict) -> list:
+    """Which folders to keep an ear on: the inbox, plus what readers are looking
+    at. Interest expires — otherwise an hour of browsing would leave the post
+    watching forty folders."""
+    jetzt = time.time()
+    with posten["wache"]:
+        for name, wann in list(posten["ordner"].items()):
+            if jetzt - wann > HORCH_FRIST:
+                posten["ordner"].pop(name, None)
+        wunsch = sorted(posten["ordner"], key=lambda n: -posten["ordner"][n])
+    # 🔑 „INBOX" is the one folder name IMAP prescribes, so it needs no lookup —
+    # and it has to be in here whatever anybody is looking at: new mail arrives
+    # THERE, and the watchman carries it out of there into its folders. Both
+    # events are visible in this one folder.
+    return (["INBOX"] + [n for n in wunsch if n != "INBOX"])[:HORCH_ORDNER]
+
+
+def _horch_messen(pf, posten: dict, orte: list) -> bool:
+    """One STATUS per folder. Changed anything? Then wake everybody who waits."""
+    neu = {}
+    for name in orte:
+        neu[name] = pf.stand(name)
+    with posten["wache"]:
+        if all(posten["marken"].get(n) == w for n, w in neu.items()):
+            return False
+        posten["marken"].update(neu)
+        posten["stand"] += 1
+        posten["wache"].notify_all()
+    return True
+
+
+def _horch_faden(pf_id: str) -> None:
+    """The post itself. It lives as long as somebody is listening — and not a
+    minute longer: a browser tab closed at night must not hold a connection at
+    the provider until morning."""
+    posten = _horch_posten(pf_id)
+    pf = None
+    try:
+        while time.time() - posten["wunsch"] < HORCH_FRIST:
+            try:
+                if pf is None:
+                    zug = _zugang(pf_id)
+                    if not zug:
+                        posten["fehler"] = txt("a.kein_postfach")
+                        return
+                    pf = Briefkasten(zug, False)       # cannot write, by build
+                    pf.__enter__()
+                    posten["idle"] = pf.kann("IDLE")
+                    posten["fehler"] = ""
+                orte = _horch_orte(posten)
+                _horch_messen(pf, posten, orte)
+                posten["runden"] += 1
+                if posten["idle"]:
+                    # Read-only, always. The post watches, it does not touch.
+                    pf.waehle(orte[0], False)
+                    pf.lauschen(HORCH_FENSTER,
+                                lambda: time.time() - posten["wunsch"] < HORCH_FRIST)
+                else:
+                    # 🔴 A server without IDLE is not a reason to give up — it is
+                    # a reason to ask politely. Twenty seconds is still twenty
+                    # times closer than the minute the page used to wait.
+                    time.sleep(HORCH_TAKT)
+            except Exception as e:                      # noqa: BLE001
+                posten["fehler"] = str(e)[:140]
+                log("Horchposten: %s" % str(e)[:140])
+                _schliessen(pf)
+                pf = None
+                if time.time() - posten["wunsch"] >= HORCH_FRIST:
+                    break
+                time.sleep(5.0)
+    finally:
+        _schliessen(pf)
+        with _H_SCHLOSS:
+            posten["faden"] = None
+
+
+def _horch_faden_start(posten: dict, pf_id: str) -> None:
+    with _H_SCHLOSS:
+        faden = posten["faden"]
+        if faden is not None and faden.is_alive():
+            return
+        faden = threading.Thread(target=_horch_faden, args=(pf_id,), daemon=True,
+                                 name="horch-%s" % (pf_id or "-"))
+        posten["faden"] = faden
+    faden.start()
+
+
+def horch(d: dict) -> dict:
+    """Hold this request until something happens — or until the wait is up.
+
+    🔑 The answer has the SAME shape whether it waited twenty milliseconds or
+    twenty-five seconds: a counter and the marks of the folders asked about. The
+    page compares them itself and decides what is worth refetching. Nothing is
+    pushed through a pipe that could break, and a page that cannot reach the post
+    at all simply asks again — the old rhythm, only slower and as a fallback.
+    """
+    pf_id = str(d.get("pf") or "")
+    ordner = [str(o) for o in (d.get("ordner") or []) if o][:HORCH_ORDNER]
+    try:
+        stand = int(d.get("stand") or 0)
+    except (TypeError, ValueError):
+        stand = 0
+    try:
+        warte = max(1.0, min(HORCH_WARTE, float(d.get("warte") or HORCH_WARTE)))
+    except (TypeError, ValueError):
+        warte = HORCH_WARTE
+    posten = _horch_posten(pf_id)
+    jetzt = time.time()
+    with posten["wache"]:
+        posten["wunsch"] = jetzt
+        for name in ordner:
+            posten["ordner"][name] = jetzt
+        _horch_faden_start(posten, pf_id)
+        # 🔴 Only wait when the reader is up to date. Whoever is behind gets the
+        # answer AT ONCE — otherwise a page that missed one round would wait
+        # twenty-five seconds for news that is already lying here.
+        if posten["stand"] == stand:
+            posten["wache"].wait(warte)
+        return {"ok": True, "stand": posten["stand"], "horcht": bool(posten["idle"]),
+                "marken": {n: list(posten["marken"][n]) for n in ordner
+                           if n in posten["marken"]},
+                "fehler": posten["fehler"]}
+
+
+def horch_halt() -> None:
+    """Close every listening post — end of process, and the test bench."""
+    for posten in list(_HORCH.values()):
+        with posten["wache"]:
+            posten["wunsch"] = 0.0
+            posten["ordner"].clear()
+            posten["wache"].notify_all()
+    for posten in list(_HORCH.values()):
+        faden = posten.get("faden")
+        if faden is not None:
+            faden.join(timeout=2.0)
 
 
 # ── Writing and sending ─────────────────────────────────────────────────
@@ -2465,7 +2773,12 @@ def mail_zeigen(d: dict) -> dict:
         inhalt = '<div class="pw-text">%s</div>' % text_zu_html(text)
     m["ansicht"] = ansicht
     m["bilder"] = bilder
-    m["rahmen"] = rahmen(inhalt, bilder)
+    # 🔑 The letter is a document of its own inside the frame, with its own
+    # stylesheet — so the day mode has to reach IN THERE too, or the page turns
+    # to paper and the letter stays night. Which mode is in force is something
+    # only the browser knows (the setting may say „follow the device"), so the
+    # page says so with the request.
+    m["rahmen"] = rahmen(inhalt, bilder, not bool(d.get("hell")))
     m["ok"] = True
     if einst["gelesen_nach"] == 0 and not m.get("gelesen"):
         try:
@@ -2571,6 +2884,72 @@ def loeschen(d: dict) -> dict:
 
 def ordner_neu(d: dict) -> dict:
     return tu(str(d.get("pf") or ""), lambda k: k.ordner_neu(str(d.get("name") or "")))
+
+
+def _einst_ordner_umschreiben(alt: str, neu: str, trenner: str) -> int:
+    """The five folders a reader may have PINNED by hand in the settings. If one
+    of them was the folder that moved, it has to follow — otherwise the client
+    looks for the archive where nothing is any more."""
+    if W is None:
+        return 0
+    e = _load(KLIENT_EINST, None)
+    if not isinstance(e, dict):
+        return 0
+    zahl = 0
+    for feld in ("ordner_papierkorb", "ordner_archiv", "ordner_spam",
+                 "ordner_entwuerfe", "ordner_gesendet"):
+        wert = str(e.get(feld) or "")
+        neuer = W.pfad_umschreiben(wert, alt, neu, trenner) if wert else ""
+        if neuer and neuer != wert:
+            e[feld] = neuer
+            zahl += 1
+    if zahl:
+        _save(KLIENT_EINST, e)
+    return zahl
+
+
+def ordner_ziehen(d: dict) -> dict:
+    """Move a folder — and tell everything that knew it by name.
+
+    Der Besitzer, 28.09.2026: „man muss auch ganze ordner am besten per drag and drop
+    verschieben können mit mailinhalt, postwache soll das dann auch mitbekommen
+    wegen lernen und so."
+
+    🔑 The second half of that sentence is the bigger half. The provider does the
+    move in one command; the watchman has LEARNED that folder — who writes into
+    it, what hangs in it, where each mail came from. That memory is carried over
+    in the same breath, not at the next run: between the two the watchman would
+    file into a folder that is not there, and filing CREATES what is missing.
+    """
+    pf_id = str(d.get("pf") or "")
+    alt = str(d.get("ordner") or "")
+    ziel = str(d.get("ziel") or "")
+    antwort = tu(pf_id, lambda k: k.ordner_ziehen(alt, ziel))
+    if not antwort.get("ok"):
+        return antwort
+    trenner = antwort.get("trenner") or "."
+    antwort["einstellungen"] = _einst_ordner_umschreiben(antwort["alt"],
+                                                         antwort["neu"], trenner)
+    if W is not None:
+        try:
+            W.pf_waehlen(pf_id)
+            antwort["wache"] = W.ordner_umgezogen(antwort["alt"], antwort["neu"],
+                                                  trenner)
+            W.chronik("klient_ordner_gezogen", text="%s → %s"
+                      % (antwort["alt"], antwort["neu"]))
+        except Exception as e:                      # noqa: BLE001
+            # 🔴 The move HAPPENED. Saying „did not work" now would be a lie, and
+            # the reader would press again — so it says what is true: the folder
+            # has moved, the watchman has not understood it yet.
+            log("Wache nicht nachgezogen: %s" % str(e)[:140])
+            antwort["wache_fehler"] = str(e)[:140]
+    zeige = utf7_dekodieren(antwort["neu"].rsplit(trenner, 1)[-1])
+    unter = antwort["neu"].rsplit(trenner, 1)[0] if trenner in antwort["neu"] else ""
+    antwort["text"] = txt("k.ordner_gezogen", o=zeige,
+                          ziel=utf7_dekodieren(unter.rsplit(trenner, 1)[-1])
+                          or txt("k.ordner_oben"),
+                          n=antwort.get("mails") or 0)
+    return antwort
 
 
 def adressbuch(d: dict) -> dict:
