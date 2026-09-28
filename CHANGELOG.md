@@ -7,6 +7,71 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.1.0] – 2026-09-28
+
+### 🔴 A void element must not open a region
+The reading pane stayed empty for nearly every HTML mail. The mail arrived
+complete; the cleaner handed back the style block and nothing else.
+
+`<meta>` sat in the "drop the content" list and **not** in the list of void
+elements. A void element never has an end tag — so the counter went to 1 at the
+`<meta http-equiv="Content-Type">` that stands at the top of almost every
+newsletter, and never came back down. Everything after it was dropped. Only the
+`<style>` block survived, because it is read before the counter is asked.
+
+Measured with Playwright against **both** engines, Chromium and WebKit: frame
+document 2,312 characters, body renders `""`, `scrollHeight 0`, 0 images.
+Afterwards: 4,337 px tall, 2,388 characters of text, 26 images.
+
+* The void list now holds **every** void element of HTML (`area base basefont br
+  col embed frame hr img input isindex keygen link meta param source track wbr`),
+  and a void or self-closed tag never raises the counter.
+* The silent list holds only what really is not part of the letter. `head`,
+  `body`, `form`, `button`, `option` are out of it: their content **is** the
+  letter in a great many mails.
+* Silence is closed by **name**, not by count — a forgotten `</script>` no longer
+  takes the rest of the letter with it, and a stray `</iframe>` cannot lift a
+  silence that was never set.
+* **The wall behind the rule:** where the cleaner produces nothing visible, the
+  letter is shown as text instead of not at all. An empty pane says "this mail is
+  empty", and that was untrue.
+
+**Run against the broken state: 8 of the new probes red.**
+
+### The list looks like a mail program
+* **A body excerpt in every row** — the first words of the letter under the
+  subject. A list that shows only sender and subject makes you open a mail to
+  find out whether it is worth opening.
+  * Fetched in **pieces**: `BODY.PEEK[<part>]<0.900>`, never the whole mail. A
+    mail with a ten-megabyte picture costs exactly as much as one without.
+  * **One** fetch per shape, not one per mail: a page is grouped by part number
+    and encoding, so fifty mails usually need two or three FETCHes.
+  * A cut piece breaks both transfer encodings in its own way — base64 needs a
+    length divisible by four, quoted-printable must not end inside an `=XX`, and
+    half a UTF-8 character at the end is trimmed.
+  * Can be switched off. And it is still `BODY.PEEK`: nothing is marked read.
+* 🔴 **Every cell placed by hand — column AND row.** Automatic grid placement had
+  put the date in the free column and pushed sender and subject to the far right,
+  with the second line under the checkbox. It looked like a layout somebody had
+  chosen. Nobody had.
+
+### One house, one colour
+* The same **three** lights as the watchman's page, on all three pages.
+* The three columns are **cards** on that ground now instead of panes divided by
+  hairlines — the same language as the watchman's stack of cards.
+
+### One click to the mailbox
+The watchman's tab row now carries **📬 Mailbox →** — not a tab but a door: a
+real link to `/post` that works before any script has run.
+
+### Also fixed
+* With *images always* every mail was fetched **twice**, once without and once
+  with images. Where the answer is known before the fetch, it is fetched once.
+  And if the second pass fails, the letter stays readable instead of going blank.
+* The fake IMAP server in the test bench now answers **partial fetches**.
+
+**Test bench:** `probe_klient.py` 172 → **200 probes**, all green.
+
 ## [5.0.0] – 2026-09-28
 
 ### The Postwache becomes a mail client
