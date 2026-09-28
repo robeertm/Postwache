@@ -18,15 +18,19 @@
    the way to the day. It reads the choice and nothing else — the machinery
    lives below, with the other functions. */
 (function(){
-  var wahl = "auto";
+  /* 🔴 NIGHT is the default, full stop — not „whatever the device says". The
+     Postwache is a dark house; a device set to light would otherwise hand a
+     first-time visitor a page they never chose. Only an explicit „hell" turns
+     the light on: the one in the store, or the one in the address.
+     🔴 `licht`, NOT `ansicht`: the mailbox already answers to `?ansicht=breit`
+     and `?ansicht=mobil` — that is which of the two surfaces is served. */
+  var wahl = "";
   try{ wahl = new URLSearchParams(location.search).get("licht") || ""; }catch(e){}
-  if(wahl !== "hell" && wahl !== "dunkel" && wahl !== "auto"){
-    wahl = "auto";
-    try{ wahl = localStorage.getItem("pw_ansicht") || "auto"; }catch(e){}
+  if(wahl !== "hell" && wahl !== "dunkel"){
+    wahl = "";
+    try{ wahl = localStorage.getItem("pw_ansicht") || ""; }catch(e){}
   }
-  var hell = wahl === "hell" || (wahl === "auto" && window.matchMedia
-    && matchMedia("(prefers-color-scheme: light)").matches);
-  if(hell) document.documentElement.setAttribute("data-hell", "1");
+  if(wahl === "hell") document.documentElement.setAttribute("data-hell", "1");
 })();
 </script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
@@ -145,6 +149,7 @@ body[data-blick="ordner"] #b_ordner,
 body[data-blick="suche"] #b_suche,
 body[data-blick="mehr"] #b_mehr,
 body[data-blick="ziel"] #b_ziel,
+body[data-blick="ordnertat"] #b_ordnertat,
 body[data-blick="schreiben"] #b_schreiben{display:flex}
 .kopf{flex:0 0 auto;height:var(--kopf);display:flex;align-items:center;gap:.4rem;
   padding:0 .35rem;border-bottom:1px solid var(--rand);
@@ -259,6 +264,25 @@ body.wahlmodus .fuss{display:none}
   left:calc(.95rem + (var(--tief) - 1) * 1.1rem + .6rem)}
 .ozweig + .ozweig{margin-top:.5rem}
 .o.neuzeile{background:rgba(224,164,88,.09);border-bottom-color:rgba(224,164,88,.3)}
+/* ── Folders that are alive ────────────────────────────────────────────────
+   A folder icon answers to a finger: it ducks while being pressed. And a folder
+   with unread mail BREATHES — slowly, so it reads as „there is something here",
+   not as a flashing sign.
+   🔴 Whoever has asked their phone for less motion gets none. */
+.o .ic{display:inline-block;transition:transform .18s cubic-bezier(.34,1.56,.64,1)}
+.o:active .ic{transform:scale(.88)}
+.o.an .ic{transform:scale(1.12)}
+@keyframes atmen{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
+.o .ic.atmet{animation:atmen 3.4s ease-in-out infinite}
+.o:active .ic.atmet{animation:none}
+.o.gefahr .nm{color:var(--gefahr)}
+@media (prefers-reduced-motion: reduce){
+  .o .ic,.o .ic.atmet{transition:none;animation:none}
+  .o:active .ic,.o.an .ic{transform:none}
+}
+.ofalt{flex:0 0 1.1rem;font-size:.8rem;color:var(--leise);text-align:center;
+  transition:transform .15s ease;padding:.35rem 0}
+.ofalt.zu{transform:rotate(-90deg)}
 .o.neuzeile.an{background:rgba(224,164,88,.22)}
 .o.neuzeile .nm{font-weight:600}
 .o.eltern .nm{font-weight:600}
@@ -471,6 +495,7 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   <div class="kopf">
     <button class="blank" onclick="blick('liste')" data-t-titel="k.zurueck">‹</button>
     <h1 data-t="k.ordner"></h1>
+    <button class="blank" id="falttaste" onclick="alleFalten()"></button>
     <button class="blank" onclick="ordnerNeu()" data-t-titel="k.ordner_neu">＋</button>
   </div>
   <!-- The same kind of hint as for swiping: a gesture nobody knows about does
@@ -504,6 +529,22 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   </div>
   <div class="rumpf gepolstert" id="mehrleib"></div>
   <div class="fuss" id="fussleiste3"></div>
+</div>
+
+<!-- ── What to do with this folder ──────────────────────────────────────── -->
+<div class="blatt" id="b_ordnertat">
+  <div class="kopf">
+    <button class="blank" onclick="ordnerTatZu()" data-t-titel="k.zurueck">‹</button>
+    <h1 id="ordnertatkopf"></h1>
+  </div>
+  <div class="rumpf">
+    <div class="o" role="button" tabindex="0" onclick="ordnerZielAuf(tatOrdner)">
+      <span class="ic">📦</span>
+      <span class="nm" data-t="k.verschieben_nach"></span></div>
+    <div class="o gefahr" role="button" tabindex="0" onclick="ordnerFort(tatOrdner)">
+      <span class="ic">🗑️</span>
+      <span class="nm" data-t="k.ordner_loeschen"></span></div>
+  </div>
 </div>
 
 <!-- ── Compose ──────────────────────────────────────────────────────────── -->
@@ -546,7 +587,10 @@ if (typeof T === "undefined") {
    switch offers, how mail HTML is cleaned. All of that sits in the engine and
    arrives from there; both pages only draw it. */
 /* ── Day and night ─────────────────────────────────────────────────────────
-   Three positions, one button: automatic (whatever the device says), light, dark.
+   TWO positions, one button: night and day. 🔴 And night is the DEFAULT — not
+   „automatic", not what the device happens to say. A third position nobody asked
+   for is a switch you have to press twice to understand, and a house this dark
+   should not hand a light page to somebody who never chose one.
    🔑 The choice lives on the DEVICE, not in the mailbox: a phone in a dark room
    and a desk in the sun are two different answers to the same question, and one
    setting on the server can only ever give one of them.
@@ -554,13 +598,12 @@ if (typeof T === "undefined") {
    of tabs, and a second `const` of the same name is a PARSE error that kills the
    whole script — while the page still draws its markup and looks perfectly
    normal. All three pages use the same names, so the word stays free here too. */
-const LICHT_WAHLEN = ["auto", "hell", "dunkel"];
-const LICHT_ZEICHEN = {auto:"◐", hell:"☀", dunkel:"☾"};
+const LICHT_WAHLEN = ["dunkel", "hell"];
+const LICHT_ZEICHEN = {dunkel:"☾", hell:"☀"};
 /* 🔴 Keys SPELLED OUT, never assembled from the state: assembled, no literal
    exists anywhere, and the language bench can neither find a typo in it nor see
    that the key is in use. */
-const LICHT_WORT = {auto:"allg.ansicht_auto", hell:"allg.ansicht_hell",
-                    dunkel:"allg.ansicht_dunkel"};
+const LICHT_WORT = {dunkel:"allg.ansicht_dunkel", hell:"allg.ansicht_hell"};
 /* 🔴 ONE variable holds the choice. Read it out of the store on every question
    and a `?licht=` in the address would win for ever — the button would write
    and write and nothing would move. */
@@ -572,17 +615,13 @@ let LICHT_WAHL = (function(){
   try{
     const w = localStorage.getItem("pw_ansicht");
     if(LICHT_WAHLEN.indexOf(w) >= 0) return w;
-  }catch(e){ /* a browser may refuse the store — then it is „auto" */ }
-  return "auto";
+  }catch(e){ /* a browser may refuse the store — then it stays night */ }
+  return "dunkel";
 })();
-function istHell(){
-  return LICHT_WAHL === "hell" || (LICHT_WAHL === "auto" && window.matchMedia
-    && matchMedia("(prefers-color-scheme: light)").matches);
-}
+function istHell(){ return LICHT_WAHL === "hell"; }
 function lichtAnwenden(neuzeichnen){
-  const hell = istHell();
   const wurzel = document.documentElement;
-  if(hell) wurzel.setAttribute("data-hell", "1");
+  if(istHell()) wurzel.setAttribute("data-hell", "1");
   else wurzel.removeAttribute("data-hell");
   const grund = getComputedStyle(wurzel).getPropertyValue("--grund").trim();
   const marke = document.querySelector('meta[name="theme-color"]');
@@ -599,17 +638,9 @@ function lichtAnwenden(neuzeichnen){
   if(neuzeichnen && S.uid) mailOeffnen(S.uid, offenOrdner());
 }
 function lichtUm(){
-  LICHT_WAHL = LICHT_WAHLEN[(LICHT_WAHLEN.indexOf(LICHT_WAHL) + 1) % LICHT_WAHLEN.length];
+  LICHT_WAHL = LICHT_WAHL === "hell" ? "dunkel" : "hell";
   try{ localStorage.setItem("pw_ansicht", LICHT_WAHL); }catch(e){}
   lichtAnwenden(true);
-}
-/* The device switches at sunset — and so does the page, with nobody reaching for
-   anything. */
-if(window.matchMedia){
-  try{
-    matchMedia("(prefers-color-scheme: light)")
-      .addEventListener("change", () => lichtAnwenden(true));
-  }catch(e){ /* older browsers: the button still works */ }
 }
 
 function txt(schluessel, werte){
@@ -638,16 +669,22 @@ const S = {
   oberflaeche:[], postfaecher:[], brief:null, seiten:1, gesamt:0, laeuft:false,
   version:"", blick:"liste",
   neu:false,               // the „New" view instead of a folder
+  zu:new Set(),            // collapsed folder branches
   wahl:false,              // choosing several at once
   gewaehlt:new Set()       // …and which ones
 };
 
-function melde(text, gut){
+/* 🔴 `bleibt` is for the things that TAKE time. Moving or deleting a folder is
+   one server command, but the server may be carrying two thousand mails while it
+   runs — and a page that says nothing until it is over looks broken. There is no
+   progress to report, so what is shown is the honest thing: what is happening,
+   and that it can take a while. */
+function melde(text, gut, bleibt){
   const m = $("#melde");
-  m.textContent = text;
+  m.innerHTML = (bleibt ? '<span class="laedt"></span> ' : "") + esc(text);
   m.className = "melde auf" + (gut === false ? " schlecht" : (gut ? " gut" : ""));
   clearTimeout(m._t);
-  m._t = setTimeout(() => m.className = "melde", 4200);
+  if(!bleibt) m._t = setTimeout(() => m.className = "melde", 4200);
 }
 async function sende(aktion, daten){
   const r = await fetch("/api/" + aktion, {method:"POST",
@@ -806,19 +843,35 @@ function ordnerMalen(){
   const rest = S.ordner_liste.filter(o => !o.rolle);
   const grund = rest.length ? Math.min(...rest.map(o => o.tiefe)) : 0;
   const tr = S.faehig && S.faehig.trenner ? S.faehig.trenner : ".";
-  const zeile = (o, tief) => {
-    const kinder = rest.some(x => x !== o && x.name.startsWith(o.name + tr));
+  /* 🔑 The same fold as on the wide page — a tree with twenty branches is no
+     easier to read on a phone, it is harder. The triangle has its own slot on
+     EVERY row, empty ones included: a part of the geometry that is only
+     sometimes there is what put the tree on its head in 5.2.0. */
+  const faltbar = (o) => rest.some(x => x !== o && x.name.startsWith(o.name + tr));
+  const zeile = (o, tief, faltet) => {
+    /* 🔴 Roles are NOT a hierarchy. On this server they are all called
+       `INBOX.something`, so the inbox looks like a parent of every one of them —
+       give it a triangle and one tap folds Drafts, Sent, Archive, Junk and Trash
+       out of sight. In that block nothing folds; the empty slot keeps the icons
+       in one line. (The same trap as 5.2.0, one surface later.) */
+    const kinder = faltet && faltbar(o);
+    if(faltet && o.name.indexOf(tr) > 0
+       && elternWeg(o, tr).some(p => S.zu.has(p))) return "";
     /* 🔑 A long press picks the folder UP — the phone's answer to dragging it
        across a desk. A special folder is a position and stays put, so it does
        not react to the press at all. */
+    const falt = kinder
+      ? `<span class="ofalt ${S.zu.has(o.name) ? "zu" : ""}"
+             onclick="faltenUm(event,'${escJs(o.name)}')">▾</span>`
+      : `<span class="ofalt"></span>`;
     return `<div class="o ${tief > 0 ? "unter" : ""} ${kinder ? "eltern" : ""}
         ${(!S.neu && o.name === S.ordner) ? "an" : ""}" style="--tief:${tief}"
         onclick="ordnerWaehlen('${escJs(o.name)}')" role="button" tabindex="0"
         ${o.rolle ? "" : `ontouchstart="ordnerDruckAn(event,'${escJs(o.name)}')"
         ontouchend="ordnerDruckAus()" ontouchmove="ordnerDruckAus()"
         ontouchcancel="ordnerDruckAus()"
-        oncontextmenu="event.preventDefault();ordnerZielAuf('${escJs(o.name)}')"`}>
-      <span class="ic">${o.icon || "📁"}</span>
+        oncontextmenu="event.preventDefault();ordnerTatAuf('${escJs(o.name)}')"`}>
+      ${falt}<span class="ic ${o.ungelesen ? "atmet" : ""}">${o.icon || "📁"}</span>
       <span class="nm">${esc(ordnerName(o))}</span>
       ${o.ungelesen ? `<span class="u">${o.ungelesen}</span>`
                     : `<span class="n">${o.gesamt || ""}</span>`}</div>`;
@@ -828,7 +881,7 @@ function ordnerMalen(){
       onclick="neuWaehlen()"><span class="ic">✨</span>
     <span class="nm">${esc(txt("k.neu"))}</span>
     ${offen ? `<span class="u">${offen}</span>` : ""}</div>`];
-  teile.push(sonder.map(o => zeile(o, 0)).join(""));
+  teile.push(sonder.map(o => zeile(o, 0, false)).join(""));
   if(rest.length){
     teile.push(`<div class="gruppentitel">${esc(txt("k.eigene_ordner"))}</div>`);
     let zweig = [];
@@ -838,11 +891,44 @@ function ordnerMalen(){
         teile.push(`<div class="ozweig">${zweig.join("")}</div>`);
         zweig = [];
       }
-      zweig.push(zeile(o, tief));
+      zweig.push(zeile(o, tief, true));
     }
     if(zweig.length) teile.push(`<div class="ozweig">${zweig.join("")}</div>`);
   }
   $("#ordnerliste").innerHTML = teile.join("");
+  /* 🔑 ONE button, and the STATE decides which of the two things it offers: as
+     long as anything is open it closes everything, and only when everything is
+     closed does it open it again. */
+  const faltbare = rest.filter(o => rest.some(
+    x => x !== o && x.name.startsWith(o.name + tr))).map(o => o.name);
+  const knopf = $("#falttaste");
+  const allesZu = faltbare.length > 0 && faltbare.every(n => S.zu.has(n));
+  knopf.hidden = !faltbare.length;
+  knopf.textContent = allesZu ? "⊞" : "⊟";
+  knopf.title = txt(allesZu ? "k.alle_auf" : "k.alle_zu");
+  knopf.setAttribute("aria-label", knopf.title);
+}
+function elternWeg(o, tr){
+  const teile = o.name.split(tr);
+  return teile.slice(0, -1).map((_, i) => teile.slice(0, i + 1).join(tr));
+}
+function faltenUm(ev, name){
+  ev.stopPropagation();
+  S.zu.has(name) ? S.zu.delete(name) : S.zu.add(name);
+  ordnerMalen();
+}
+/* Everything at once. 🔴 Only folders that HAVE children are remembered as
+   closed — a childless name in the set would never come out again, and the
+   button would never offer „open all" once more. */
+function alleFalten(){
+  const tr = (S.faehig && S.faehig.trenner) || ".";
+  const rest = S.ordner_liste.filter(o => !o.rolle);
+  const faltbare = rest.filter(o => rest.some(
+    x => x !== o && x.name.startsWith(o.name + tr))).map(o => o.name);
+  const allesZu = faltbare.length > 0 && faltbare.every(n => S.zu.has(n));
+  S.zu.clear();
+  if(!allesZu) for(const n of faltbare) S.zu.add(n);
+  ordnerMalen();
 }
 /* How many mails the „New" view would show — out of the counts the folder list
    already carries, so it costs nothing. */
@@ -1087,7 +1173,7 @@ function ordnerDruckAn(ev, name){
        folder would open the moment it was picked up. */
     sperreKlick = Date.now() + 800;
     if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){}
-    ordnerZielAuf(name);
+    ordnerTatAuf(name);
   }, 550);
 }
 function ordnerDruckAus(){ clearTimeout(ordnerDruck); ordnerDruck = null; }
@@ -1100,6 +1186,19 @@ function ordnerZielAuf(name){
   zielMalen();
   blick("ziel");
 }
+/* 🔑 A long press asks „what with this folder?", and there are two answers. A
+   sheet with two rows says both out loud — better than one hidden gesture per
+   action, which is what a phone usually ends up with. */
+let tatOrdner = "";
+function ordnerTatAuf(name){
+  const o = S.ordner_liste.find(x => x.name === name);
+  if(!o) return;
+  if(o.rolle) return melde(txt("k.ordner_fest"), false);
+  tatOrdner = name;
+  $("#ordnertatkopf").textContent = ordnerName(o);
+  blick("ordnertat");
+}
+function ordnerTatZu(){ tatOrdner = ""; blick("ordner"); }
 function ordnerHinweisWeg(){
   $("#ordnerhinweis").hidden = true;
   try{ localStorage.setItem("pw_ordnerzieh", "1"); }catch(e){ /* then it comes again */ }
@@ -1152,6 +1251,30 @@ async function zielNehmen(name){
   blick("liste");
   await verschiebeListe(name, liste);
 }
+/* 🔴 The only action in this client that cannot be taken back. The engine is
+   asked FIRST and refuses while it counts — the answer carries the number of
+   mails, and only THAT number goes into the question. */
+async function ordnerFort(name){
+  const o = S.ordner_liste.find(x => x.name === name);
+  if(!o) return;
+  blick("ordner");
+  let r = await sende("klient_ordner_loeschen", {ordner:name});
+  if(!r.ok && !r.frage) return melde(r.text || txt("k.ging_nicht"), false);
+  const frage = r.frage
+    ? txt("k.ordner_loeschen_inhalt", {o:ordnerName(o), n:r.mails.toLocaleString(LANG)})
+    : txt("k.ordner_loeschen_frage", {o:ordnerName(o)});
+  if(!confirm(frage)) return;
+  S.laeuft = true;
+  melde(txt("k.ordner_faellt", {o:ordnerName(o)}), null, true);
+  try{ r = await sende("klient_ordner_loeschen", {ordner:name, mit_inhalt:true}); }
+  catch(e){ S.laeuft = false; return melde("", null); }
+  S.laeuft = false;
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(!r.ok) return;
+  if(S.ordner === name) S.ordner = S.rollen.posteingang || "INBOX";
+  S.zu.delete(name);
+  await allesLaden();
+}
 async function ordnerZiehen(name, ziel){
   const o = S.ordner_liste.find(x => x.name === name);
   const zo = S.ordner_liste.find(x => x.name === ziel);
@@ -1159,9 +1282,10 @@ async function ordnerZiehen(name, ziel){
   if(!confirm(txt("k.ordner_ziehen_frage", {o:ordnerName(o),
       ziel: zo ? ordnerName(zo) : txt("k.ordner_oben")}))) return;
   S.laeuft = true;
+  melde(txt("k.ordner_zieht", {o:ordnerName(o)}), null, true);
   let r;
   try{ r = await sende("klient_ordner_ziehen", {ordner:name, ziel:ziel}); }
-  catch(e){ S.laeuft = false; return; }
+  catch(e){ S.laeuft = false; melde("", null); return; }
   S.laeuft = false;
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
   if(!r.ok) return;

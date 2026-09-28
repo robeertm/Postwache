@@ -1780,6 +1780,9 @@ KLIENT_AKTIONEN = {
     # A whole folder, with its mail, its subfolders — and the watchman's memory
     # of it carried over in the same breath.
     "klient_ordner_ziehen": lambda d, marke: KL.ordner_ziehen(dict(d, pf=_pf(d))),
+    # 🔴 The one action in the client that cannot be taken back — so the engine
+    # asks back before it does it, with the number of mails in the question.
+    "klient_ordner_loeschen": lambda d, marke: KL.ordner_loeschen(dict(d, pf=_pf(d))),
     "klient_vorlage": lambda d, marke: KL.vorlage(dict(d, pf=_pf(d))),
     "klient_senden": lambda d, marke: KL.senden(dict(d, pf=_pf(d))),
     "klient_entwurf": lambda d, marke: KL.entwurf_speichern(dict(d, pf=_pf(d))),

@@ -7,6 +7,99 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.4.1] – 2026-09-28
+
+### 🔴 Two positions, and night wins
+
+The theme button had three: automatic · day · night. „Automatic" followed the
+device — and a device set to light therefore handed a light page to somebody who
+never chose one. It has **two** positions now, and **night is the default, full
+stop**. The page does not ask the device at all any more; only an explicit *day*
+turns the light on — the one in the store, or the one in the address.
+
+Measured in a browser set to **light**:
+
+```
+page:   data-hell = null · ground rgb(18,16,12) · choice „dunkel" · button ☾
+one press: day   ·   two presses: night again
+```
+
+The test bench holds it: **no page asks for `prefers-color-scheme` any more**, and
+every page knows exactly two positions.
+
+### Folders: fold, fold everything, delete — on **both** surfaces
+
+* **Folding** is now on the phone too (it was wide-only) — with the same fixed
+  slot for the triangle on **every** row. A piece of geometry that is only
+  sometimes there is what put the tree on its head in 5.2.0.
+* **One button for the whole tree**: as long as anything is open it closes
+  everything; only when everything is closed does it offer to open. Two buttons
+  would leave one of them idle half the time. Measured: 18 rows → 13 → 18.
+* **Delete**: the ✕ on the folder row (wide) and the folder sheet (phone). 🔴 The
+  only action in the whole client that cannot be taken back — so the engine is
+  asked first and **counts while it refuses**: “Delete “Garden” with 77 mails for
+  good? The mail is gone afterwards — for ever, with no trash to fish it out of.”
+  Subfolders are refused (those first, each with its own count), special folders
+  always.
+* A **long press** on the phone now opens a small folder sheet with both ways —
+  move *and* delete — instead of jumping straight into the folder picker.
+
+### The watchman learns every folder that comes or goes
+
+„By hand" means **anywhere** — in the Postwache, in another mail program, on the
+provider's own page. So the learning does not hang off a button but off the only
+thing that is always true: **the list the server gives.**
+
+The learned map is reconciled against what really exists — on **every** watchman
+run (one `LIST`, one command) and immediately after every create, delete and move
+in the client.
+
+| | |
+|---|---|
+| a new folder | enters the map with **zero** mails — and is a target at once: the name bridge hangs only on the NAME, so an empty folder „Steuer" can take post from `steuer@…` from its first second |
+| a folder that is gone | leaves the map, **together with every rule that pointed at it** |
+| 🔴 why that matters | a rule naming a folder nobody has any more makes the filing **fail** — every five minutes again, and nobody sees it but the log |
+| 🔴 an empty list | is a **failed request**, not an empty mailbox: it deletes nothing |
+
+*A correction to 5.4.0:* it said the filing would „create" a missing folder. That
+is true only for the path where the watchman derives a folder **itself**; out of
+the learned map the copy simply fails and the mail stays put. Same damage,
+different mechanism.
+
+### Waiting, made visible
+
+A `RENAME` is **one** command — but the server may be carrying two thousand mails
+while it runs, and a page that says nothing until it is over looks broken. There
+is no progress to report (the command reports none), so the page shows the honest
+thing: *what* is happening and that it can take a while — with a spinner, and the
+message **stays** until it is done. Measured: still visible after 5.9 s, where an
+ordinary message is gone after 5.
+
+### The column travels with you
+
+Dragging a folder from the very bottom to the top did not work when the list was
+longer than the window. 🔴 And a scroll step **per event** would not have done
+it: `dragover` only fires **while the pointer moves** — somebody who holds still
+at the top edge and waits gets no further events at all. So the edge starts a
+**timer**, and the closer to the edge, the faster. Measured: the column rolled
+from 369 px to 0, and stopped the instant the drag ended.
+
+### Folders that are alive
+
+* The icon **answers**: it leans in on hover, ducks on a press, stands up when
+  something is dragged over it.
+* A folder with unread mail **breathes** — slowly (3.4 s), so it reads as „there
+  is something here", not as an alarm.
+* 🔴 Whoever set their system to less motion gets **none**:
+  `prefers-reduced-motion` switches both off. An animation you cannot switch off
+  is one you have to look away from.
+
+### Test bench
+
+274 → **307 probes**, all green. The fake server now remembers `CREATE` and
+`DELETE` (a server that says OK and forgets proves nothing) and reports an honest
+**zero** for a folder created a moment ago.
+
 ## [5.4.0] – 2026-09-28
 
 ### The listening post — hearing instead of asking

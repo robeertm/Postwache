@@ -10,19 +10,19 @@
    the way to the day. It reads the choice and nothing else — the machinery
    lives below, with the other functions. */
 (function(){
-  var wahl = "auto";
-  /* 🔴 `licht`, NOT `ansicht`: this page already answers to `?ansicht=breit`
-     and `?ansicht=mobil` — that is which of the two surfaces is served. A second
-     meaning for the same word in the same address is a bug waiting for the day
-     somebody sends the link. */
+  /* 🔴 NIGHT is the default, full stop — not „whatever the device says". The
+     Postwache is a dark house; a device set to light would otherwise hand a
+     first-time visitor a page they never chose. Only an explicit „hell" turns
+     the light on: the one in the store, or the one in the address.
+     🔴 `licht`, NOT `ansicht`: the mailbox already answers to `?ansicht=breit`
+     and `?ansicht=mobil` — that is which of the two surfaces is served. */
+  var wahl = "";
   try{ wahl = new URLSearchParams(location.search).get("licht") || ""; }catch(e){}
-  if(wahl !== "hell" && wahl !== "dunkel" && wahl !== "auto"){
-    wahl = "auto";
-    try{ wahl = localStorage.getItem("pw_ansicht") || "auto"; }catch(e){}
+  if(wahl !== "hell" && wahl !== "dunkel"){
+    wahl = "";
+    try{ wahl = localStorage.getItem("pw_ansicht") || ""; }catch(e){}
   }
-  var hell = wahl === "hell" || (wahl === "auto" && window.matchMedia
-    && matchMedia("(prefers-color-scheme: light)").matches);
-  if(hell) document.documentElement.setAttribute("data-hell", "1");
+  if(wahl === "hell") document.documentElement.setAttribute("data-hell", "1");
 })();
 </script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
@@ -215,6 +215,31 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
    keeps its own colours, so the reader still sees WHICH folder it is. */
 .o.ziel,.ogruppe.ziel{outline:2px dashed var(--akzent);outline-offset:-2px;
   border-radius:.55rem;background:var(--offen)}
+/* ── Folders that are alive ────────────────────────────────────────────────
+   A folder icon answers when it is touched: it leans in on hover, ducks on a
+   click, and stands up when something is dragged over it. And a folder with
+   unread mail BREATHES — slowly, so it reads as „there is something here",
+   not as a flashing sign.
+   🔴 Whoever has asked their system for less motion gets none: an animation
+   that cannot be switched off is an animation somebody has to look away from. */
+.o .ic{display:inline-block;transition:transform .18s cubic-bezier(.34,1.56,.64,1)}
+.o:hover .ic{transform:scale(1.18) rotate(-7deg)}
+.o:active .ic{transform:scale(.92) rotate(0)}
+.o.an .ic{transform:scale(1.1)}
+.o.ziel .ic{transform:scale(1.3) rotate(-10deg)}
+@keyframes atmen{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
+.o .ic.atmet{animation:atmen 3.4s ease-in-out infinite}
+.o:hover .ic.atmet,.o.ziel .ic.atmet{animation:none}
+@media (prefers-reduced-motion: reduce){
+  .o .ic,.o .ic.atmet{transition:none;animation:none}
+  .o:hover .ic,.o.ziel .ic,.o:active .ic,.o.an .ic{transform:none}
+}
+/* The ✕ stays out of the way until the pointer is on the row — and it is a
+   target of its own, so it never swallows the click that opens the folder. */
+.ordnerweg{opacity:0;padding:0 .15rem;min-width:1.1rem;font-size:.78rem;
+  color:var(--leiser);border:0;background:transparent;transition:opacity .12s}
+.o:hover .ordnerweg,.ordnerweg:focus-visible{opacity:1}
+.ordnerweg:hover{color:var(--kritisch);background:transparent}
 .ogruppe.ziel{color:var(--akzent)}
 body.zieht .z,body.zieht .o{cursor:grabbing}
 .o.an{background:rgba(224,164,88,.15);border-color:rgba(224,164,88,.35)}
@@ -234,7 +259,12 @@ body.zieht .z,body.zieht .o{cursor:grabbing}
   background:var(--akzent-fuell);border-radius:99px;padding:.05rem .4rem;
   font-variant-numeric:tabular-nums}
 .ogruppe{margin:.9rem .55rem .3rem;font-size:.66rem;letter-spacing:.09em;
-  text-transform:uppercase;color:var(--leiser)}
+  text-transform:uppercase;color:var(--leiser);display:flex;align-items:center;
+  gap:.4rem}
+.ogruppe span{flex:1 1 auto;min-width:0}
+.falttaste{padding:0 .2rem;min-width:1.2rem;font-size:.85rem;line-height:1;
+  color:var(--leiser);border:0;background:transparent}
+.falttaste:hover{color:var(--akzent);background:transparent}
 .ofalt{flex:0 0 .9rem;font-size:.72rem;color:var(--leise);text-align:center;
   cursor:pointer;transition:transform .15s ease}
 .ofalt:hover{color:var(--text)}
@@ -717,7 +747,10 @@ if (typeof T === "undefined") {
   globalThis.SPRACHEN = [["de", "Deutsch"]];
 }
 /* ── Day and night ─────────────────────────────────────────────────────────
-   Three positions, one button: automatic (whatever the device says), light, dark.
+   TWO positions, one button: night and day. 🔴 And night is the DEFAULT — not
+   „automatic", not what the device happens to say. A third position nobody asked
+   for is a switch you have to press twice to understand, and a house this dark
+   should not hand a light page to somebody who never chose one.
    🔑 The choice lives on the DEVICE, not in the mailbox: a phone in a dark room
    and a desk in the sun are two different answers to the same question, and one
    setting on the server can only ever give one of them.
@@ -725,13 +758,12 @@ if (typeof T === "undefined") {
    of tabs, and a second `const` of the same name is a PARSE error that kills the
    whole script — while the page still draws its markup and looks perfectly
    normal. All three pages use the same names, so the word stays free here too. */
-const LICHT_WAHLEN = ["auto", "hell", "dunkel"];
-const LICHT_ZEICHEN = {auto:"◐", hell:"☀", dunkel:"☾"};
+const LICHT_WAHLEN = ["dunkel", "hell"];
+const LICHT_ZEICHEN = {dunkel:"☾", hell:"☀"};
 /* 🔴 Keys SPELLED OUT, never assembled from the state: assembled, no literal
    exists anywhere, and the language bench can neither find a typo in it nor see
    that the key is in use. */
-const LICHT_WORT = {auto:"allg.ansicht_auto", hell:"allg.ansicht_hell",
-                    dunkel:"allg.ansicht_dunkel"};
+const LICHT_WORT = {dunkel:"allg.ansicht_dunkel", hell:"allg.ansicht_hell"};
 /* 🔴 ONE variable holds the choice. Read it out of the store on every question
    and a `?licht=` in the address would win for ever — the button would write
    and write and nothing would move. */
@@ -743,17 +775,13 @@ let LICHT_WAHL = (function(){
   try{
     const w = localStorage.getItem("pw_ansicht");
     if(LICHT_WAHLEN.indexOf(w) >= 0) return w;
-  }catch(e){ /* a browser may refuse the store — then it is „auto" */ }
-  return "auto";
+  }catch(e){ /* a browser may refuse the store — then it stays night */ }
+  return "dunkel";
 })();
-function istHell(){
-  return LICHT_WAHL === "hell" || (LICHT_WAHL === "auto" && window.matchMedia
-    && matchMedia("(prefers-color-scheme: light)").matches);
-}
+function istHell(){ return LICHT_WAHL === "hell"; }
 function lichtAnwenden(neuzeichnen){
-  const hell = istHell();
   const wurzel = document.documentElement;
-  if(hell) wurzel.setAttribute("data-hell", "1");
+  if(istHell()) wurzel.setAttribute("data-hell", "1");
   else wurzel.removeAttribute("data-hell");
   const grund = getComputedStyle(wurzel).getPropertyValue("--grund").trim();
   const marke = document.querySelector('meta[name="theme-color"]');
@@ -770,17 +798,9 @@ function lichtAnwenden(neuzeichnen){
   if(neuzeichnen && S.uid) mailOeffnen(S.uid, offenOrdner());
 }
 function lichtUm(){
-  LICHT_WAHL = LICHT_WAHLEN[(LICHT_WAHLEN.indexOf(LICHT_WAHL) + 1) % LICHT_WAHLEN.length];
+  LICHT_WAHL = LICHT_WAHL === "hell" ? "dunkel" : "hell";
   try{ localStorage.setItem("pw_ansicht", LICHT_WAHL); }catch(e){}
   lichtAnwenden(true);
-}
-/* The device switches at sunset — and so does the page, with nobody reaching for
-   anything. */
-if(window.matchMedia){
-  try{
-    matchMedia("(prefers-color-scheme: light)")
-      .addEventListener("change", () => lichtAnwenden(true));
-  }catch(e){ /* older browsers: the button still works */ }
 }
 
 function txt(schluessel, werte){
@@ -823,12 +843,17 @@ const S = {
   laeuft:false, version:""
 };
 
-function melde(text, gut){
+/* 🔴 `bleibt` is for the things that TAKE time. Moving a folder is one server
+   command, but the server may be carrying two thousand mails while it runs —
+   and a page that says nothing until it is over looks broken. There is no
+   progress to report (the command reports none), so what is shown is the
+   honest thing: what is happening, and that it can take a while. */
+function melde(text, gut, bleibt){
   const m = $("#melde");
-  m.textContent = text;
+  m.innerHTML = (bleibt ? '<span class="laedt"></span> ' : "") + esc(text);
   m.className = "melde auf" + (gut === false ? " schlecht" : (gut ? " gut" : ""));
   clearTimeout(m._t);
-  m._t = setTimeout(() => m.className = "melde", 5000);
+  if(!bleibt) m._t = setTimeout(() => m.className = "melde", 5000);
 }
 
 async function sende(aktion, daten){
@@ -1036,10 +1061,14 @@ function ordnerMalen(){
         onclick="ordnerWaehlen('${escJs(o.name)}')"
         onkeydown="if(event.key==='Enter')ordnerWaehlen('${escJs(o.name)}')"
         title="${esc(o.pfad)} — ${o.gesamt} ${esc(txt("k.mails"))}">
-      ${falt}<span class="ic">${o.icon || "📁"}</span>
+      ${falt}<span class="ic ${o.ungelesen ? "atmet" : ""}">${o.icon || "📁"}</span>
       <span class="nm">${esc(ordnerName(o))}</span>
       ${o.ungelesen ? `<span class="u">${o.ungelesen}</span>`
                     : `<span class="n">${o.gesamt || ""}</span>`}
+      ${o.rolle ? "" : `<button class="blank ordnerweg" tabindex="-1"
+        onclick="ordnerFort(event,'${escJs(o.name)}')"
+        title="${esc(txt("k.ordner_loeschen"))}"
+        aria-label="${esc(txt("k.ordner_loeschen"))}">✕</button>`}
     </div>`;
   };
   const offen = neuZahl();
@@ -1056,10 +1085,22 @@ function ordnerMalen(){
   if(rest.length){
     /* The heading is the target for „to the top": a folder that has to come
        OUT of a branch needs a place to be dropped, and there is no row for the
-       level above the first one. */
+       level above the first one. It also carries the one control that works on
+       the WHOLE tree. */
+    const faltbare = rest.filter(o => hatKinder(o, rest)).map(o => o.name);
+    /* 🔑 ONE button, and the STATE decides which of the two things it offers:
+       as long as anything is open it closes everything, and only when everything
+       is closed does it open it again. A pair of buttons would leave one of them
+       doing nothing half the time. */
+    const allesZu = faltbare.length > 0 && faltbare.every(n => S.zu.has(n));
     teile.push(`<div class="ogruppe" ondragover="ziehUeber(event,this,'',0)"
       ondragleave="this.classList.remove('ziel')"
-      ondrop="ziehAb(event,this,'',0)">${esc(txt("k.eigene_ordner"))}</div>`);
+      ondrop="ziehAb(event,this,'',0)"><span>${esc(txt("k.eigene_ordner"))}</span>
+      ${faltbare.length ? `<button class="blank falttaste"
+        onclick="alleFalten(${allesZu ? "false" : "true"})"
+        title="${esc(txt(allesZu ? "k.alle_auf" : "k.alle_zu"))}"
+        aria-label="${esc(txt(allesZu ? "k.alle_auf" : "k.alle_zu"))}"
+        >${allesZu ? "⊞" : "⊟"}</button>` : ""}</div>`);
     /* 🔑 One branch per top-level folder, with air between the branches. A flat
        run of rows leaves the reader counting indents to see where one family
        ends and the next begins. */
@@ -1112,6 +1153,16 @@ function escJs(s){ return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'"); }
 function faltenUm(ev, name){
   ev.stopPropagation();
   S.zu.has(name) ? S.zu.delete(name) : S.zu.add(name);
+  ordnerMalen();
+}
+/* Everything at once. 🔴 Only folders that HAVE children are remembered as
+   closed: putting a childless one in there would leave a name in the set that
+   nothing ever takes out again, and the button would then never offer „open
+   all" once more. */
+function alleFalten(zu){
+  S.zu.clear();
+  if(zu) for(const o of S.ordner_liste)
+    if(!o.rolle && hatKinder(o, S.ordner_liste.filter(x => !x.rolle))) S.zu.add(o.name);
   ordnerMalen();
 }
 async function ordnerWaehlen(name){
@@ -1517,8 +1568,43 @@ function ordnerZiehStart(ev, name){
 }
 function ziehEnde(){
   ZIEHT = null;
+  ziehRollenAus();
   document.body.classList.remove("zieht");
   $$(".ziel").forEach(el => el.classList.remove("ziel"));
+}
+/* ── The column travels with you ───────────────────────────────────────────
+   der Besitzer, 28.09.2026: „wenn ein ordner von ganz unten nach oben gezogen wird,
+   muss die liste mit nach oben wandern, sonst kommt man an ordner eventuell
+   nicht ran wenn die liste sehr lang ist."
+
+   🔴 And it needs a TIMER, not a scroll step per event: `dragover` only fires
+   while the pointer MOVES. Held still at the top edge — which is exactly what
+   somebody does who is waiting for the list to come to them — not one more event
+   arrives, and a single step per event would stop dead. */
+let ZIEH_ROLLE = null;
+const ZIEH_RAND = 70;        // how close to the edge it starts
+function ziehRollen(ev){
+  const feld = $("#ordner");
+  if(!feld || !ZIEHT) return;
+  const r = feld.getBoundingClientRect();
+  let richtung = 0;
+  if(ev.clientY < r.top + ZIEH_RAND) richtung = -1;
+  else if(ev.clientY > r.bottom - ZIEH_RAND) richtung = 1;
+  if(!richtung) return ziehRollenAus();
+  if(ZIEH_ROLLE && ZIEH_ROLLE.richtung === richtung) return;
+  ziehRollenAus();
+  /* Nearer the edge is faster — the last centimetre is where somebody means
+     „quickly now", and the middle of the field is where they mean „stop". */
+  const tempo = () => {
+    const weg = richtung < 0 ? ev.clientY - r.top : r.bottom - ev.clientY;
+    return Math.max(6, Math.round((ZIEH_RAND - Math.max(0, weg)) / 3.5));
+  };
+  ZIEH_ROLLE = {richtung: richtung,
+                takt: setInterval(() => { feld.scrollTop += richtung * tempo(); }, 16)};
+}
+function ziehRollenAus(){
+  if(ZIEH_ROLLE) clearInterval(ZIEH_ROLLE.takt);
+  ZIEH_ROLLE = null;
 }
 /* 🔴 A target that does not call `preventDefault` is NOT a target — that is how
    the browser is told „yes, this may be dropped here". So the same question is
@@ -1540,6 +1626,7 @@ function ziehUeber(ev, el, ziel, rolle){
 }
 async function ziehAb(ev, el, ziel, rolle){
   ev.preventDefault();
+  ziehRollenAus();
   el.classList.remove("ziel");
   const z = ZIEHT;
   ziehEnde();
@@ -1550,6 +1637,31 @@ async function ziehAb(ev, el, ziel, rolle){
   }
   return ordnerZiehen(z.name, ziel);
 }
+/* 🔴 The only action in this client that cannot be taken back. So the engine
+   is asked FIRST and refuses while it counts — the answer comes back with the
+   number of mails in it, and only THAT number goes into the question. A dialog
+   that says „delete?" without saying how much is a dialog people click away. */
+async function ordnerFort(ev, name){
+  ev.stopPropagation();
+  const o = S.ordner_liste.find(x => x.name === name);
+  if(!o) return;
+  let r = await sende("klient_ordner_loeschen", {ordner:name});
+  if(!r.ok && !r.frage) return melde(r.text || txt("k.ging_nicht"), false);
+  const frage = r.frage
+    ? txt("k.ordner_loeschen_inhalt", {o:ordnerName(o), n:r.mails.toLocaleString(LANG)})
+    : txt("k.ordner_loeschen_frage", {o:ordnerName(o)});
+  if(!confirm(frage)) return;
+  S.laeuft = true;
+  melde(txt("k.ordner_faellt", {o:ordnerName(o)}), null, true);
+  try{ r = await sende("klient_ordner_loeschen", {ordner:name, mit_inhalt:true}); }
+  catch(e){ S.laeuft = false; return melde("", null); }
+  S.laeuft = false;
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(!r.ok) return;
+  if(S.ordner === name) S.ordner = S.rollen.posteingang || "INBOX";
+  S.zu.delete(name);
+  await allesLaden(false);
+}
 async function ordnerZiehen(name, ziel){
   const o = S.ordner_liste.find(x => x.name === name);
   const zo = S.ordner_liste.find(x => x.name === ziel);
@@ -1557,9 +1669,10 @@ async function ordnerZiehen(name, ziel){
   if(!confirm(txt("k.ordner_ziehen_frage", {o:ordnerName(o),
       ziel: zo ? ordnerName(zo) : txt("k.ordner_oben")}))) return;
   S.laeuft = true;
+  melde(txt("k.ordner_zieht", {o:ordnerName(o)}), null, true);
   let r;
   try{ r = await sende("klient_ordner_ziehen", {ordner:name, ziel:ziel}); }
-  catch(e){ S.laeuft = false; return; }
+  catch(e){ S.laeuft = false; melde("", null); return; }
   S.laeuft = false;
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
   if(!r.ok) return;
@@ -1572,6 +1685,11 @@ async function ordnerZiehen(name, ziel){
   else if(S.ordner.indexOf(r.alt + t) === 0) S.ordner = r.neu + S.ordner.slice(r.alt.length);
   if(S.zu.has(r.alt)){ S.zu.delete(r.alt); S.zu.add(r.neu); }
   await allesLaden(false);
+  /* Where did it go? Straight into view — after a move through a long tree that
+     is the first question anybody has. */
+  const zeile = $$("#ordner .o").find(el => (el.getAttribute("title") || "")
+    .indexOf(r.neu.split(r.trenner || ".").pop()) === 0);
+  if(zeile) zeile.scrollIntoView({block:"nearest"});
 }
 
 /* After a move or a delete the mails are gone from this folder. Instead of
@@ -2297,6 +2415,8 @@ async function nachziehen(neuePost){
 document.addEventListener("visibilitychange", () => {
   if(!document.hidden && angemeldet()) nachziehen(false);
 });
+$("#ordner").addEventListener("dragover", ziehRollen);
+$("#ordner").addEventListener("dragleave", ziehRollenAus);
 horchSchleife();
 </script>
 </body>
