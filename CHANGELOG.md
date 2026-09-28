@@ -7,6 +7,54 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.4.2] – 2026-09-28
+
+### 🔴 One slot, one meaning — the theme switch keeps its choice again
+
+Reported from the phone: the day/night button „does not work". It did. Every
+press was correct. What failed was the **slot its choice lives in**:
+`localStorage["pw_ansicht"]`. Because under that very name the watchman page
+remembered its **open tab** — same store, same origin. And a **cookie** of the
+same name carries a third meaning: wide page or phone page.
+
+Measured along the path a reader actually walks:
+
+| | slot `pw_ansicht` | phone page |
+|---|---|---|
+| ☀ pressed on the phone | `"hell"` | light ✓ |
+| reloaded | `"hell"` | light ✓ |
+| **watchman page merely opened** | `"uebersicht"` | — |
+| back to the phone | `"uebersicht"` | 🔴 **dark** |
+
+The other direction fails just as reliably: the watchman's own theme button wrote
+`"hell"` over the remembered tab, and the next tab click wrote the tab over the
+theme choice. Two meanings in one slot erase each other **in a circle**.
+
+🔴 The warning had been sitting two lines above it since 5.4.0: *„`licht`, NOT
+`ansicht`: the mailbox already answers to `?ansicht=breit`"*. What got renamed
+back then was the **parameter in the address** — not the **slot in the store**. A
+half-finished rename, and the visible half was the correct one.
+
+Now:
+
+* theme choice → `pw_licht` (named after its `?licht=` parameter)
+* watchman's open tab → `pw_reiter`
+* wide-or-phone cookie → stays `pw_ansicht`; there the word is honest, it lives in
+  a different store, and the server writes it
+
+### Test bench: 309 → **318 probes**
+
+A schema instead of a spot check: all four storage slots are **declared with their
+purpose**, and a slot appearing in a page that has no business with it turns red —
+as does any slot name that was never declared at all. Plus the rule that would
+have caught the half-finished rename: **the parameter in the address and the slot
+in the store must say the same word.** Counter-tested against the old state: 7
+probes red, the two unrelated slots green.
+
+🔑 A duplicate `const` at least kills the script **loudly** (5.4.0). A shared
+storage slot fails in **silence** — and looks exactly like a button that does not
+work.
+
 ## [5.4.1] – 2026-09-28
 
 ### 🔴 Two positions, and night wins

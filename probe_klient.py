@@ -1380,6 +1380,53 @@ for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
     probe("%s: kein Name zweimal erklaert" % _datei, not _doppelt,
           ", ".join(_doppelt[:4]) if _doppelt else "%d Namen" % len(set(_namen)))
 
+# 🔴 And the probe THIS release earned, the same lesson one storey down: the
+# day/night switch kept its choice in `localStorage["pw_ansicht"]` — and so did
+# the watchman page for its open TAB, while a COOKIE of that very name carries
+# the third meaning (wide page or phone page). Two meanings in one slot wipe each
+# other: opening the watchman page wrote „uebersicht" over the light choice, and
+# the light button wrote „hell" over the remembered tab. Der Besitzer, 28.09.2026: „in
+# der mobilen ansicht geht der tag nacht umschalter nicht" — the switch worked
+# every time it was pressed; its MEMORY was taken from underneath it. A duplicate
+# `const` at least kills the script loudly; a shared slot fails in silence.
+#
+# So the slots are declared here, with their purpose, and nothing else may exist.
+# A fourth meaning for an old name trips this probe instead of a reader.
+_FAECHER = {
+    "pw_licht":      ("die Tag/Nacht-Wahl",
+                      ("post_klient.html", "post_mobil.html", "post_web.html")),
+    "pw_reiter":     ("der offene Reiter der Wache", ("post_web.html",)),
+    "pw_ordnerzieh": ("der Hinweis „Ordner ziehen“ wurde gesehen", ("post_mobil.html",)),
+    "pw_wisch":      ("der Hinweis „wischen“ wurde gesehen", ("post_mobil.html",)),
+}
+_gefunden = {}
+for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
+    _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()
+    for _k in re.findall(r'localStorage\.(?:get|set)Item\(\s*"([^"]+)"', _text):
+        _gefunden.setdefault(_k, set()).add(_datei)
+_fremd = sorted(set(_gefunden) - set(_FAECHER))
+probe("kein unangemeldetes Speicherfach", not _fremd,
+      ", ".join(_fremd) if _fremd else "%d Faecher, alle erklaert" % len(_gefunden))
+for _k, (_zweck, _wo) in _FAECHER.items():
+    probe("Fach %s ist nur „%s“" % (_k, _zweck),
+          _gefunden.get(_k, set()) == set(_wo),
+          ", ".join(sorted(_gefunden.get(_k, set()))))
+# 🔴 The COOKIE is still called pw_ansicht — there the word is honest (wide page
+#    or phone page), it lives in a different store and the server writes it. But
+#    no page may use that name for a slot of its own any more.
+probe("pw_ansicht ist KEIN Speicherfach mehr", "pw_ansicht" not in _gefunden,
+      ", ".join(sorted(_gefunden.get("pw_ansicht", set()))) or "nur noch der Keks")
+# 🔑 And the rule that would have caught the half-finished rename: the parameter
+#    in the address and the slot in the store say the SAME word. Rename one and
+#    you can no longer forget the other — which is exactly what happened.
+for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
+    _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()
+    _par = re.search(r'\.get\("([a-z]+)"\)[^\n]*\|\| ""', _text)
+    probe("%s: Adresse ?%s= und Fach pw_%s heissen gleich"
+          % (_datei, _par.group(1) if _par else "?", _par.group(1) if _par else "?"),
+          bool(_par) and ('localStorage.getItem("pw_%s")' % _par.group(1)) in _text,
+          _par.group(1) if _par else "kein Parameter gefunden")
+
 # ── The day mode ──────────────────────────────────────────────────────────
 for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
     _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()

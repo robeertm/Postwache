@@ -14,13 +14,20 @@
      Postwache is a dark house; a device set to light would otherwise hand a
      first-time visitor a page they never chose. Only an explicit „hell" turns
      the light on: the one in the store, or the one in the address.
-     🔴 `licht`, NOT `ansicht`: the mailbox already answers to `?ansicht=breit`
-     and `?ansicht=mobil` — that is which of the two surfaces is served. */
+     🔴 `licht`, NOT `ansicht` — for the parameter AND for the slot. The word
+     „Ansicht" was already taken twice: `?ansicht=breit` / `?ansicht=mobil` picks
+     which of the two surfaces is served (a cookie, written by the server), and
+     the watchman page remembered its open TAB under `pw_ansicht` in the same
+     store. Two meanings in one slot erase each other: opening the watchman page
+     wrote „uebersicht" over the light choice, and the light button wrote „hell"
+     over the remembered tab. The switch worked every single time — its memory
+     was taken from underneath it, which is why it looked broken and not wrong.
+     One slot, one meaning: `pw_licht`. */
   var wahl = "";
   try{ wahl = new URLSearchParams(location.search).get("licht") || ""; }catch(e){}
   if(wahl !== "hell" && wahl !== "dunkel"){
     wahl = "";
-    try{ wahl = localStorage.getItem("pw_ansicht") || ""; }catch(e){}
+    try{ wahl = localStorage.getItem("pw_licht") || ""; }catch(e){}
   }
   if(wahl === "hell") document.documentElement.setAttribute("data-hell", "1");
 })();
@@ -773,7 +780,7 @@ let LICHT_WAHL = (function(){
     if(LICHT_WAHLEN.indexOf(auf) >= 0) return auf;
   }catch(e){ /* no parameter, no matter */ }
   try{
-    const w = localStorage.getItem("pw_ansicht");
+    const w = localStorage.getItem("pw_licht");
     if(LICHT_WAHLEN.indexOf(w) >= 0) return w;
   }catch(e){ /* a browser may refuse the store — then it stays night */ }
   return "dunkel";
@@ -799,7 +806,7 @@ function lichtAnwenden(neuzeichnen){
 }
 function lichtUm(){
   LICHT_WAHL = LICHT_WAHL === "hell" ? "dunkel" : "hell";
-  try{ localStorage.setItem("pw_ansicht", LICHT_WAHL); }catch(e){}
+  try{ localStorage.setItem("pw_licht", LICHT_WAHL); }catch(e){}
   lichtAnwenden(true);
 }
 
