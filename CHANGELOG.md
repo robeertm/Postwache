@@ -42,7 +42,19 @@ Now:
 * wide-or-phone cookie → stays `pw_ansicht`; there the word is honest, it lives in
   a different store, and the server writes it
 
-### Test bench: 309 → **318 probes**
+### 🔴 And a second sign that promised the same thing
+
+The phone's list header carried a **◐** — the unread filter. A half-filled circle
+is what a **day/night** switch looks like in almost every other program, and it
+sat exactly where one is looked for. Pressing it gave a filtered list and no
+light. It now wears **●**, the very mark the list puts on an unread mail.
+
+The bench holds it: **no other control wears a half circle.** It reads the pages
+without their comments — the probe is about what a page *shows*, not about what
+it explains about itself (the first version turned red on my own note). Bench
+therefore **321**.
+
+### Test bench: 309 → **321 probes**
 
 A schema instead of a spot check: all four storage slots are **declared with their
 purpose**, and a slot appearing in a page that has no business with it turns red —

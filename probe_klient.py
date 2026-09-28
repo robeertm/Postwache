@@ -1443,6 +1443,17 @@ for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
           "prefers-color-scheme" not in _text)
     probe("%s kennt nur zwei Stellungen" % _datei,
           'const LICHT_WAHLEN = ["dunkel", "hell"];' in _text)
+    # 🔴 And no OTHER control may wear the sign of a theme switch. „◐" sat in the
+    #    phone's top bar as the unread filter — a half-filled circle is what
+    #    day/night looks like in every other program, in exactly the place one is
+    #    expected. The switch says ☾ or ☀; nothing else says anything like it.
+    #    🔑 Scanned WITHOUT the comments: this probe is about what the page
+    #    SHOWS, not about what it explains about itself — the note above names
+    #    the sign in order to forbid it, and turned its own probe red.
+    _ohne = re.sub(r"<!--.*?-->", "", _text, flags=re.S)
+    _ohne = re.sub(r"/\*.*?\*/", "", _ohne, flags=re.S)
+    probe("%s: kein halber Kreis an einem fremden Knopf" % _datei,
+          not [z for z in "\u25d0\u25d1\u25d2\u25d3" if z in _ohne])
     # 🔴 An animation nobody can switch off is an animation somebody has to look
     # away from. Whoever asked their system for less motion gets none.
     probe("%s achtet auf prefers-reduced-motion" % _datei,
