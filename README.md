@@ -77,6 +77,7 @@ that will not tell you its hit rate is a claim, not a measurement.
 | ↩️ **Everything is reversible** | Every move is journalled. One click puts a mail back; one click puts them all back. |
 | 🛑 **Two emergency stops** | A file on disk, and a switch in Home Assistant. Either one alone stops it. |
 | ✉️ **A full mail client** | Folder tree, list, preview pane, search, reply, forward, attachments, drafts, sending. Some thirty settings, from where the preview sits to when a mail counts as read. Every row shows the first words of the letter — fetched in pieces, one request per shape, and still `BODY.PEEK`. |
+| ✨ **Everything new, in one view** | Above the inbox: every new mail out of every folder at once, each row saying where it is now. The view the watchman makes necessary — it is the one that moved the mail away. |
 | 📬 **One click from the watchman to the mailbox** | The tab row carries a door to `/post` — a real link that works before any script has run. |
 | 📱 **A version of its own for phones** | Not the wide page made narrow: one sheet at a time, a bar at the bottom, finger targets from 44 px, swipe to archive or delete. |
 | 🔒 **A lock in front of the mail** | The client asks for an access word before it shows a single line of a letter. Optionally the watchman page too. |
@@ -108,6 +109,12 @@ sends:
 ![Documents in the post](docs/screenshots/03-documents.png)
 
 ## The mail client
+
+![Everything new](docs/screenshots/32-client-new.png)
+
+<p align="center"><i>Everything new, out of every folder at once — each row says
+where the mail is now. The view the watchman makes necessary: it is the one that
+moved the mail out of the inbox. All data invented.</i></p>
 
 ![The phone version](docs/screenshots/27-phone-list.png)
 

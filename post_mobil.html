@@ -146,12 +146,30 @@ body[data-blick="schreiben"] #b_schreiben{display:flex}
 .mehrknopf{padding:1rem .8rem calc(1.4rem + var(--unten));text-align:center}
 
 /* ── Folders ─────────────────────────────────────────────────────── */
-.o{display:flex;align-items:center;gap:.7rem;padding:.85rem .95rem;
-  border-bottom:1px solid rgba(255,255,255,.06);min-height:3.2rem}
+/* 🔑 The depth is measured from the shallowest OWN folder, not from the root —
+   nearly all of them sit under INBOX, and counted absolutely the whole tree
+   hangs one step in from the left with nothing in that step. And one branch per
+   top-level folder, with air between them: a flat run of rows leaves the reader
+   counting indents to see where one family ends. */
+.o{display:flex;align-items:center;gap:.7rem;min-height:3.2rem;position:relative;
+  border-bottom:1px solid rgba(255,255,255,.06);
+  padding:.85rem .95rem .85rem calc(.95rem + var(--tief, 0) * 1.1rem)}
 .o.an{background:rgba(224,164,88,.14)}
+.o.unter::before{content:"";position:absolute;top:0;bottom:0;width:1px;
+  background:var(--rand);
+  left:calc(.95rem + (var(--tief) - 1) * 1.1rem + .6rem)}
+.ozweig + .ozweig{margin-top:.5rem}
+.o.neuzeile{background:rgba(224,164,88,.09);border-bottom-color:rgba(224,164,88,.3)}
+.o.neuzeile.an{background:rgba(224,164,88,.22)}
+.o.neuzeile .nm{font-weight:600}
+.o.eltern .nm{font-weight:600}
 .o .ic{font-size:1.1rem;flex:0 0 1.4rem;text-align:center}
 .o .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;font-size:.95rem}
+.ort{display:inline-flex;align-items:center;gap:.2rem;max-width:8rem;
+  padding:.04rem .38rem;border-radius:99px;font-size:.68rem;
+  border:1px solid var(--rand);background:var(--karte2);color:var(--leise);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
 .o .n{font-size:.76rem;color:var(--leiser)}
 .o .u{font-size:.7rem;font-weight:700;color:var(--akzent-tief);
   background:var(--akzent);border-radius:99px;padding:.08rem .45rem}
@@ -418,7 +436,8 @@ const S = {
   pf:"", ordner:"INBOX", seite:1, sieb:"", suche:"", feld:"alle", pro:50,
   mails:[], uid:0, offen:null, ordner_liste:[], rollen:{}, einst:{}, faehig:{},
   oberflaeche:[], postfaecher:[], brief:null, seiten:1, gesamt:0, laeuft:false,
-  version:"", blick:"liste"
+  version:"", blick:"liste",
+  neu:false                // the „New" view instead of a folder
 };
 
 function melde(text, gut){
@@ -581,27 +600,78 @@ function fussTaste(wohin){
 
 /* ── Folders ───────────────────────────────────────────────────────────── */
 function ordnerMalen(){
-  const zeile = o => `<div class="o ${o.name === S.ordner ? "an" : ""}"
-      onclick="ordnerWaehlen('${escJs(o.name)}')" role="button" tabindex="0">
-    <span class="ic">${o.icon || "📁"}</span>
-    <span class="nm" style="padding-left:${o.tiefe * .8}rem">${esc(ordnerName(o))}</span>
-    ${o.ungelesen ? `<span class="u">${o.ungelesen}</span>`
-                  : `<span class="n">${o.gesamt || ""}</span>`}</div>`;
   const sonder = S.ordner_liste.filter(o => o.rolle);
   const rest = S.ordner_liste.filter(o => !o.rolle);
-  $("#ordnerliste").innerHTML = sonder.map(zeile).join("")
-    + (rest.length ? `<div class="gruppentitel">${esc(txt("k.eigene_ordner"))}</div>` : "")
-    + rest.map(zeile).join("");
+  const grund = rest.length ? Math.min(...rest.map(o => o.tiefe)) : 0;
+  const tr = S.faehig && S.faehig.trenner ? S.faehig.trenner : ".";
+  const zeile = (o, tief) => {
+    const kinder = rest.some(x => x !== o && x.name.startsWith(o.name + tr));
+    return `<div class="o ${tief > 0 ? "unter" : ""} ${kinder ? "eltern" : ""}
+        ${(!S.neu && o.name === S.ordner) ? "an" : ""}" style="--tief:${tief}"
+        onclick="ordnerWaehlen('${escJs(o.name)}')" role="button" tabindex="0">
+      <span class="ic">${o.icon || "📁"}</span>
+      <span class="nm">${esc(ordnerName(o))}</span>
+      ${o.ungelesen ? `<span class="u">${o.ungelesen}</span>`
+                    : `<span class="n">${o.gesamt || ""}</span>`}</div>`;
+  };
+  const offen = neuZahl();
+  const teile = [`<div class="o neuzeile ${S.neu ? "an" : ""}" role="button" tabindex="0"
+      onclick="neuWaehlen()"><span class="ic">✨</span>
+    <span class="nm">${esc(txt("k.neu"))}</span>
+    ${offen ? `<span class="u">${offen}</span>` : ""}</div>`];
+  teile.push(sonder.map(o => zeile(o, 0)).join(""));
+  if(rest.length){
+    teile.push(`<div class="gruppentitel">${esc(txt("k.eigene_ordner"))}</div>`);
+    let zweig = [];
+    for(const o of rest){
+      const tief = o.tiefe - grund;
+      if(tief === 0 && zweig.length){
+        teile.push(`<div class="ozweig">${zweig.join("")}</div>`);
+        zweig = [];
+      }
+      zweig.push(zeile(o, tief));
+    }
+    if(zweig.length) teile.push(`<div class="ozweig">${zweig.join("")}</div>`);
+  }
+  $("#ordnerliste").innerHTML = teile.join("");
+}
+/* How many mails the „New" view would show — out of the counts the folder list
+   already carries, so it costs nothing. */
+function neuZahl(){
+  return S.ordner_liste.reduce((n, o) => {
+    if(!o.waehlbar || o.rolle === "papierkorb" || o.rolle === "entwuerfe") return n;
+    if(o.rolle === "spam" && !S.einst.neu_spam) return n;
+    return n + (o.ungelesen || 0);
+  }, 0);
 }
 /* „INBOX" is protocol, not a name — see the wide version. */
 function ordnerName(o){
   return (o.name.toUpperCase() === "INBOX") ? txt("k.posteingang") : o.zeige;
 }
 async function ordnerWaehlen(name){
+  S.neu = false;
   S.ordner = name; S.seite = 1; S.uid = 0; S.offen = null; S.mails = [];
   ordnerMalen();
   blick("liste");
   await ladeListe(true);
+}
+/* The view the watchman makes necessary: it carries new post into folders, so
+   „what came in" is no longer one folder but twelve. Here they are one list. */
+async function neuWaehlen(){
+  S.neu = true;
+  S.seite = 1; S.uid = 0; S.offen = null; S.mails = [];
+  ordnerMalen();
+  blick("liste");
+  await ladeListe(true);
+}
+/* Which folder a row really lives in — every action asks here instead of
+   assuming the view. */
+function ordnerVon(uid){
+  const m = S.mails.find(x => x.uid === uid);
+  return (m && m.ordner) || S.ordner;
+}
+function offenOrdner(){
+  return (S.offen && S.offen.ordner) || S.ordner;
 }
 async function ordnerNeu(){
   const name = prompt(txt("k.ordner_name"));
@@ -614,16 +684,27 @@ async function ordnerNeu(){
 /* ── The list ──────────────────────────────────────────────────────────── */
 async function ladeListe(frisch){
   const o = S.ordner_liste.find(x => x.name === S.ordner) || {};
-  $("#ordnername").textContent = o.name ? ordnerName(o) : "Postwache";
+  $("#ordnername").textContent = S.neu ? txt("k.neu")
+                                       : (o.name ? ordnerName(o) : "Postwache");
   $("#siebknopf").style.color = S.sieb ? "var(--akzent)" : "";
   if(frisch) $("#zeilen").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
   let a;
   try{
-    a = await sende("klient_liste", {ordner:S.ordner, seite:frisch ? 1 : S.seite,
-      sieb:S.sieb, suche:"", feld:"alle", pro_seite:S.pro});
+    a = S.neu
+      ? await sende("klient_neu", {})
+      : await sende("klient_liste", {ordner:S.ordner, seite:frisch ? 1 : S.seite,
+          sieb:S.sieb, suche:"", feld:"alle", pro_seite:S.pro});
   }catch(e){ return; }
   if(!a || a.ok === false) return melde((a && a.text) || txt("k.ging_nicht"), false);
-  S.mails = frisch ? (a.mails || []) : S.mails.concat(a.mails || []);
+  S.mails = (frisch || S.neu) ? (a.mails || []) : S.mails.concat(a.mails || []);
+  if(S.neu){
+    S.seite = 1; S.seiten = 1; S.gesamt = S.mails.length;
+    const un = $("#ungelesen");
+    un.hidden = !a.gesamt;
+    un.textContent = a.gesamt || "";
+    listeMalen();
+    return;
+  }
   S.seite = a.seite || 1; S.seiten = a.seiten || 1; S.gesamt = a.gesamt || 0;
   const u = $("#ungelesen");
   u.hidden = !a.ordner_ungelesen;
@@ -640,7 +721,10 @@ async function mehrLaden(){
 }
 function listeMalen(){
   if(!S.mails.length){
-    $("#zeilen").innerHTML = `<div class="leerraum"><div>
+    $("#zeilen").innerHTML = S.neu
+      ? `<div class="leerraum"><div><span class="gross">✨</span>
+         ${esc(txt("k.nichts_neu"))}</div></div>`
+      : `<div class="leerraum"><div>
       <span class="gross">${S.sieb ? "◐" : "📭"}</span>
       ${esc(txt(S.sieb ? "k.nichts_im_sieb" : "k.ordner_leer"))}</div></div>`;
     $("#mehrknopf").hidden = true;
@@ -667,7 +751,8 @@ function zeileHtml(m){
         >${esc(initialen(m.von, m.adresse))}</span>
       <span class="von">${esc(m.von || m.adresse)}</span>
       <span class="rand"><span class="wann">${esc(wann(m.zeit))}</span>
-        <span class="zeichen">${zeichen}</span></span>
+        <span class="zeichen">${S.neu && m.ordner_kurz
+          ? `<span class="ort">📁 ${esc(ordnerKurz(m))}</span>` : ""}${zeichen}</span></span>
       <span class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</span>
       <span class="aus">${esc(dritteZeile(m))}</span>
     </div></div>`;
@@ -677,9 +762,14 @@ function zeileHtml(m){
    than anywhere else — the screen shows eight rows, and the excerpt is what
    saves opening six of them. Where there is none, the row says what else is
    worth knowing about the mail. */
+/* „INBOX" is the protocol's word — in this one place it gets the reader's. */
+function ordnerKurz(m){
+  return (m.ordner || "").toUpperCase() === "INBOX" ? txt("k.posteingang")
+                                                    : (m.ordner_kurz || "");
+}
 function dritteZeile(m){
   if(m.auszug) return m.auszug;
-  const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(S.ordner);
+  const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(m.ordner || S.ordner);
   const wer = gesendet && m.an ? txt("k.an") + ": " + m.an : m.adresse;
   return wer + (m.anhang ? " · " + gr(m.anhang_gross) : "");
 }
@@ -735,7 +825,7 @@ async function mailOeffnen(uid){
   $("#mailrumpf").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
   $("#tatleiste").innerHTML = "";
   let m;
-  try{ m = await sende("klient_mail", {ordner:S.ordner, uid:uid}); }
+  try{ m = await sende("klient_mail", {ordner:ordnerVon(uid), uid:uid}); }
   catch(e){ return; }
   if(!m || !m.ok){
     $("#mailrumpf").innerHTML = `<div class="leerraum">${
@@ -776,7 +866,7 @@ function mailMalen(){
     chips.push(`<span class="chip info">🛡️ ${
       w.klasse ? esc((schub.icon || "") + " " + (schub.name || w.klasse)) : ""}${
       w.zeige ? " · " + esc(txt("k.wache_ordner", {o:w.zeige})) : ""}</span>`);
-  if(w.ordner && w.ordner !== S.ordner)
+  if(w.ordner && w.ordner !== offenOrdner())
     chips.push(`<span class="chip tat" onclick="wieWache(${m.uid},'${escJs(m.adresse)}')"
       >➜ ${esc(txt("k.wie_wache"))}</span>`);
   if(m.abmelden)
@@ -784,7 +874,7 @@ function mailMalen(){
       rel="noopener noreferrer">📰 ${esc(txt("k.abmelden_link"))}</a>`);
   const anhaenge = (m.anhaenge || []).map(x => {
     const url = "/api/klient/anhang?pf=" + encodeURIComponent(S.pf) + "&ordner="
-      + encodeURIComponent(S.ordner) + "&uid=" + m.uid + "&t=" + encodeURIComponent(x.t)
+      + encodeURIComponent(offenOrdner()) + "&uid=" + m.uid + "&t=" + encodeURIComponent(x.t)
       + "&k=" + encodeURIComponent(x.k) + "&n=" + encodeURIComponent(x.n);
     const ic = x.art === "bild" ? "🖼️" : (x.art === "dokument" ? "📄" : "📎");
     return `<a class="anh" href="${esc(url)}" download="${esc(x.n)}"><span>${ic}</span>
@@ -841,31 +931,33 @@ function mailNachbar(d){
 async function mehrTaten(){
   const m = S.offen;
   if(!m) return;
-  const ziele = S.ordner_liste.filter(o => o.waehlbar && o.name !== S.ordner);
+  const ziele = S.ordner_liste.filter(o => o.waehlbar && o.name !== offenOrdner());
   const wahl = prompt(txt("k.verschieben_frage") + "\n\n"
     + ziele.map((o, i) => (i + 1) + ") " + o.pfad).join("\n"));
   const nr = parseInt(wahl || "0", 10);
   if(nr >= 1 && nr <= ziele.length) stapelVerschieben(ziele[nr - 1].name, [m.uid]);
 }
 async function bilderLaden(){
-  const m = await sende("klient_mail", {ordner:S.ordner, uid:S.uid, bilder:1});
+  const m = await sende("klient_mail", {ordner:offenOrdner(), uid:S.uid, bilder:1});
   if(m && m.ok){ S.offen = m; mailMalen(); }
 }
 
 /* ── Acting ────────────────────────────────────────────────────────────── */
 async function stapel(was, an, uids){
-  const r = await sende("klient_flaggen", {ordner:S.ordner, uids:uids, was:was, an:an});
+  const r = await sende("klient_flaggen", {ordner:ordnerVon(uids[0]), uids:uids,
+                                           was:was, an:an});
   if(!r.ok) return melde(r.text || txt("k.ging_nicht"), false);
   S.mails.forEach(m => { if(uids.includes(m.uid)) m[was] = an; });
   if(S.offen && uids.includes(S.offen.uid)){ S.offen[was] = an; mailMalen(); }
   listeMalen();
-  const o = S.ordner_liste.find(x => x.name === S.ordner);
+  const o = S.ordner_liste.find(x => x.name === ordnerVon(uids[0]));
   if(was === "gelesen" && o)
     o.ungelesen = Math.max(0, (o.ungelesen || 0) + (an ? -uids.length : uids.length));
   fussMalen();
 }
 async function stapelVerschieben(ziel, uids){
-  const r = await sende("klient_verschieben", {ordner:S.ordner, uids:uids, ziel:ziel});
+  const r = await sende("klient_verschieben", {ordner:ordnerVon(uids[0]), uids:uids,
+                                               ziel:ziel});
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
   if(r.ok) await nachTat(uids);
 }
@@ -876,12 +968,12 @@ async function stapelLoeschen(uids){
   const frage = uids.length === 1 ? txt("k.loeschen_sicher_eine")
                                   : txt("k.loeschen_sicher", {n:uids.length});
   if(S.einst.sicherheitsfrage && !confirm(frage)) return;
-  const r = await sende("klient_loeschen", {ordner:S.ordner, uids:uids});
+  const r = await sende("klient_loeschen", {ordner:ordnerVon(uids[0]), uids:uids});
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
   if(r.ok) await nachTat(uids);
 }
 async function wieWache(uid, adresse){
-  const r = await sende("klient_wie_wache", {ordner:S.ordner, uids:[uid],
+  const r = await sende("klient_wie_wache", {ordner:ordnerVon(uid), uids:[uid],
                                              adresse:adresse});
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
   if(r.ok) await nachTat([uid]);
@@ -937,7 +1029,7 @@ async function sucheLos(){
 <script>
 /* ── Writing ───────────────────────────────────────────────────────────── */
 async function verfassen(art, uid){
-  const v = await sende("klient_vorlage", {art:art, ordner:S.ordner, uid:uid || 0});
+  const v = await sende("klient_vorlage", {art:art, ordner:ordnerVon(uid), uid:uid || 0});
   if(!v || !v.ok) return melde((v && v.text) || txt("k.ging_nicht"), false);
   S.brief = {art:art, quelle:v.quelle || null, in_antwort_auf:v.in_antwort_auf || "",
              anhaenge:[], uebernahme:(v.anhaenge || []).map(a =>

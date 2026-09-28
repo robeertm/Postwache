@@ -135,6 +135,7 @@ ORDNER = [
     (r"\HasNoChildren \Trash", "INBOX.Papierkorb"),
     (r"\HasNoChildren \Drafts", "INBOX.Entwuerfe"),
     (r"\HasNoChildren", "INBOX.Gel&APY-schtes"),
+    (r"\HasNoChildren \Junk", "INBOX.Werbung"),
     (r"\HasChildren \Noselect", "INBOX.Technik"),
     (r"\HasNoChildren", "INBOX.Technik.Synology"),
 ]
@@ -794,6 +795,58 @@ probe("der Anhang traegt den langen Namen aus der Verfuegung",
       str([a["n"] for a in mail.get("anhaenge", [])]))
 probe("alle Kopfzeilen stehen zum Aufklappen bereit",
       len(mail.get("kopfzeilen", [])) >= 6)
+
+# ── „Alles Neue": one list out of every folder that has something ───────
+# 🔑 The view the watchman makes necessary — it carries new post into folders, so
+# „what came in" is no longer one folder. The probes ask what it really touches.
+server.befehle.clear()
+n = kasten.neue("ungelesen", mit_spam=False)
+orte = {m["ordner"] for m in n["mails"]}
+besehen = [b.split(" ", 2)[2].strip().strip('"')
+           for b in server.befehle if " EXAMINE " in b or " SELECT " in b]
+probe("die Neu-Ansicht sammelt aus MEHREREN Ordnern", len(orte) >= 3,
+      ", ".join(sorted(orte)))
+probe("jede Zeile weiss, in welchem Ordner sie liegt",
+      all(m.get("ordner") and m.get("ordner_kurz") for m in n["mails"]))
+probe("der Papierkorb bleibt draussen",
+      "INBOX.Papierkorb" not in orte and not any("Papierkorb" in b for b in besehen),
+      ", ".join(besehen))
+probe("die Entwuerfe bleiben draussen", "INBOX.Entwuerfe" not in orte)
+probe("die Werbung bleibt draussen, solange sie nicht erlaubt ist",
+      "INBOX.Werbung" not in orte)
+probe("ein \\Noselect-Ordner wird gar nicht erst geoeffnet",
+      not any(b.endswith('INBOX.Technik"') for b in besehen), ", ".join(besehen))
+probe("sortiert ist nach DATUM, ueber alle Ordner hinweg",
+      [m["zeit"] for m in n["mails"]] == sorted((m["zeit"] for m in n["mails"]),
+                                                reverse=True))
+probe("auch hier: kein Abruf ohne PEEK",
+      not [b for b in server.befehle if re.search(r"\bBODY\[", b)])
+probe("nur besehen, nie zum Schreiben geoeffnet",
+      not any(" SELECT " in b for b in server.befehle),
+      "; ".join(b for b in server.befehle if " SELECT " in b)[:80])
+probe("und keine einzige Flagge gesetzt",
+      not any(" STORE " in b for b in server.befehle))
+mit = kasten.neue("ungelesen", mit_spam=True)
+probe("mit Erlaubnis ist die Werbung dabei",
+      "INBOX.Werbung" in {m["ordner"] for m in mit["mails"]})
+# 🔴 One folder of newsletters must not eat the whole budget. Synology answers
+# with 25, every other folder with one — with a limit of 6 the others still have
+# to appear.
+klein = kasten.neue("ungelesen", mit_spam=False, grenze=6)
+probe("eine Grenze kuerzt und sagt es", len(klein["mails"]) <= 6 and klein["gekuerzt"],
+      "%d Zeilen, gekuerzt=%s" % (len(klein["mails"]), klein["gekuerzt"]))
+probe("ein voller Ordner frisst die anderen nicht auf",
+      len({m["ordner"] for m in klein["mails"]}) >= 2,
+      ", ".join(sorted({m["ordner"] for m in klein["mails"]})))
+probe("die Gesamtzahl bleibt ehrlich", klein["gesamt"] == n["gesamt"],
+      "%s statt %s" % (klein["gesamt"], n["gesamt"]))
+server.befehle.clear()
+zeit = kasten.neue("t3", mit_spam=False)
+probe("ein Zeitraum fragt SINCE statt UNSEEN",
+      any("SINCE" in b for b in server.befehle)
+      and not any("UNSEEN" in b for b in server.befehle))
+probe("und er sieht in JEDEN erlaubten Ordner",
+      len({m["ordner"] for m in zeit["mails"]}) >= len(orte))
 
 # 🔴 THE central check: nothing is ever fetched without PEEK.
 nackt = [b for b in server.befehle if re.search(r"\bBODY\[", b)]

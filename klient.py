@@ -44,7 +44,7 @@ import threading
 import time
 import urllib.parse
 from email.message import EmailMessage
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 HOME = os.path.expanduser("~")
 BASE = os.path.abspath(os.environ.get("POSTWACHE_HOME")
@@ -67,6 +67,8 @@ MAX_ANHANG = 25 * 1024 * 1024       # per mail, adjustable up to this hard ceili
 TEXT_GRENZE = 900 * 1024            # never render more body than this
 AUSZUG_BYTES = 900                  # how much of a body a list excerpt costs
 AUSZUG_ZEICHEN = 180                # and how much of it a row shows
+NEU_GRENZE = 200                    # rows in the „New" overview at most
+NEU_KOEPFE = 500                    # and header records fetched for it at most
 
 # Special folders are recognised by their FLAG, not by their name — a mailbox in
 # French calls its bin „Corbeille", and a name-based guess misses every mailbox
@@ -146,6 +148,10 @@ VORGABEN = {
     "richtung": "ab",
     "strang": False,               # group a conversation
     "nur_ungelesen": False,
+    # The „New" overview above the inbox: what counts as new, and whether the
+    # junk folder is part of it.
+    "neu_zeitraum": "ungelesen",
+    "neu_spam": False,
     "vorschautext": True,          # two lines of the body in each list row
     "absender_zeigen": "name",
     "gelesen_nach": -1,            # -1 by hand, 0 at once, otherwise seconds
@@ -182,6 +188,7 @@ AUSWAHL = {
     "sortierung": ("datum", "von", "betreff", "groesse"),
     "richtung": ("ab", "auf"),
     "absender_zeigen": ("name", "adresse", "beides"),
+    "neu_zeitraum": ("ungelesen", "t1", "t3", "t7"),
     "bilder": ("nie", "bekannte", "immer"),
     "zeitform": ("24", "12"),
     "startseite": ("waechter", "postfach"),
@@ -205,6 +212,11 @@ WAHL_TEXTE = {
     "richtung": {"ab": "k.o_neuste", "auf": "k.o_aelteste"},
     "absender_zeigen": {"name": "k.o_name", "adresse": "k.o_adresse",
                         "beides": "k.o_beides"},
+    # 🔴 „t1" is NOT „the last 24 hours". IMAP compares SINCE against the
+    # internal DATE, without a time — so the honest name is „today and
+    # yesterday", and that is what the labels say.
+    "neu_zeitraum": {"ungelesen": "k.o_ungelesen", "t1": "k.o_seit_gestern",
+                     "t3": "k.o_drei_tage", "t7": "k.o_sieben_tage"},
     "bilder": {"nie": "k.o_nie", "bekannte": "k.o_bekannte", "immer": "k.o_immer"},
     "zeitform": {"24": "k.o_24", "12": "k.o_12"},
     "startseite": {"waechter": "k.o_waechter", "postfach": "k.o_postfach"},
@@ -227,6 +239,7 @@ GRUPPEN = [
     ("k.g_ansicht", "k.g_ansicht_hilfe",
      ("vorschau", "dichte", "pro_seite", "absender_zeigen", "vorschautext",
       "strang", "schrift", "zeitform", "startseite")),
+    ("k.g_neu", "k.g_neu_hilfe", ("neu_zeitraum", "neu_spam")),
     ("k.g_lesen", "k.g_lesen_hilfe",
      ("gelesen_nach", "html_zuerst", "kopfzeilen", "wache_grund", "sortierung",
       "richtung", "nur_ungelesen")),
@@ -898,6 +911,76 @@ class Briefkasten(W.Postfach if W is not None else object):
         return raus
 
     # ── One mail, completely ────────────────────────────────────────
+    def neue(self, zeitraum: str = "ungelesen", mit_spam: bool = False,
+             grenze: int = NEU_GRENZE, auszug: bool = False) -> dict:
+        """Everything new, wherever it has ended up.
+
+        🔑 This is the one view the watchman makes NECESSARY. It moves new mail
+        out of the inbox into its folder, and does it well — and exactly because
+        of that, „what came in" is no longer one folder but twelve. So the
+        question is asked of all of them at once and answered in one list, with
+        the folder written next to every line.
+
+        Cheap by construction: `baum()` already knows the unread count of every
+        folder from STATUS, so for the „unread" setting only folders that have
+        any are opened at all — usually two or three, not twenty. Still
+        `EXAMINE`, still `BODY.PEEK`: looking at this list changes nothing.
+        """
+        tage = {"t1": 1, "t3": 3, "t7": 7}.get(zeitraum, 0)
+        ordner_liste, gesamt, treffer = [], 0, []
+        for o in self.baum():
+            if not o["waehlbar"] or o["rolle"] in ("papierkorb", "entwuerfe"):
+                continue
+            if o["rolle"] == "spam" and not mit_spam:
+                continue
+            if not tage:
+                if not o["ungelesen"]:
+                    continue
+                kriterien = [b"UNSEEN"]
+            else:
+                seit = (datetime.now() - timedelta(days=tage)).strftime("%d-%b-%Y")
+                kriterien = [("SINCE " + seit).encode()]
+            try:
+                self.waehle(o["name"])
+                uids = self._suchen(kriterien)
+            except Exception as e:
+                log("Ordner %s nicht durchsuchbar: %s" % (o["name"], str(e)[:100]))
+                continue
+            if not uids:
+                continue
+            gesamt += len(uids)
+            uids.sort(reverse=True)
+            ordner_liste.append((o, uids))
+        # 🔴 A single folder of newsletters can hold two thousand unread mails.
+        # Every folder gets the SAME share of the budget, the newest first —
+        # otherwise the first folder eats it and the rest is silently missing.
+        anteil = max(10, NEU_KOEPFE // max(1, len(ordner_liste)))
+        gekuerzt = False
+        for o, uids in ordner_liste:
+            teil = uids[:min(anteil, grenze)]
+            gekuerzt = gekuerzt or len(teil) < len(uids)
+            try:
+                self.waehle(o["name"])
+                koepfe = self.koepfe(teil, auszug=auszug)
+            except Exception as e:
+                log("Koepfe aus %s nicht lesbar: %s" % (o["name"], str(e)[:100]))
+                continue
+            for uid in teil:
+                satz = koepfe.get(uid)
+                if not satz:
+                    continue
+                satz["ordner"] = o["name"]
+                satz["ordner_zeige"] = o["pfad"]
+                satz["ordner_kurz"] = o["zeige"]
+                satz["rolle"] = o["rolle"]
+                treffer.append(satz)
+        # The only order that means anything across folders is the date — a UID
+        # is only comparable inside its own folder.
+        treffer.sort(key=lambda m: m.get("zeit") or "", reverse=True)
+        return {"mails": treffer[:grenze], "gesamt": gesamt,
+                "gekuerzt": gekuerzt or len(treffer) > grenze,
+                "ordner": len(ordner_liste)}
+
     def mail(self, ordner: str, uid: int, bilder: bool = False,
              roh_teile: bool = True) -> dict:
         """Everything needed to display ONE mail — and nothing beyond it.
@@ -2298,6 +2381,21 @@ def liste(d: dict) -> dict:
             "mails": [koepfe[u] for u in teil if u in koepfe],
         }
     return tu(pf_id, arbeit)
+
+
+def neu_liste(d: dict) -> dict:
+    """The „New" overview: one list out of every folder that has something new."""
+    pf_id = str(d.get("pf") or "")
+    einst = einstellungen()
+    zeitraum = str(d.get("zeitraum") or einst["neu_zeitraum"])
+    if zeitraum not in AUSWAHL["neu_zeitraum"]:
+        zeitraum = VORGABEN["neu_zeitraum"]
+    mit_spam = bool(d.get("spam", einst["neu_spam"]))
+    antwort = tu(pf_id, lambda k: k.neue(zeitraum, mit_spam,
+                                         auszug=bool(einst["vorschautext"])))
+    antwort["ok"] = True
+    antwort["zeitraum"] = zeitraum
+    return antwort
 
 
 def _bilder_erlaubt(pf_id: str, adresse: str, wunsch) -> bool:

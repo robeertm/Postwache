@@ -119,25 +119,57 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
 .lese{grid-area:lese;overflow:hidden}
 
 /* ── Folder tree ─────────────────────────────────────────────────── */
+/* 🔴 The fold triangle is a COLUMN, not a prefix. It used to be written only
+   where something folds — and so a folder WITH children stood 1.4 rem further
+   right than its own children, which were indented one step less. The tree read
+   inverted, and the indentation had been right all along. Every row carries the
+   slot now, filled or empty, and the indent is the only thing that moves.
+   🔑 And the depth is RELATIVE: nearly every own folder sits under INBOX, so
+   the absolute depth starts at 1 and the whole tree hangs in mid-air. The
+   shallowest own folder is the left edge. */
 .obaum{display:flex;flex-direction:column;gap:1px}
-.o{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:.6rem;
-  cursor:pointer;border:1px solid transparent;min-width:0}
-.o:hover{background:var(--karte)}
+.ozweig{display:flex;flex-direction:column;gap:1px}
+.ozweig + .ozweig{margin-top:.42rem}
+.o{display:flex;align-items:center;gap:.5rem;border-radius:.6rem;cursor:pointer;
+  border:1px solid transparent;min-width:0;position:relative;
+  padding:.4rem .55rem .4rem calc(.55rem + var(--tief, 0) * 1.05rem)}
+.o:hover{background:rgba(255,255,255,.055)}
 .o.an{background:rgba(224,164,88,.15);border-color:rgba(224,164,88,.35)}
+/* The line that binds a group: it stands where the parent's icon stands, so a
+   child is visibly hanging under something and not floating next to it. */
+.o.unter::before{content:"";position:absolute;top:-1px;bottom:-1px;width:1px;
+  background:var(--rand);
+  left:calc(.55rem + (var(--tief) - 1) * 1.05rem + .48rem)}
+.o.unter:last-child::before{bottom:50%}
 .o .ic{flex:0 0 1.1rem;text-align:center;font-size:.92rem;opacity:.95}
 .o .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;font-size:.87rem}
+  white-space:nowrap;font-size:.88rem}
+.o.eltern .nm{font-weight:600}
 .o.an .nm{font-weight:600}
 .o .n{flex:0 0 auto;font-size:.7rem;color:var(--leiser);font-variant-numeric:tabular-nums}
 .o .u{flex:0 0 auto;font-size:.68rem;font-weight:700;color:var(--akzent-tief);
   background:var(--akzent);border-radius:99px;padding:.05rem .4rem;
   font-variant-numeric:tabular-nums}
-.ogruppe{margin:.75rem .55rem .25rem;font-size:.66rem;letter-spacing:.09em;
+.ogruppe{margin:.9rem .55rem .3rem;font-size:.66rem;letter-spacing:.09em;
   text-transform:uppercase;color:var(--leiser)}
 .ofalt{flex:0 0 .9rem;font-size:.72rem;color:var(--leise);text-align:center;
   cursor:pointer;transition:transform .15s ease}
 .ofalt:hover{color:var(--text)}
 .ofalt.zu{transform:rotate(-90deg)}
+/* ── „New" — the view above the inbox ────────────────────────────── */
+.o.neu{background:rgba(224,164,88,.08);border-color:rgba(224,164,88,.28);
+  margin-bottom:.5rem}
+.o.neu:hover{background:rgba(224,164,88,.15)}
+.o.neu.an{background:rgba(224,164,88,.22);border-color:var(--akzent)}
+.o.neu .nm{font-weight:600}
+.ort{display:inline-flex;align-items:center;gap:.22rem;max-width:9rem;
+  padding:.04rem .38rem;border-radius:99px;font-size:.68rem;
+  border:1px solid var(--rand);background:var(--karte2);color:var(--leise);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
+.neuleiste{display:flex;align-items:center;gap:.5rem;padding:.45rem .75rem;
+  border-bottom:1px solid var(--rand);background:rgba(224,164,88,.06);
+  font-size:.78rem;color:var(--leise);flex-wrap:wrap}
+.neuleiste b{color:var(--text);font-weight:600}
 
 /* ── Message list ────────────────────────────────────────────────── */
 .werkzeug{display:flex;align-items:center;gap:.4rem;padding:.45rem .6rem;
@@ -496,6 +528,11 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
           <button class="blank" id="richtung" onclick="richtungDrehen()"
                   data-t-titel="k.richtung">↓</button>
         </div>
+        <div id="neutasten" style="display:none;gap:.45rem;align-items:center">
+          <select id="neu_zeitraum" onchange="einstellungSetzen('neu_zeitraum',this.value)"
+                  style="width:auto"></select>
+          <span class="kleiner leise" id="neuhinweis" hidden></span>
+        </div>
         <div class="blaettern">
           <span id="spanne" class="zahl"></span>
           <button class="blank" id="zurueck" onclick="blaettern(-1)">‹</button>
@@ -621,6 +658,8 @@ const S = {
   mails:[], uid:0, offen:null, gewaehlt:new Set(),
   ordner_liste:[], rollen:{}, einst:{}, faehig:{}, postfaecher:[],
   zu:new Set(),            // collapsed folder branches
+  neu:false,               // the „New" view instead of a folder
+  neu_gesamt:0, neu_gekuerzt:false, neu_ordner:0,
   oberflaeche:[],          // how the settings are described — comes from the engine
   lesemarke:null,          // the timer for „mark read after N seconds"
   laeuft:false, version:""
@@ -807,16 +846,26 @@ function ordnerMalen(){
   const teile = [];
   const sonder = liste.filter(o => o.rolle);
   const rest = liste.filter(o => !o.rolle);
-  const zeile = (o) => {
+  /* 🔑 The depth is measured from the shallowest OWN folder, not from the root.
+     Almost every one of them sits under INBOX, so the absolute depth starts at
+     one — and the whole tree would hang one step in from the left with nothing
+     in that step. */
+  const grund = rest.length ? Math.min(...rest.map(o => o.tiefe)) : 0;
+  /* 🔑 The special folders are ROLES, not a hierarchy — and on most servers they
+     are all called `INBOX.something`, so a fold triangle would appear on the
+     inbox and collapsing it would take every own folder with it. In that block
+     nothing folds; the empty slot keeps the icons in one line. */
+  const zeile = (o, tief, faltbar) => {
     const eltern = elternWeg(o);
-    if(eltern.some(p => S.zu.has(p))) return "";
-    const kinder = rest.some(x => x !== o && x.pfad.startsWith(o.pfad + "/") ||
-                                  x.name.startsWith(o.name + (S.faehig.trenner || ".")));
+    if(faltbar && eltern.some(p => S.zu.has(p))) return "";
+    const kinder = faltbar && hatKinder(o, rest);
     const falt = kinder
       ? `<span class="ofalt ${S.zu.has(o.name) ? "zu" : ""}"
-             onclick="faltenUm(event,'${escJs(o.name)}')">▾</span>` : "";
-    return `<div class="o ${o.name === S.ordner ? "an" : ""}" tabindex="0"
-        style="padding-left:${.55 + o.tiefe * .85}rem"
+             onclick="faltenUm(event,'${escJs(o.name)}')">▾</span>`
+      : `<span class="ofalt"></span>`;
+    return `<div class="o ${tief > 0 ? "unter" : ""} ${kinder ? "eltern" : ""}
+        ${(!S.neu && o.name === S.ordner) ? "an" : ""}" tabindex="0"
+        style="--tief:${tief}"
         onclick="ordnerWaehlen('${escJs(o.name)}')"
         onkeydown="if(event.key==='Enter')ordnerWaehlen('${escJs(o.name)}')"
         title="${esc(o.pfad)} — ${o.gesamt} ${esc(txt("k.mails"))}">
@@ -826,10 +875,32 @@ function ordnerMalen(){
                     : `<span class="n">${o.gesamt || ""}</span>`}
     </div>`;
   };
-  teile.push(`<div class="obaum">${sonder.map(zeile).join("")}</div>`);
+  const offen = neuZahl();
+  teile.push(`<div class="obaum">
+    <div class="o neu ${S.neu ? "an" : ""}" tabindex="0" onclick="neuWaehlen()"
+         onkeydown="if(event.key==='Enter')neuWaehlen()"
+         title="${esc(txt("k.neu_hilfe"))}">
+      <span class="ofalt"></span><span class="ic">✨</span>
+      <span class="nm">${esc(txt("k.neu"))}</span>
+      ${offen ? `<span class="u">${offen}</span>` : ""}
+    </div>
+  </div>`);
+  teile.push(`<div class="obaum">${sonder.map(o => zeile(o, 0, false)).join("")}</div>`);
   if(rest.length){
     teile.push(`<div class="ogruppe">${esc(txt("k.eigene_ordner"))}</div>`);
-    teile.push(`<div class="obaum">${rest.map(zeile).join("")}</div>`);
+    /* 🔑 One branch per top-level folder, with air between the branches. A flat
+       run of rows leaves the reader counting indents to see where one family
+       ends and the next begins. */
+    let zweig = [];
+    for(const o of rest){
+      const tief = o.tiefe - grund;
+      if(tief === 0 && zweig.length){
+        teile.push(`<div class="ozweig">${zweig.join("")}</div>`);
+        zweig = [];
+      }
+      zweig.push(zeile(o, tief, true));
+    }
+    if(zweig.length) teile.push(`<div class="ozweig">${zweig.join("")}</div>`);
   }
   teile.push(`<div style="padding:.7rem .55rem 0">
     <button class="blank kleiner" onclick="ordnerNeu()">＋ ${esc(txt("k.ordner_neu"))}</button>
@@ -846,6 +917,20 @@ function ordnerMalen(){
 function ordnerName(o){
   return (o.name.toUpperCase() === "INBOX") ? txt("k.posteingang") : o.zeige;
 }
+function hatKinder(o, liste){
+  const tr = S.faehig.trenner || ".";
+  return liste.some(x => x !== o && x.name.startsWith(o.name + tr));
+}
+/* How many unread mails the „New" view would show — out of the counts the tree
+   already carries, so it costs nothing. The folders it leaves out are the ones
+   the view leaves out. */
+function neuZahl(){
+  return S.ordner_liste.reduce((n, o) => {
+    if(!o.waehlbar || o.rolle === "papierkorb" || o.rolle === "entwuerfe") return n;
+    if(o.rolle === "spam" && !S.einst.neu_spam) return n;
+    return n + (o.ungelesen || 0);
+  }, 0);
+}
 function elternWeg(o){
   const tr = S.faehig.trenner || ".";
   const teile = o.name.split(tr);
@@ -858,11 +943,47 @@ function faltenUm(ev, name){
   ordnerMalen();
 }
 async function ordnerWaehlen(name){
+  S.neu = false;
   S.ordner = name; S.seite = 1; S.gewaehlt.clear(); S.uid = 0; S.offen = null;
   leseLeeren();
   ordnerMalen();
   blick("liste");
   await ladeListe(false);
+}
+/* 🔑 The view the watchman makes necessary. It moves new mail out of the inbox
+   and does it well — and exactly because of that „what came in" is no longer one
+   folder but twelve. Here they are one list again, with the folder written next
+   to every line. */
+async function neuWaehlen(){
+  S.neu = true;
+  S.seite = 1; S.gewaehlt.clear(); S.uid = 0; S.offen = null;
+  leseLeeren();
+  ordnerMalen();
+  blick("liste");
+  await ladeListe(true);
+}
+/* Which folder a row really lives in. In a folder that is the folder; in the
+   „New" view every row can answer differently, and EVERY action asks here
+   instead of assuming. */
+/* The folder of the mail that is OPEN — the server says so in its answer, and in
+   the „New" view that is the only one who knows. */
+function offenOrdner(){
+  return (S.offen && S.offen.ordner) || S.ordner;
+}
+function ordnerVon(uid){
+  const m = S.mails.find(x => x.uid === uid);
+  return (m && m.ordner) || S.ordner;
+}
+/* Selected mails grouped by their folder. In a normal folder that is exactly one
+   group and exactly one request — the same behaviour as before. */
+function nachOrdnern(uids){
+  const karte = new Map();
+  for(const uid of uids){
+    const o = ordnerVon(uid);
+    if(!karte.has(o)) karte.set(o, []);
+    karte.get(o).push(uid);
+  }
+  return [...karte.entries()];
 }
 async function ordnerNeu(){
   const name = prompt(txt("k.ordner_name"));
@@ -886,16 +1007,26 @@ async function ladeListe(frisch){
   if(!S.mails.length) $("#zeilen").innerHTML = ladebalken(8);
   let a;
   try{
-    a = await sende("klient_liste", {ordner:S.ordner, seite:S.seite, sieb:S.sieb,
-      suche:S.suche, feld:S.feld, sortierung:S.sortierung, richtung:S.richtung,
-      pro_seite:S.pro});
+    a = S.neu
+      ? await sende("klient_neu", {})
+      : await sende("klient_liste", {ordner:S.ordner, seite:S.seite, sieb:S.sieb,
+          suche:S.suche, feld:S.feld, sortierung:S.sortierung, richtung:S.richtung,
+          pro_seite:S.pro});
   }catch(e){ return; }
   if(!a || a.ok === false){ melde((a && a.text) || txt("k.ging_nicht"), false); return; }
   S.mails = a.mails || [];
-  S.seite = a.seite || 1;
-  S.seiten = a.seiten || 1;
-  S.gesamt = a.gesamt || 0;
-  S.sortiert = a.sortiert !== false;
+  if(S.neu){
+    S.seite = 1; S.seiten = 1; S.sortiert = true;
+    S.gesamt = a.mails ? a.mails.length : 0;
+    S.neu_gesamt = a.gesamt || 0;
+    S.neu_gekuerzt = !!a.gekuerzt;
+    S.neu_ordner = a.ordner || 0;
+  }else{
+    S.seite = a.seite || 1;
+    S.seiten = a.seiten || 1;
+    S.gesamt = a.gesamt || 0;
+    S.sortiert = a.sortiert !== false;
+  }
   listeMalen();
   if(frisch) r.scrollTop = 0; else r.scrollTop = stand;
   ordnerZahlAktualisieren(a.ordner_gesamt, a.ordner_ungelesen);
@@ -908,8 +1039,8 @@ function ladebalken(n){
       <div style="height:.6rem;width:14rem;background:var(--karte);border-radius:4px;
                   margin-top:.35rem"></div></div><span></span></div>`).join("");
 }
-function ordnerZahlAktualisieren(gesamt, ungelesen){
-  const o = S.ordner_liste.find(x => x.name === S.ordner);
+function ordnerZahlAktualisieren(gesamt, ungelesen, ordner){
+  const o = S.ordner_liste.find(x => x.name === (ordner || S.ordner));
   if(!o) return;
   if(typeof gesamt === "number") o.gesamt = gesamt;
   if(typeof ungelesen === "number") o.ungelesen = ungelesen;
@@ -921,7 +1052,9 @@ function listeMalen(){
   if(!S.mails.length){
     z.innerHTML = "";
     leer.hidden = false;
-    leer.innerHTML = `<div><span class="gross">${S.suche ? "🔍" : "📭"}</span>
+    leer.innerHTML = S.neu
+      ? `<div><span class="gross">✨</span>${esc(txt("k.nichts_neu"))}</div>`
+      : `<div><span class="gross">${S.suche ? "🔍" : "📭"}</span>
       ${esc(txt(S.suche ? "k.nichts_gefunden" : (S.sieb ? "k.nichts_im_sieb" : "k.ordner_leer")))}</div>`;
     spanneMalen();
     return;
@@ -937,6 +1070,11 @@ function listeMalen(){
               : S.einst.absender_zeigen === "beides"
                 ? (m.von || "") + " · " + (m.adresse || "") : (m.von || m.adresse);
     const dritte = zweitzeile(m);
+    /* In the „New" view the one thing every row has to answer is WHERE it is
+       now — that is the whole point of gathering it. */
+    const ort = (S.neu && m.ordner_kurz)
+      ? `<span class="ort" title="${esc(m.ordner_zeige || "")}"
+              >📁 ${esc(ordnerKurz(m))}</span>` : "";
     const zeichen = [
       m.markiert ? '<span class="stern">★</span>' : "",
       m.beantwortet ? "<span>↩</span>" : "",
@@ -956,7 +1094,7 @@ function listeMalen(){
       <span class="von" title="${esc(m.adresse)}">${esc(wer)}</span>
       <span class="wann">${esc(wann(m.zeit))}</span>
       <span class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</span>
-      <span class="zeichen">${zeichen}</span>
+      <span class="zeichen">${ort}${zeichen}</span>
       ${(!eng && S.einst.vorschautext && dritte) ? `<span class="aus">${
         esc(dritte)}</span>` : ""}
     </div>`;
@@ -973,16 +1111,61 @@ function listeMalen(){
    of leaving a gap. And „To der Besitzer Marlow" under every row of the INBOX is not
    it: of course it is to me. In the sent folder the recipient is the opposite,
    the only interesting name. */
+/* „INBOX" is the protocol's word — in this one place it gets the reader's. */
+function ordnerKurz(m){
+  return (m.ordner || "").toUpperCase() === "INBOX" ? txt("k.posteingang")
+                                                    : (m.ordner_kurz || "");
+}
 function zweitzeile(m){
   if(m.auszug) return m.auszug;
   const raus = [];
-  const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(S.ordner);
+  const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(m.ordner || S.ordner);
   if(gesendet && m.an) raus.push(txt("k.an") + ": " + m.an);
   else if(m.adresse) raus.push(m.adresse);
   if(m.groesse) raus.push(gr(m.groesse));
   return raus.join(" · ");
 }
+/* 🔴 ONE place decides what stands in the toolbar. It used to be two — this one
+   and `wahlLeisteMalen()` — and the second one ran last, so the „New" view drew
+   its own controls and got the folder controls back on top of them a
+   millisecond later. Two places saying the same thing means the one you did not
+   change is the one that wins. */
+function werkzeugMalen(){
+  const n = S.gewaehlt.size;
+  $("#wahltasten").style.display = n ? "flex" : "none";
+  $("#siebtasten").style.display = (n || S.neu) ? "none" : "flex";
+  $("#neutasten").style.display = (!n && S.neu) ? "flex" : "none";
+  // Paging is a folder's idea. „New" is one glance.
+  $("#zurueck").hidden = $("#weiter").hidden = S.neu;
+  const w = $("#neu_zeitraum");
+  if(S.neu && w && !w.options.length){
+    /* Out of the ONE description in the engine, like every other setting — a
+       second list of the same positions is a second list that goes stale. */
+    const feld = (S.oberflaeche || []).flatMap(g => g.felder || [])
+                                      .find(f => f.s === "neu_zeitraum");
+    w.innerHTML = ((feld && feld.optionen) || []).map(([v, k]) =>
+      `<option value="${esc(v)}">${esc(txt(k))}</option>`).join("");
+  }
+  if(w) w.value = S.einst.neu_zeitraum || "ungelesen";
+}
 function spanneMalen(){
+  werkzeugMalen();
+  /* The „New" view is one glance, not a stack of pages — it says how much it
+     found and, honestly, when it had to cut. */
+  if(S.neu){
+    $("#spanne").textContent = S.mails.length
+      ? txt("k.neu_spanne", {n:S.mails.length, o:S.neu_ordner}) : "";
+    $("#zurueck").disabled = true;
+    $("#weiter").disabled = true;
+    const hinweis = $("#neuhinweis");
+    if(hinweis){
+      hinweis.hidden = !S.neu_gekuerzt;
+      hinweis.textContent = S.neu_gekuerzt
+        ? txt("k.neu_gekuerzt", {n:S.mails.length,
+                                 g:S.neu_gesamt.toLocaleString(LANG)}) : "";
+    }
+    return;
+  }
   const von = S.gesamt ? (S.seite - 1) * S.pro + 1 : 0;
   const bis = Math.min(S.gesamt, S.seite * S.pro);
   $("#spanne").textContent = S.gesamt
@@ -1022,8 +1205,7 @@ function alleWaehlen(an){
 }
 function wahlLeisteMalen(){
   const n = S.gewaehlt.size;
-  $("#wahltasten").style.display = n ? "flex" : "none";
-  $("#siebtasten").style.display = n ? "none" : "flex";
+  werkzeugMalen();
   $("#wahlzahl").textContent = n ? txt("k.gewaehlt", {n:n}) : "";
   $("#alle_haken").checked = n > 0 && n === S.mails.length;
   $("#alle_haken").indeterminate = n > 0 && n < S.mails.length;
@@ -1034,21 +1216,30 @@ function gewaehlteUids(){
 }
 
 /* ── Acting ────────────────────────────────────────────────────────────────── */
+/* 🔴 An action asks the ROW which folder it is in, never the view. In a folder
+   that is one group and one request, exactly as before; in the „New" view the
+   twelve rows on screen can live in six folders, and a single `S.ordner` would
+   have flagged, moved or deleted the wrong mail in five of them. ONE place
+   answers it: `nachOrdnern()`. */
 async function stapel(was, an, uids){
   uids = uids || gewaehlteUids();
   if(!uids.length) return melde(txt("k.nichts_gewaehlt"), false);
-  const r = await sende("klient_flaggen", {ordner:S.ordner, uids:uids, was:was, an:an});
-  if(!r.ok) return melde(r.text || txt("k.ging_nicht"), false);
+  let gut = true;
+  for(const [ordner, teil] of nachOrdnern(uids)){
+    const r = await sende("klient_flaggen", {ordner:ordner, uids:teil, was:was, an:an});
+    if(!r.ok){ gut = false; melde(r.text || txt("k.ging_nicht"), false); continue; }
+    if(was === "gelesen"){
+      const o = S.ordner_liste.find(x => x.name === ordner);
+      if(o) o.ungelesen = Math.max(0, (o.ungelesen || 0) + (an ? -teil.length : teil.length));
+    }
+  }
+  if(!gut) return;
   /* Do not refetch the whole list for a flag: the server has confirmed it, and a
      list that jumps after every click is a list you stop clicking in. */
   S.mails.forEach(m => { if(uids.includes(m.uid)) m[was] = an; });
   if(S.offen && uids.includes(S.offen.uid)) S.offen[was] = an;
   listeMalen();
-  if(was === "gelesen"){
-    const o = S.ordner_liste.find(x => x.name === S.ordner);
-    if(o) o.ungelesen = Math.max(0, (o.ungelesen || 0) + (an ? -uids.length : uids.length));
-    ordnerMalen();
-  }
+  if(was === "gelesen") ordnerMalen();
   if(S.offen && uids.includes(S.offen.uid)) leseKopfMalen();
 }
 async function stapelVerschieben(ziel, uids){
@@ -1056,9 +1247,15 @@ async function stapelVerschieben(ziel, uids){
   uids = uids || gewaehlteUids();
   $("#stapel_ziel").value = "";
   if(!uids.length) return melde(txt("k.nichts_gewaehlt"), false);
-  const r = await sende("klient_verschieben", {ordner:S.ordner, uids:uids, ziel:ziel});
-  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
-  if(r.ok) await nachTat(uids);
+  let gut = true, zahl = 0, letzte = "";
+  for(const [ordner, teil] of nachOrdnern(uids)){
+    if(ordner === ziel){ continue; }        // already there — nothing to do
+    const r = await sende("klient_verschieben", {ordner:ordner, uids:teil, ziel:ziel});
+    if(r.ok){ zahl += teil.length; letzte = r.text || letzte; }
+    else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
+  }
+  if(gut) melde(letzte, true);
+  if(zahl) await nachTat(uids);
 }
 async function stapelLoeschen(uids, endgueltig){
   uids = uids || gewaehlteUids();
@@ -1069,13 +1266,17 @@ async function stapelLoeschen(uids, endgueltig){
   const frage = uids.length === 1 ? txt("k.loeschen_sicher_eine")
                                   : txt("k.loeschen_sicher", {n:uids.length});
   if(S.einst.sicherheitsfrage && !confirm(frage)) return;
-  const r = await sende("klient_loeschen", {ordner:S.ordner, uids:uids,
-                                            endgueltig:!!endgueltig});
-  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
-  if(r.ok) await nachTat(uids);
+  let gut = true, letzte = "";
+  for(const [ordner, teil] of nachOrdnern(uids)){
+    const r = await sende("klient_loeschen", {ordner:ordner, uids:teil,
+                                              endgueltig:!!endgueltig});
+    if(r.ok) letzte = r.text || letzte;
+    else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
+  }
+  if(gut){ melde(letzte, true); await nachTat(uids); }
 }
 async function wieWache(uid, adresse){
-  const r = await sende("klient_wie_wache", {ordner:S.ordner, uids:[uid],
+  const r = await sende("klient_wie_wache", {ordner:ordnerVon(uid), uids:[uid],
                                              adresse:adresse});
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
   if(r.ok) await nachTat([uid]);
@@ -1136,7 +1337,7 @@ async function mailOeffnen(uid){
   blick("lese");
   $("#lese").innerHTML = `<div class="leer"><div><span class="laedt"></span></div></div>`;
   let m;
-  try{ m = await sende("klient_mail", {ordner:S.ordner, uid:uid}); }
+  try{ m = await sende("klient_mail", {ordner:ordnerVon(uid), uid:uid}); }
   catch(e){ return; }
   if(!m || !m.ok){
     $("#lese").innerHTML = `<div class="leer"><div>${esc((m && m.text) || txt("k.ging_nicht"))}</div></div>`;
@@ -1147,7 +1348,8 @@ async function mailOeffnen(uid){
   const inListe = S.mails.find(x => x.uid === uid);
   if(m.gelesen && inListe && !inListe.gelesen){ inListe.gelesen = true; listeMalen();
     ordnerZahlAktualisieren(undefined, Math.max(0,
-      ((S.ordner_liste.find(o => o.name === S.ordner) || {}).ungelesen || 1) - 1)); }
+      ((S.ordner_liste.find(o => o.name === ordnerVon(uid)) || {}).ungelesen || 1) - 1),
+      ordnerVon(uid)); }
   /* „Mark as read after N seconds" — the timer belongs to the PAGE, because only
      it knows whether the mail is still open. It is cleared on every change of
      mail, otherwise a glance at four mails marks all four. */
@@ -1208,11 +1410,11 @@ function leseKopfMalen(){
   t.push(`<button class="blank" onclick="stapel('gelesen',${!m.gelesen},[${m.uid}])"
       title="${esc(txt(m.gelesen ? "k.ungelesen" : "k.gelesen"))}">${m.gelesen ? "✉️" : "📖"}</button>`);
   const archiv = S.rollen.archiv;
-  if(archiv && archiv !== S.ordner)
+  if(archiv && archiv !== offenOrdner())
     t.push(`<button class="blank" onclick="stapelVerschieben('${escJs(archiv)}',[${m.uid}])"
         title="${esc(txt("k.archivieren"))}">📦</button>`);
   const spam = S.rollen.spam;
-  if(spam && spam !== S.ordner)
+  if(spam && spam !== offenOrdner())
     t.push(`<button class="blank" onclick="stapelVerschieben('${escJs(spam)}',[${m.uid}])"
         title="${esc(txt("k.spam"))}">🚫</button>`);
   t.push(`<button class="blank gefahr" onclick="stapelLoeschen([${m.uid}])"
@@ -1252,7 +1454,7 @@ function leseKopfMalen(){
     c.push(`<span class="chip info" title="${esc(w.grund || "")}">🛡️
       ${w.klasse ? esc((schub.icon || "") + " " + (schub.name || w.klasse)) : ""}
       ${w.zeige ? "· " + esc(txt("k.wache_ordner", {o:w.zeige})) : ""}</span>`);
-    if(w.ordner && w.ordner !== S.ordner)
+    if(w.ordner && w.ordner !== offenOrdner())
       c.push(`<span class="chip tat" onclick="wieWache(${m.uid},'${escJs(m.adresse)}')"
         >➜ ${esc(txt("k.wie_wache"))}</span>`);
   }
@@ -1266,7 +1468,7 @@ function leseKopfMalen(){
 
   const a = (m.anhaenge || []).map(x => {
     const url = "/api/klient/anhang?pf=" + encodeURIComponent(S.pf) +
-      "&ordner=" + encodeURIComponent(S.ordner) + "&uid=" + m.uid +
+      "&ordner=" + encodeURIComponent(offenOrdner()) + "&uid=" + m.uid +
       "&t=" + encodeURIComponent(x.t) + "&k=" + encodeURIComponent(x.k) +
       "&n=" + encodeURIComponent(x.n);
     const ic = x.art === "bild" ? "🖼️" : (x.art === "dokument" ? "📄" : "📎");
@@ -1298,7 +1500,7 @@ function briefHoehe(){
   setTimeout(messen, 1200);
 }
 async function bilderLaden(){
-  const m = await sende("klient_mail", {ordner:S.ordner, uid:S.uid, bilder:1});
+  const m = await sende("klient_mail", {ordner:offenOrdner(), uid:S.uid, bilder:1});
   if(m && m.ok){ S.offen = m; leseMalen(); }
 }
 async function bilderImmer(){
@@ -1307,13 +1509,13 @@ async function bilderImmer(){
 }
 async function ansichtUm(){
   const neu = S.offen.ansicht === "html" ? "text" : "html";
-  const m = await sende("klient_mail", {ordner:S.ordner, uid:S.uid, ansicht:neu,
+  const m = await sende("klient_mail", {ordner:offenOrdner(), uid:S.uid, ansicht:neu,
                                         bilder: S.offen.bilder ? 1 : 0});
   if(m && m.ok){ S.offen = m; leseMalen(); }
 }
 function quelleZeigen(){
   window.open("/api/klient/roh?pf=" + encodeURIComponent(S.pf) + "&ordner=" +
-    encodeURIComponent(S.ordner) + "&uid=" + S.uid, "_blank");
+    encodeURIComponent(offenOrdner()) + "&uid=" + S.uid, "_blank");
 }
 function briefDrucken(){
   const f = $("#brief");
@@ -1325,7 +1527,7 @@ function briefDrucken(){
 <script>
 /* ── Writing ───────────────────────────────────────────────────────────────── */
 async function verfassen(art, uid){
-  const v = await sende("klient_vorlage", {art:art, ordner:S.ordner, uid:uid || 0});
+  const v = await sende("klient_vorlage", {art:art, ordner:ordnerVon(uid), uid:uid || 0});
   if(!v || !v.ok) return melde((v && v.text) || txt("k.ging_nicht"), false);
   S.brief = {art:art, quelle:v.quelle || null, in_antwort_auf:v.in_antwort_auf || "",
              anhaenge:[], uebernahme:(v.anhaenge || []).map(a =>
@@ -1626,6 +1828,10 @@ async function einstellungSetzen(schluessel, wert){
      looks as if it did not take. */
   if(["dichte","absender_zeigen","vorschautext","strang"].includes(schluessel))
     listeMalen();
+  if(["neu_zeitraum","neu_spam"].includes(schluessel)){
+    ordnerMalen();
+    if(S.neu) await ladeListe(true);
+  }
   if(["pro_seite","sortierung","richtung","nur_ungelesen"].includes(schluessel)){
     S.sortierung = S.einst.sortierung; S.richtung = S.einst.richtung;
     S.pro = S.einst.pro_seite; S.seite = 1;
@@ -1662,7 +1868,8 @@ const TASTEN = [
   ["u", "k.t_ungelesen"], ["f", "k.t_stern"], ["e", "k.t_archiv"],
   ["#", "k.t_loeschen"], ["r", "k.t_antwort"], ["a", "k.t_allen"],
   ["w", "k.t_weiter"], ["c", "k.t_neu"], ["/", "k.t_suche"],
-  ["g", "k.t_posteingang"], ["x", "k.t_waehlen"], ["Esc", "k.t_zu"], ["?", "k.t_hilfe"],
+  ["g", "k.t_posteingang"], ["n", "k.t_neu_ansicht"], ["x", "k.t_waehlen"],
+  ["Esc", "k.t_zu"], ["?", "k.t_hilfe"],
 ];
 function hilfeAuf(){
   $("#tastenliste").innerHTML = TASTEN.map(([t, k]) =>
@@ -1708,6 +1915,7 @@ document.addEventListener("keydown", (ev) => {
     case "c": verfassen("neu"); break;
     case "x": if(S.uid) wahlUm(S.uid, i, false); break;
     case "g": if(S.rollen.posteingang) ordnerWaehlen(S.rollen.posteingang); break;
+    case "n": neuWaehlen(); break;
     case "/": ev.preventDefault(); $("#suche").focus(); break;
     case "?": hilfeAuf(); break;
   }
