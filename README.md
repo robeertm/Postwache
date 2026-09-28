@@ -1,8 +1,9 @@
 <h1 align="center">Postwache</h1>
 
 <p align="center">
-  <b>A watchman for your mailbox.</b><br>
-  It sorts the noise <i>out</i>. What matters stays where you already look.
+  <b>A watchman for your mailbox — and, since 5.0, a mail client.</b><br>
+  It sorts the noise <i>out</i>. What matters stays where you already look.<br>
+  And when you want to read it, write it or answer it, you do that here too.
 </p>
 
 <p align="center">
@@ -12,7 +13,10 @@
   <img alt="Image" src="https://img.shields.io/badge/ghcr.io-postwache-0b5">
 </p>
 
-![The overview](docs/screenshots/01-overview.png)
+![The mail client](docs/screenshots/20-client-wide.png)
+
+<p align="center"><i>The client. Next to every mail stands the watchman's verdict —
+which drawer, which folder, and why.</i></p>
 
 ---
 
@@ -72,18 +76,71 @@ that will not tell you its hit rate is a claim, not a measurement.
 | 🌍 **Five languages** | German, English, Spanish, French, Italian — one click, and that includes the messages it sends when nobody is looking. |
 | ↩️ **Everything is reversible** | Every move is journalled. One click puts a mail back; one click puts them all back. |
 | 🛑 **Two emergency stops** | A file on disk, and a switch in Home Assistant. Either one alone stops it. |
+| ✉️ **A full mail client** | Folder tree, list, preview pane, search, reply, forward, attachments, drafts, sending. Some thirty settings, from where the preview sits to when a mail counts as read. |
+| 📱 **A version of its own for phones** | Not the wide page made narrow: one sheet at a time, a bar at the bottom, finger targets from 44 px, swipe to archive or delete. |
+| 🔒 **A lock in front of the mail** | The client asks for an access word before it shows a single line of a letter. Optionally the watchman page too. |
 
-## What it will not do
+## What the watchman will not do
 
-- **It never deletes.** There is no call in this program that deletes a mail or
-  sets the `\Deleted` flag. Not one.
-- **It never marks mail as read.** Every fetch uses `BODY.PEEK`. In learning
-  mode the mailbox is opened read-only, so even a programming mistake cannot
-  change anything.
+- **It never deletes.** The watchman has no call that deletes a mail. It moves,
+  and it sets `\Deleted` only *after* a copy the server has confirmed.
+- **It never marks mail as read.** Every fetch uses `BODY.PEEK`. In learning mode
+  the mailbox is opened read-only, so even a programming mistake cannot change
+  anything.
 - **It never arms itself.** Until you say so, it only writes down what it
   *would* do.
 
+**And the client?** The client is your hand, so it can do what you tell it to:
+mark as read, flag, move, delete, send. The line between the two is drawn on
+purpose and it is measurable — the test bench reads every IMAP command the client
+sends:
+
+- browsing opens a folder **read-only** (`EXAMINE`); only an action opens it for
+  writing;
+- **not one fetch without `BODY.PEEK`** — displaying a mail does not make it read.
+  *When* it counts as read is a setting, and one of its positions is „by hand
+  only";
+- deleting means the bin. Only inside the bin, or when you say so explicitly, is
+  anything removed for good;
+- if a copy fails while moving, nothing is marked deleted and nothing is expunged.
+
 ![Documents in the post](docs/screenshots/03-documents.png)
+
+## The mail client
+
+![The phone version](docs/screenshots/27-phone-list.png)
+
+Open `http://<host>:8110/post`. A phone gets the phone version, everything else
+the wide one, and either can be switched by hand — the choice is remembered.
+
+**The lock is part of it, not an accessory.** The overview page has always shown
+subject and sender only, and the reason was written down: not enough to spread an
+inbox across a page *without a login*. A client shows the body, so it brings the
+login. The word is hashed with PBKDF2 (240,000 rounds) in a `0600` file; the
+session is an `HttpOnly` cookie; wrong guesses are slowed down from the fifth
+attempt. Attachment links and inline images sit behind the same door — links get
+forwarded, and a link that works without the word is the hole the lock was built
+to close.
+
+**Foreign HTML has three walls around it**, each independent of the others: an
+allow list that rebuilds the mail out of what is permitted, a content-security
+policy inside the frame (`script-src 'none'`), and the browser's own sandbox
+without `allow-scripts`. Remote images are off — an image fetched from outside is
+a receipt that you opened the mail, at the second you opened it. The count stands
+above the letter, and one click loads them for this mail.
+
+**And a link that lies is named.** If the visible text says `www.your-bank.example`
+while the target is somewhere else, that is the oldest trick there is; the same
+goes for punycode hosts and bare IP addresses.
+
+![Composing](docs/screenshots/24-client-compose.png)
+
+Writing works as you would expect — reply, reply to all, forward with the original
+attachments, drafts in the drafts folder, a copy in the sent folder. The address
+book is the one the watchman has been keeping for weeks: everybody who has written
+to you, most frequent first. Sending needs an outgoing server; it is guessed from
+your IMAP host and can be checked with a button that **logs in and hangs up
+again** — a test that sends a real mail to prove it works is not a test.
 
 ## Install
 
@@ -284,9 +341,16 @@ marked, so you never send the same paper twice.
 - Credentials live in `0600` files inside your data directory. They are never
   printed, never logged, never sent to the browser — the page only ever learns
   *whether* a password is set.
-- The page has **no account and no login**. Put it behind your own reverse
-  proxy or a private network (Tailscale, WireGuard). It is built to be reachable
-  only by you.
+- **The client has a lock**, and it is not optional: without an access word it
+  hands out no mail at all. The same word can be required for the watchman page
+  as well (a setting, off by default) — and then for its data, not merely its
+  view.
+- The watchman page itself has no account. Put the whole thing behind your own
+  reverse proxy or a private network (Tailscale, WireGuard) regardless; it is
+  built to be reachable only by you.
+- **The message body is stored nowhere.** It is read to classify a mail and to
+  show it to you, and then it is gone. The history records who was written to,
+  never what was written.
 - Nothing is sent anywhere unless you configure it: Telegram, DocuSort and the
   judgment helper are each off until you turn them on.
 

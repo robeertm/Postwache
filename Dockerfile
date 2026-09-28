@@ -17,7 +17,8 @@ ENV PYTHONUNBUFFERED=1 \
     TZ=Europe/Berlin
 
 WORKDIR /app
-COPY postwache.py post_web.py post_web.html VERSION ollama_einrichten.py umbau.py umzug.py /app/
+COPY postwache.py post_web.py post_web.html VERSION ollama_einrichten.py umbau.py \
+     umzug.py klient.py post_klient.html post_mobil.html /app/
 # The language files belong to the program, not to the state. Without them the
 # page shows its keys instead of text — and nothing reports that.
 COPY locales /app/locales
@@ -35,7 +36,10 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # by hand. Nothing after that line runs as root.
 VOLUME ["/data"]
 EXPOSE 8110
+# 🔴 401 counts as healthy. With the page lock switched on (5.0.0) `/api/lage`
+# answers „please sign in" — which is the server working exactly as configured. A
+# check that reads that as a failure restarts a perfectly healthy container.
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s \
-  CMD python3 -c "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8110/api/lage',timeout=4).status==200 else 1)"
+  CMD python3 -c "import urllib.request,urllib.error,sys\ntry:\n sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8110/api/lage',timeout=4).status==200 else 1)\nexcept urllib.error.HTTPError as e:\n sys.exit(0 if e.code==401 else 1)"
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python3", "/app/post_web.py"]

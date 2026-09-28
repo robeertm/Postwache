@@ -66,8 +66,16 @@ for code in sprachen():
 
 # ── 2. No German sentence left in the JavaScript ─────────────────
 print("\n── 2. Keine deutschen Saetze mehr in der Seite ──")
-html = io.open(os.path.join(HIER, "post_web.html"), encoding="utf-8").read()
-js = html.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+# 🔴 2026-09-28: there are TWO pages now. Checking only the first one would let
+#    every German sentence on the client page through — the same trap as in 2b,
+#    one file further along. So: both, and the list is the statement.
+SEITEN = ("post_web.html", "post_klient.html", "post_mobil.html")
+seiten = {n: io.open(os.path.join(HIER, n), encoding="utf-8").read() for n in SEITEN}
+html = "\n".join(seiten.values())
+# Every script block, not „from the first to the last": between two blocks stands
+# markup, and that belongs to section 2b.
+js = "\n".join(b for inhalt in seiten.values()
+                for b in re.findall(r"<script>(.*?)</script>", inhalt, re.S))
 # Comments out — they are checked separately in section 5.
 js = re.sub(r"/\*.*?\*/", leeren, js, flags=re.S)
 js = re.sub(r"(?m)^\s*//.*$", "", js)
@@ -109,8 +117,8 @@ for x in treffer[:12]:
 #    `data-t` belongs — not the whole document: a checker that suspects everything
 #    gets switched off.
 print("\n── 2b. Keine deutschen Saetze im statischen Markup ──")
-markup = html.split("<script>", 1)[0]
-markup = re.sub(r"<!--.*?-->", leeren, markup, flags=re.S)   # Kommentare duerfen
+markup = "\n".join(inhalt.split("<script>", 1)[0] for inhalt in seiten.values())
+markup = re.sub(r"<!--.*?-->", leeren, markup, flags=re.S)   # comments may
 markup = re.sub(r"<style[^>]*>.*?</style>", leeren, markup, flags=re.S)
 BESCHRIFTET = ("button", "option", "label", "h1", "h2", "h3", "summary", "th", "a")
 roh_markup = []
@@ -142,7 +150,8 @@ benutzt = set(re.findall(r"""(?<![\w.$])txt\(\s*["']([\w.]+)["']""", html))
 # but a prefix. Count them here and you report „unknown“ for ever and the finder
 # gets ignored.
 benutzt = {k for k in benutzt if not k.endswith(".")}
-benutzt |= set(re.findall(r'data-t(?:-titel|-platzhalter|-html)?="([\w.]+)"', html))
+benutzt |= set(re.findall(
+    r'data-t(?:-titel|-platzhalter|-html|-aria)?="([\w.]+)"', html))
 unbekannt = sorted(benutzt - set(basis))
 # 🔴 A call with a VARIABLE key — txt(el.dataset.t) — has no literal one could
 # look up. So the old, renamed form is searched for as well: a leftover `t(` is a
@@ -157,7 +166,7 @@ probe("alle benutzten Schluessel hinterlegt", not unbekannt,
 # themselves (`W.txt("ki.lokal.nichts")`) — search only the HTML and you report
 # exactly those as orphaned and then need a hand-maintained exception list that is
 # wrong again next time. So look where they are used.
-for datei in ("post_web.py", "postwache.py"):
+for datei in ("post_web.py", "postwache.py", "klient.py"):
     quelle = io.open(os.path.join(HIER, datei), encoding="utf-8").read()
     # `W.txt(` is the same call — the look to the left must not throw it away,
     # otherwise every text of the page counts as orphaned again.
@@ -170,10 +179,18 @@ for datei in ("post_web.py", "postwache.py"):
 # search for calls. A typo in it NEVER shows up: `txt()` dutifully returns the key
 # and the page displays it. Hence: every string that LOOKS like a key has to be one.
 wie_ein_schluessel = set()
-for datei in ("post_web.py", "postwache.py"):
+# 🔴 The client's settings table carries its keys as VALUES („k.o_rechts" in a
+#    list) — exactly the case this check exists for. So the page is read here too,
+#    not just the Python.
+for datei in ("post_web.py", "postwache.py", "klient.py", "post_klient.html",
+              "post_mobil.html"):
     quelle = io.open(os.path.join(HIER, datei), encoding="utf-8").read()
     wie_ein_schluessel |= set(re.findall(
-        r"""["']((?:w|a|ki|ds|schublade|allg|zeit)\.[a-z_]+(?:\.[a-z_]+)*)["']""", quelle))
+        # 🔴 With DIGITS: „k.o_12h" and „k.o_3s" are keys like any other. Without
+        # the 0-9 exactly those six fell through and were reported as orphaned —
+        # a finder that is wrong about six things gets believed about none.
+        r"""["']((?:w|a|ki|ds|k|schublade|allg|zeit)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*)["']""",
+        quelle))
 DATEIENDUNG = ("json", "py", "html", "md", "sh", "txt", "log", "jsonl", "cron")
 wie_ein_schluessel = {k for k in wie_ein_schluessel
                       if k.rsplit(".", 1)[-1] not in DATEIENDUNG}
@@ -186,8 +203,11 @@ ungenutzt = sorted(set(basis) - benutzt)
 # Keys the WATCHMAN uses do not stand in the HTML.
 # Keys only the WATCHMAN uses (w.*) or that are assembled do not stand as a literal
 # in the HTML.
+# Assembled keys again, from the other end: `txt("k.e." + schluessel)` has no
+# literal anywhere, so every settings label would count as orphaned.
 ungenutzt = [k for k in ungenutzt if not k.startswith(("w.", "schublade.", "ds.stand.",
-                                                       "ki.name.", "ki.hilfe."))]
+                                                       "ki.name.", "ki.hilfe.",
+                                                       "k.e.", "k.h.", "k.warn."))]
 probe("keine verwaisten Schluessel", not ungenutzt,
       ", ".join(ungenutzt[:5]) if ungenutzt else "")
 
@@ -205,7 +225,7 @@ ANTWORT = re.compile(r'"text"\s*:|"fehler"\s*:|"grund"\s*:|return\s+(?:True|Fals
                      # Every line is checked ON ITS OWN, so `^` is already its
                      # start — a `(?m)` in the middle of the pattern is forbidden.
                      r'|^\s*text\s*\+?=|^\s*meldung\s*\+?=')
-for datei in ("post_web.py", "postwache.py"):
+for datei in ("post_web.py", "postwache.py", "klient.py"):
     quelle = io.open(os.path.join(HIER, datei), encoding="utf-8").read()
     quelle = re.sub(r'"""(?:.|\n)*?"""', leeren, quelle)    # docstrings are checked in section 5
     quelle = re.sub(r"(?m)^\s*#.*$", "", quelle)           # comments too
@@ -319,7 +339,10 @@ for datei in ("postwache.py", "post_web.py", "umbau.py", "umzug.py",
               "post_web.html", "veroeffentlichen.py", "ollama_einrichten.py",
               "probe_umbau.py", "probe_umzug.py", "probe_sprachen.py",
               "probe_ausrollen.py", "probe_dokumente.py", "probe_postfaecher.py",
-              "probe_leck.py", "demo/demo_daten.py"):
+              "probe_leck.py", "demo/demo_daten.py",
+              # since 5.0.0: the mail client
+              "klient.py", "post_klient.html", "post_mobil.html",
+              "probe_klient.py"):
     stellen = deutsche_kommentare(datei)
     probe("%s: Kommentare englisch" % datei, not stellen,
           "%d deutsche Stelle(n)" % len(stellen))

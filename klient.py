@@ -1,0 +1,2344 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Postwache — the mail client behind the watchman (since 5.0.0).
+
+Der Besitzer, 2026-09-28: „mach aus der postwache einen richtig schönen email client,
+mit allem drum und dran, schön aufgearbeitet mit vorschau alles einstellbar."
+
+This module is the engine: it reads folders, lists and mails, hands out
+attachments, sets flags, moves, deletes, writes and sends. The page
+(`post_klient.html`) only draws what comes from here.
+
+🔴 THE LOCK IS PART OF THE FEATURE, not an extra. The overview page has always
+shown subject and sender only — and the reason was written down: „not enough to
+spread the inbox across a web page WITHOUT A LOGIN". A client shows the body, so
+the client brings the login. Without an access word set, this module hands out
+nothing but the fact that no word is set.
+
+🔴 Everything that reads uses BODY.PEEK, exactly as in the watchman. Whether a
+mail counts as read is decided by the reader, never by the act of displaying it —
+and „mark as read" is a setting with an „only by hand" position.
+
+🔴 Nothing is cached on disk. Headers live in memory for as long as a list is
+shown, bodies only for the duration of one response. The principle from the
+watchman („the body is stored nowhere") survives the client.
+"""
+from __future__ import annotations
+
+import base64
+import email
+import email.policy
+import email.utils
+import hashlib
+import hmac
+import html as _html
+import imaplib
+import json
+import mimetypes
+import os
+import re
+import smtplib
+import socket
+import sys
+import threading
+import time
+import urllib.parse
+from email.message import EmailMessage
+from datetime import datetime, timezone
+
+HOME = os.path.expanduser("~")
+BASE = os.path.abspath(os.environ.get("POSTWACHE_HOME")
+                       or os.path.join(HOME, "scripts", "postwache"))
+sys.path.insert(0, BASE)
+try:
+    import postwache as W        # ONE source for drawers, rules and IMAP parsing
+except Exception:                # the client must not take the page down with it
+    W = None
+
+KLIENT_STAND = "klient.json"        # access word + lock, 0600
+KLIENT_EINST = "klient_einst.json"  # view settings, harmless
+KEKS = "pw_sitzung"                 # name of the session cookie
+RUNDEN = 240000                     # PBKDF2 rounds; ~0.15 s on the Pi
+SITZUNG_MIN = 720                   # session lifetime in minutes, adjustable
+SPERRZEIT = (30, 60, 120, 300, 900)  # seconds after 5, 6, 7, 8, 9+ failures
+VERSUCHE_FREI = 4                   # up to this many failures without waiting
+LEERLAUF = 300                      # close an unused IMAP connection after 5 min
+MAX_ANHANG = 25 * 1024 * 1024       # per mail, adjustable up to this hard ceiling
+TEXT_GRENZE = 900 * 1024            # never render more body than this
+
+# Special folders are recognised by their FLAG, not by their name — a mailbox in
+# French calls its bin „Corbeille", and a name-based guess misses every mailbox
+# that is not German. Same lesson as in the migration (4.4.0).
+SONDER_FLAGGEN = {
+    "\\inbox": "posteingang", "\\sent": "gesendet", "\\drafts": "entwuerfe",
+    "\\trash": "papierkorb", "\\junk": "spam", "\\archive": "archiv",
+    "\\all": "alle", "\\flagged": "markiert", "\\important": "wichtig",
+}
+# Fallback for servers without SPECIAL-USE: the usual names, lowercased.
+SONDER_NAMEN = {
+    "inbox": "posteingang",
+    "sent": "gesendet", "sent items": "gesendet", "sent messages": "gesendet",
+    "gesendet": "gesendet", "gesendete objekte": "gesendet",
+    "drafts": "entwuerfe", "entwürfe": "entwuerfe", "entwuerfe": "entwuerfe",
+    "trash": "papierkorb", "deleted items": "papierkorb",
+    "papierkorb": "papierkorb", "gelöschte objekte": "papierkorb",
+    "junk": "spam", "junk e-mail": "spam", "spam": "spam", "junk-e-mail": "spam",
+    "archive": "archiv", "archiv": "archiv",
+}
+SONDER_ICON = {"posteingang": "📥", "gesendet": "📤", "entwuerfe": "📝",
+               "papierkorb": "🗑️", "spam": "🚫", "archiv": "📦",
+               "alle": "🗂️", "markiert": "⭐", "wichtig": "❗"}
+
+
+# ── State, always through the watchman ───────────────────────────────────
+def _load(name, default):
+    if W is not None:
+        return W.load(name, default)
+    try:
+        with open(os.path.join(BASE, "state", name), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return default
+
+
+def _save(name, daten, modus=0o644):
+    if W is not None:
+        W.save(name, daten, modus)
+        return
+    ordner = os.path.join(BASE, "state")
+    os.makedirs(ordner, exist_ok=True)
+    tmp = os.path.join(ordner, name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, modus)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(daten, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, os.path.join(ordner, name))
+
+
+def txt(schluessel: str, **werte) -> str:
+    """One text table for watchman, page and client — the client does not carry a
+    second one. A key that is not in it comes back as itself, which is ugly but
+    never a crash."""
+    if W is not None:
+        return W.txt(schluessel, **werte)
+    return schluessel
+
+
+def log(nachricht: str) -> None:
+    if W is not None:
+        W.log(nachricht)
+
+
+# ── Settings ────────────────────────────────────────────────────────────
+# 🔑 Every one of these is on the page. „alles einstellbar" means: whoever
+# disagrees with a decision made here can move it, instead of having to live with
+# it. The defaults are the cautious case throughout — remote images off, marking
+# as read by hand, a confirmation before deleting.
+# 🔴 The permitted positions of every choice stand in `AUSWAHL` below and
+# NOWHERE else. They used to be repeated as a comment on each line — two places
+# saying the same thing, and the comment is the one that rots.
+VORGABEN = {
+    "vorschau": "rechts",
+    "dichte": "bequem",
+    "pro_seite": 50,
+    "sortierung": "datum",
+    "richtung": "ab",
+    "strang": False,               # group a conversation
+    "nur_ungelesen": False,
+    "vorschautext": True,          # snippet line in the list
+    "absender_zeigen": "name",
+    "gelesen_nach": -1,            # -1 by hand, 0 at once, otherwise seconds
+    "bilder": "nie",
+    "html_zuerst": True,
+    "wache_grund": True,           # show the watchman's reason in the mail
+    "kopfzeilen": False,           # all headers expanded
+    "schrift": 100,                # percent
+    "tasten": True,                # keyboard shortcuts
+    "zeitform": "24",
+    "startseite": "waechter",
+    "papierkorb": "ordner",
+    "sicherheitsfrage": True,
+    "ordner_papierkorb": "",       # empty = recognise automatically
+    "ordner_archiv": "",
+    "ordner_spam": "",
+    "ordner_entwuerfe": "",
+    "ordner_gesendet": "",
+    "signatur": "",
+    "zitat": "unten",
+    "zitat_kopf": True,
+    "kopie_gesendet": True,
+    "blind_kopie_selbst": False,
+    "antwort_an": "",
+    "anhang_grenze": 25,           # MB per mail
+    "sperre_seite": False,         # ask for the word on the watchman page too
+    "frist_min": SITZUNG_MIN,
+}
+# Values that may only take one of a few positions. A free text would go through,
+# and then the page draws a layout nobody built.
+AUSWAHL = {
+    "vorschau": ("rechts", "unten", "aus"),
+    "dichte": ("bequem", "eng"),
+    "sortierung": ("datum", "von", "betreff", "groesse"),
+    "richtung": ("ab", "auf"),
+    "absender_zeigen": ("name", "adresse", "beides"),
+    "bilder": ("nie", "bekannte", "immer"),
+    "zeitform": ("24", "12"),
+    "startseite": ("waechter", "postfach"),
+    "papierkorb": ("ordner", "flagge"),
+    "zitat": ("unten", "oben"),
+}
+ZAHLEN = {"pro_seite": (10, 200), "gelesen_nach": (-1, 600), "schrift": (80, 140),
+          "anhang_grenze": (1, 25), "frist_min": (5, 10080)}
+
+
+# ── What the settings look like — ONE description for every surface ──────
+# 🔑 There are two pages now (wide and phone). A settings table written in each of
+# them is two tables, and the second one is always the one missing the newest
+# switch. So the description lives HERE, next to `VORGABEN` and `AUSWAHL` that it
+# is built from, and both pages only draw what they are handed.
+WAHL_TEXTE = {
+    "vorschau": {"rechts": "k.o_rechts", "unten": "k.o_unten", "aus": "k.o_aus"},
+    "dichte": {"bequem": "k.o_bequem", "eng": "k.o_eng"},
+    "sortierung": {"datum": "k.sort_datum", "von": "k.sort_von",
+                   "betreff": "k.sort_betreff", "groesse": "k.sort_groesse"},
+    "richtung": {"ab": "k.o_neuste", "auf": "k.o_aelteste"},
+    "absender_zeigen": {"name": "k.o_name", "adresse": "k.o_adresse",
+                        "beides": "k.o_beides"},
+    "bilder": {"nie": "k.o_nie", "bekannte": "k.o_bekannte", "immer": "k.o_immer"},
+    "zeitform": {"24": "k.o_24", "12": "k.o_12"},
+    "startseite": {"waechter": "k.o_waechter", "postfach": "k.o_postfach"},
+    "papierkorb": {"ordner": "k.o_in_korb", "flagge": "k.o_flagge"},
+    "zitat": {"unten": "k.o_zitat_unten", "oben": "k.o_zitat_oben"},
+}
+# Numbers offered as a list rather than a slider — „every 3 seconds" is a decision,
+# not a dial.
+ZAHL_WAHL = {
+    "pro_seite": [[25, "25"], [50, "50"], [100, "100"], [200, "200"]],
+    "gelesen_nach": [[-1, "k.o_von_hand"], [0, "k.o_sofort"], [3, "k.o_3s"],
+                     [10, "k.o_10s"]],
+    "frist_min": [[60, "k.o_1h"], [720, "k.o_12h"], [10080, "k.o_7t"]],
+}
+SCHIEBER = {"schrift": (80, 140, 5, "%"), "anhang_grenze": (1, 25, 1, "MB")}
+# 🔴 The help key is written out, not assembled from the title. Assembled
+# („k.g_ansicht" + „_hilfe") it has no literal anywhere, and the language test
+# bench can neither find a typo in it nor tell that it is in use.
+GRUPPEN = [
+    ("k.g_ansicht", "k.g_ansicht_hilfe",
+     ("vorschau", "dichte", "pro_seite", "absender_zeigen", "vorschautext",
+      "strang", "schrift", "zeitform", "startseite")),
+    ("k.g_lesen", "k.g_lesen_hilfe",
+     ("gelesen_nach", "html_zuerst", "kopfzeilen", "wache_grund", "sortierung",
+      "richtung", "nur_ungelesen")),
+    ("k.g_sicher", "k.g_sicher_hilfe",
+     ("bilder", "sperre_seite", "frist_min", "sicherheitsfrage", "papierkorb")),
+    ("k.g_schreiben", "k.g_schreiben_hilfe",
+     ("signatur", "zitat", "zitat_kopf", "kopie_gesendet", "blind_kopie_selbst",
+      "antwort_an", "anhang_grenze")),
+    ("k.g_ordner", "k.g_ordner_hilfe",
+     ("ordner_gesendet", "ordner_entwuerfe", "ordner_papierkorb", "ordner_archiv",
+      "ordner_spam")),
+]
+# Settings the phone version leaves out — not because they are unimportant but
+# because they describe a layout that does not exist there.
+NUR_BREIT = ("vorschau", "dichte", "strang", "kopfzeilen", "absender_zeigen")
+
+
+def oberflaeche() -> list:
+    """The settings as groups of fields — the description both pages draw from."""
+    raus = []
+    for titel, hilfe, felder in GRUPPEN:
+        gruppe = {"titel": titel, "hilfe": hilfe, "felder": []}
+        for name in felder:
+            vor = VORGABEN[name]
+            eintrag = {"s": name, "titel": "k.e." + name, "hilfe": "k.h." + name,
+                       "nur_breit": name in NUR_BREIT}
+            if name in AUSWAHL:
+                texte = WAHL_TEXTE.get(name, {})
+                eintrag["art"] = "wahl"
+                # Out of AUSWAHL, so a value can never exist without being offered.
+                eintrag["optionen"] = [[w, texte.get(w, w)] for w in AUSWAHL[name]]
+            elif name in ZAHL_WAHL:
+                eintrag["art"] = "wahl"
+                eintrag["optionen"] = ZAHL_WAHL[name]
+            elif name in SCHIEBER:
+                tief, hoch, schritt, einheit = SCHIEBER[name]
+                eintrag.update({"art": "zahl", "tief": tief, "hoch": hoch,
+                                "schritt": schritt, "einheit": einheit})
+            elif isinstance(vor, bool):
+                eintrag["art"] = "knebel"
+            elif name.startswith("ordner_"):
+                eintrag["art"] = "ordner"
+            elif name == "signatur":
+                eintrag["art"] = "text"
+                eintrag["mehrzeilig"] = True
+            else:
+                eintrag["art"] = "text"
+            gruppe["felder"].append(eintrag)
+        raus.append(gruppe)
+    return raus
+
+
+def einstellungen() -> dict:
+    """Complete and plausible, whatever is in the file. A missing value is the
+    default, an impossible one is the default as well — the page is drawn from
+    this, and a layout nobody built is worse than a setting that did not stick."""
+    e = _load(KLIENT_EINST, None)
+    e = e if isinstance(e, dict) else {}
+    fertig = {}
+    for k, vor in VORGABEN.items():
+        wert = e.get(k, vor)
+        if isinstance(vor, bool):
+            fertig[k] = bool(wert)
+        elif isinstance(vor, int):
+            try:
+                wert = int(wert)
+            except (TypeError, ValueError):
+                wert = vor
+            tief, hoch = ZAHLEN.get(k, (None, None))
+            if tief is not None:
+                wert = max(tief, min(hoch, wert))
+            fertig[k] = wert
+        else:
+            wert = str(wert or "")
+            if k in AUSWAHL and wert not in AUSWAHL[k]:
+                wert = vor
+            fertig[k] = wert
+    return fertig
+
+
+def einstellung_setzen(d: dict) -> dict:
+    """Write one or several settings. Unknown keys are dropped instead of stored:
+    a typo would otherwise sit in the file for ever and look like a feature."""
+    e = _load(KLIENT_EINST, None)
+    e = e if isinstance(e, dict) else {}
+    genommen = []
+    for k, v in (d or {}).items():
+        if k not in VORGABEN:
+            continue
+        e[k] = v
+        genommen.append(k)
+    _save(KLIENT_EINST, e)
+    fertig = einstellungen()
+    return {"ok": True, "text": txt("a.gespeichert"), "einst": fertig,
+            "genommen": genommen}
+
+
+# ── The lock ────────────────────────────────────────────────────────────
+# 🔴 Why there is one at all: the watchman page shows subject and sender, and the
+# note in the vault says WHY — „not enough to spread the inbox across a web page
+# without a login". The client shows the body. So it brings the login, and it is
+# not optional: without a word set, no mail leaves this module.
+_SITZUNGEN = {}          # token -> [expires, address, last seen]
+_VERSUCHE = {}           # address -> [count, blocked until]
+_SCHLOSS = threading.Lock()
+
+
+def zugang_stand() -> dict:
+    d = _load(KLIENT_STAND, None)
+    return d if isinstance(d, dict) else {}
+
+
+def wort_gesetzt() -> bool:
+    s = zugang_stand()
+    return bool(s.get("hash") and s.get("salz"))
+
+
+def _haschen(wort: str, salz: bytes, runden: int) -> bytes:
+    return hashlib.pbkdf2_hmac("sha256", wort.encode("utf-8"), salz, runden)
+
+
+def wort_setzen(neu: str, alt: str = "") -> dict:
+    """Set or change the access word.
+
+    🔴 Whoever already has a word has to name it. Otherwise anyone who reaches the
+    page could set a new one and the lock would be a doorbell.
+    """
+    neu = str(neu or "")
+    if len(neu) < 8:
+        return {"ok": False, "text": txt("k.wort_kurz")}
+    if wort_gesetzt():
+        pruef = wort_pruefen(alt, "")
+        if not pruef.get("ok"):
+            return {"ok": False, "text": txt("k.wort_alt_falsch")}
+    salz = os.urandom(16)
+    _save(KLIENT_STAND, {
+        "salz": salz.hex(), "hash": _haschen(neu, salz, RUNDEN).hex(),
+        "runden": RUNDEN, "gesetzt": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }, 0o600)
+    with _SCHLOSS:
+        _SITZUNGEN.clear()          # a new word ends every old session
+    if W is not None:
+        W.chronik("klient_wort", text="Zugangswort gesetzt")
+    return {"ok": True, "text": txt("k.wort_gesetzt")}
+
+
+def _bremse(adresse: str) -> int:
+    """How many seconds this address still has to wait. The counter stands
+    against the ADDRESS, not against the word — otherwise trying a second word
+    would be free."""
+    with _SCHLOSS:
+        eintrag = _VERSUCHE.get(adresse)
+        if not eintrag:
+            return 0
+        rest = int(eintrag[1] - time.time())
+        return max(0, rest)
+
+
+def _fehlversuch(adresse: str) -> None:
+    with _SCHLOSS:
+        eintrag = _VERSUCHE.setdefault(adresse, [0, 0.0])
+        eintrag[0] += 1
+        if eintrag[0] > VERSUCHE_FREI:
+            i = min(eintrag[0] - VERSUCHE_FREI, len(SPERRZEIT)) - 1
+            eintrag[1] = time.time() + SPERRZEIT[i]
+
+
+def wort_pruefen(wort: str, adresse: str) -> dict:
+    """Check the word and, on success, hand out a session.
+
+    The comparison is `compare_digest`, not `==`: whoever can measure the answer
+    time can read a normal comparison letter by letter.
+    """
+    if not wort_gesetzt():
+        return {"ok": False, "text": txt("k.kein_wort"), "kein_wort": True}
+    warte = _bremse(adresse) if adresse else 0
+    if warte:
+        return {"ok": False, "text": txt("k.gesperrt", s=warte), "warte": warte}
+    s = zugang_stand()
+    try:
+        salz = bytes.fromhex(str(s.get("salz") or ""))
+        soll = bytes.fromhex(str(s.get("hash") or ""))
+        runden = int(s.get("runden") or RUNDEN)
+    except ValueError:
+        return {"ok": False, "text": txt("k.wort_falsch")}
+    if not hmac.compare_digest(_haschen(str(wort or ""), salz, runden), soll):
+        if adresse:
+            _fehlversuch(adresse)
+        warte = _bremse(adresse) if adresse else 0
+        return {"ok": False, "text": txt("k.wort_falsch"), "warte": warte}
+    if adresse:
+        with _SCHLOSS:
+            _VERSUCHE.pop(adresse, None)
+    return {"ok": True, "text": txt("k.angemeldet")}
+
+
+def sitzung_neu(adresse: str) -> str:
+    frist = int(einstellungen()["frist_min"]) * 60
+    marke = base64.urlsafe_b64encode(os.urandom(24)).decode().rstrip("=")
+    with _SCHLOSS:
+        _SITZUNGEN[marke] = [time.time() + frist, adresse, time.time()]
+    return marke
+
+
+def sitzung_gueltig(marke: str) -> bool:
+    """Valid, and it keeps itself alive while being used — an expiry in the middle
+    of writing a mail would be the worst possible moment."""
+    if not marke:
+        return False
+    frist = int(einstellungen()["frist_min"]) * 60
+    with _SCHLOSS:
+        eintrag = _SITZUNGEN.get(marke)
+        if not eintrag:
+            return False
+        if time.time() > eintrag[0]:
+            _SITZUNGEN.pop(marke, None)
+            return False
+        eintrag[0] = time.time() + frist
+        eintrag[2] = time.time()
+        return True
+
+
+def sitzung_beenden(marke: str) -> dict:
+    with _SCHLOSS:
+        _SITZUNGEN.pop(marke or "", None)
+    return {"ok": True, "text": txt("k.abgemeldet")}
+
+
+def keks_lesen(kopfzeile: str) -> str:
+    """Pick our cookie out of the Cookie header — without `http.cookies`, because
+    one malformed cookie from another page on the same host would make the whole
+    parse fail there."""
+    for stueck in (kopfzeile or "").split(";"):
+        name, _, wert = stueck.strip().partition("=")
+        if name.strip() == KEKS:
+            return wert.strip()
+    return ""
+
+
+def keks_setzen(marke: str, sicher: bool) -> str:
+    frist = int(einstellungen()["frist_min"]) * 60
+    teile = ["%s=%s" % (KEKS, marke), "Path=/", "HttpOnly", "SameSite=Strict",
+             "Max-Age=%d" % (frist if marke else 0)]
+    # Only behind TLS — with `Secure` on plain HTTP the browser would drop the
+    # cookie and the login would silently never work.
+    if sicher:
+        teile.append("Secure")
+    return "; ".join(teile)
+
+
+def lage_schloss(marke: str) -> dict:
+    """What the page may know before anyone is logged in: whether a word exists at
+    all, and nothing else."""
+    return {"wort": wort_gesetzt(), "an": sitzung_gueltig(marke),
+            "sperre_seite": bool(einstellungen()["sperre_seite"])}
+
+
+# ── Folder names: modified UTF-7 ─────────────────────────────────────────
+# 🔑 A folder is called what the SERVER calls it — that name goes into every
+# command and must never be touched. But „Gel&APY-schte Objekte" is not a name a
+# human reads. So: the raw name stays the key, the decoded one is only ever
+# displayed. Mixing those two up creates a second folder next to the existing one.
+def utf7_dekodieren(name: str) -> str:
+    raus, i, n = [], 0, len(name or "")
+    while i < n:
+        if name[i] != "&":
+            raus.append(name[i])
+            i += 1
+            continue
+        ende = name.find("-", i)
+        if ende < 0:
+            raus.append(name[i:])
+            break
+        stueck = name[i + 1:ende]
+        if not stueck:
+            raus.append("&")
+        else:
+            roh = stueck.replace(",", "/")
+            roh += "=" * (-len(roh) % 4)
+            try:
+                raus.append(base64.b64decode(roh).decode("utf-16-be"))
+            except Exception:
+                raus.append(name[i:ende + 1])
+        i = ende + 1
+    return "".join(raus)
+
+
+def utf7_kodieren(name: str) -> str:
+    raus, puffer = [], []
+
+    def leeren():
+        if puffer:
+            roh = base64.b64encode("".join(puffer).encode("utf-16-be")).decode()
+            raus.append("&" + roh.rstrip("=").replace("/", ",") + "-")
+            puffer.clear()
+
+    for z in name or "":
+        if z == "&":
+            leeren()
+            raus.append("&-")
+        elif 0x20 <= ord(z) <= 0x7E:
+            leeren()
+            raus.append(z)
+        else:
+            puffer.append(z)
+    leeren()
+    return "".join(raus)
+
+
+# ── One connection per mailbox, kept warm ────────────────────────────────
+# 🔴 A client that opens a new IMAP connection for every click is slow AND rude:
+# most providers allow only a handful at a time, and the watchman needs one of
+# them every minute. So: exactly ONE per mailbox, guarded by a lock, closed after
+# five idle minutes — and re-established when the server has hung up in between.
+_VERBINDUNGEN = {}
+_V_SCHLOSS = threading.Lock()
+
+
+class Briefkasten(W.Postfach if W is not None else object):
+    """The watchman's mailbox, taught what a client needs on top: the tree with
+    flags and counts, pages of a folder, single mails, flags, moving, appending.
+
+    Everything that reads uses BODY.PEEK, and a folder is opened read-only unless
+    an action actually has to write. Both are inherited, and both are checked by
+    the test bench against the real command text."""
+
+    def __init__(self, zug: dict):
+        super().__init__(zug, True)
+        self.ordner = ""            # which folder is selected
+        self.schreibend = False     # and in which mode
+        self.faehig = set()
+        self.baum_stand = (0.0, [])
+
+    def __enter__(self):
+        super().__enter__()
+        self.ordner, self.schreibend = "INBOX", True
+        try:
+            typ, dat = self.m.capability()
+            if typ == "OK" and dat:
+                self.faehig = {w.decode().upper() if isinstance(w, bytes) else str(w).upper()
+                               for w in (dat[0] or b"").split()}
+        except Exception:
+            self.faehig = set()
+        return self
+
+    def kann(self, was: str) -> bool:
+        return was.upper() in self.faehig
+
+    def lebt(self) -> bool:
+        try:
+            return self.m.noop()[0] == "OK"
+        except Exception:
+            return False
+
+    # ── Choosing a folder ───────────────────────────────────────────
+    def waehle(self, ordner: str, schreiben: bool = False) -> int:
+        """Select a folder — and only really do it when it is a different one or a
+        different mode.
+
+        🔴 Read-only is the default. Whoever browses changes nothing; only an
+        action that has to write opens the folder for writing. That way a bug in
+        the drawing code cannot set a flag.
+        """
+        ordner = ordner or "INBOX"
+        if self.ordner == ordner and self.schreibend == bool(schreiben):
+            return -1
+        typ, dat = self.m.select(self._zitat(ordner), readonly=not schreiben)
+        if typ != "OK":
+            raise RuntimeError("Ordner nicht wählbar: %s" % ordner)
+        self.ordner, self.schreibend = ordner, bool(schreiben)
+        try:
+            return int((dat[0] or b"0").decode() if isinstance(dat[0], bytes) else dat[0])
+        except (TypeError, ValueError, IndexError):
+            return 0
+
+    # ── The tree ────────────────────────────────────────────────────
+    def baum(self, frisch: bool = False) -> list:
+        """All folders with flags, depth, counts and role.
+
+        The counts come from STATUS, one command per folder — with 160 folders
+        that is a second, so the answer is kept for half a minute. `frisch=True`
+        asks again."""
+        if not frisch and self.baum_stand[1] and time.time() - self.baum_stand[0] < 30:
+            return self.baum_stand[1]
+        try:
+            typ, zeilen = self.m.list()
+        except Exception as e:
+            log("Ordnerbaum nicht lesbar: %s" % str(e)[:120])
+            return []
+        if typ != "OK":
+            return []
+        roh = []
+        for zl in zeilen or []:
+            s = zl.decode("utf-8", "replace") if isinstance(zl, bytes) else str(zl)
+            t = re.match(r'^\((?P<f>[^)]*)\)\s+(?P<tr>"[^"]*"|NIL)\s+(?P<n>.*)$', s.strip())
+            if not t:
+                continue
+            flaggen = {f.lower() for f in t.group("f").split()}
+            trenner = t.group("tr").strip('"') or self.trenner
+            name = t.group("n").strip()
+            if name.startswith('"') and name.endswith('"') and len(name) > 1:
+                name = name[1:-1]
+            if not name:
+                continue
+            roh.append((name, flaggen, trenner))
+        raus = []
+        for name, flaggen, trenner in roh:
+            rolle = ""
+            for flagge, r in SONDER_FLAGGEN.items():
+                if flagge in flaggen:
+                    rolle = r
+                    break
+            if not rolle:
+                letzte = name.split(trenner)[-1] if trenner else name
+                rolle = SONDER_NAMEN.get(utf7_dekodieren(letzte).lower(), "")
+                if name.upper() == "INBOX":
+                    rolle = "posteingang"
+            waehlbar = "\\noselect" not in flaggen
+            gesamt, ungelesen = (0, 0)
+            if waehlbar:
+                gesamt, ungelesen = self.zaehlen(name)
+            teile = name.split(trenner) if trenner else [name]
+            raus.append({
+                "name": name,
+                "zeige": utf7_dekodieren(teile[-1]),
+                "pfad": utf7_dekodieren(name),
+                "tiefe": max(0, len(teile) - 1),
+                "rolle": rolle,
+                "icon": SONDER_ICON.get(rolle, ""),
+                "waehlbar": waehlbar,
+                "kinder": "\\haschildren" in flaggen,
+                "gesamt": gesamt,
+                "ungelesen": ungelesen,
+            })
+        # Inbox first, then special folders in a fixed order, then alphabetically —
+        # the same order every mail program has trained its users on.
+        rang = {"posteingang": 0, "entwuerfe": 1, "gesendet": 2, "archiv": 3,
+                "spam": 8, "papierkorb": 9}
+        raus.sort(key=lambda o: (rang.get(o["rolle"], 5),
+                                 o["pfad"].lower() if o["rolle"] not in rang else ""))
+        self.baum_stand = (time.time(), raus)
+        return raus
+
+    def zaehlen(self, name: str) -> tuple:
+        """(total, unread) — via STATUS, so without selecting the folder. Selecting
+        would throw away the list currently being shown."""
+        try:
+            typ, dat = self.m.status(self._zitat(name), "(MESSAGES UNSEEN)")
+        except Exception:
+            return 0, 0
+        if typ != "OK" or not dat:
+            return 0, 0
+        s = dat[0].decode("utf-8", "replace") if isinstance(dat[0], bytes) else str(dat[0])
+        g = re.search(r"MESSAGES\s+(\d+)", s, re.I)
+        u = re.search(r"UNSEEN\s+(\d+)", s, re.I)
+        return (int(g.group(1)) if g else 0), (int(u.group(1)) if u else 0)
+
+    # ── Which mails, in which order ─────────────────────────────────
+    # 🔴 NO `UTF8=ACCEPT`. The server would then name its folders in plain UTF-8
+    # instead of modified UTF-7 — and the watchman has learned them in UTF-7 and
+    # has them in `ablage.json` that way. Two spellings of the same folder means
+    # the client files into a NEW folder next to the existing one. So the raw
+    # form stays everywhere, and only the display is decoded.
+    def _such_bytes(self, feld: str, wort: str) -> bytes:
+        """One search criterion as bytes.
+
+        A non-ASCII search word cannot go into the command line as a str:
+        imaplib encodes str as ASCII and fails. As bytes with `CHARSET UTF-8` it
+        works on every server that was tried — and if it does not, `suche()`
+        falls back."""
+        wort = (wort or "").replace("\\", "").replace('"', "")
+        roh = wort.encode("utf-8")
+        if feld == "alle":
+            return (b'OR OR SUBJECT "' + roh + b'" FROM "' + roh
+                    + b'" TEXT "' + roh + b'"')
+        schluessel = {"von": b"FROM", "betreff": b"SUBJECT", "an": b"TO",
+                      "text": b"TEXT"}.get(feld, b"SUBJECT")
+        return schluessel + b' "' + roh + b'"'
+
+    def uids(self, ordner: str, sieb: str = "", suche: str = "", feld: str = "alle",
+             sortierung: str = "datum", richtung: str = "ab") -> tuple:
+        """All matching UIDs of a folder, already in display order.
+
+        Returns (uids, sortiert_vom_server). Without the SORT extension only the
+        UID order is available — that is the order of ARRIVAL, which for a mailbox
+        is almost always the date order, but not guaranteed. The page is told, so
+        it can say so instead of quietly showing something else.
+        """
+        self.waehle(ordner)
+        kriterien = []
+        if sieb == "ungelesen":
+            kriterien.append(b"UNSEEN")
+        elif sieb == "markiert":
+            kriterien.append(b"FLAGGED")
+        elif sieb == "unbeantwortet":
+            kriterien.append(b"UNANSWERED")
+        elif sieb == "anhang":
+            # There is no IMAP criterion for „has an attachment". What there is:
+            # the mail's own Content-Type. Everything with a real attachment is
+            # `multipart/mixed`, so this finds it — plus the occasional newsletter
+            # that is built that way without one. Named honestly on the page.
+            kriterien.append(b'OR HEADER Content-Type "multipart/mixed"'
+                             b' HEADER Content-Type "multipart/related"')
+        if suche:
+            kriterien.append(self._such_bytes(feld, suche))
+        if not kriterien:
+            kriterien = [b"ALL"]
+        umgekehrt = richtung != "auf"
+        schluessel = {"datum": b"DATE", "von": b"FROM", "betreff": b"SUBJECT",
+                      "groesse": b"SIZE"}.get(sortierung, b"DATE")
+        if self.kann("SORT"):
+            folge = b"(" + (b"REVERSE " if umgekehrt else b"") + schluessel + b")"
+            try:
+                typ, dat = self.m.uid("SORT", folge, b"UTF-8", *kriterien)
+                if typ == "OK":
+                    roh = b" ".join(x for x in (dat or []) if x)
+                    return [int(x) for x in roh.split()], True
+            except Exception as e:
+                log("SORT nicht nutzbar: %s" % str(e)[:100])
+        alle = self._suchen(kriterien)
+        alle.sort(reverse=umgekehrt)
+        # Without SORT only the date can be ordered honestly, and only as UID
+        # order. Everything else would be a claim.
+        return alle, sortierung == "datum"
+
+    def _suchen(self, kriterien: list) -> list:
+        """UID SEARCH with three attempts: with charset, without, and ASCII-only.
+        A server that cannot do one of them must not leave the page empty."""
+        versuche = ([b"CHARSET", b"UTF-8"] + kriterien, kriterien)
+        for args in versuche:
+            try:
+                typ, dat = self.m.uid("SEARCH", *args)
+            except Exception:
+                continue
+            if typ == "OK":
+                roh = b" ".join(x for x in (dat or []) if x)
+                try:
+                    return [int(x) for x in roh.split()]
+                except ValueError:
+                    return []
+        return []
+
+    def koepfe(self, uids: list) -> dict:
+        """{uid: header record} for a page of the list — two FETCHes, no more.
+
+        🔴 The metadata and the header block are fetched TOGETHER, the blueprint
+        separately through the watchman's proven `strukturen()`. Not out of
+        laziness: `_fetch_zeilen()` turns a literal into a quoted string with the
+        line breaks replaced by spaces — which is right for a blueprint and wrong
+        for a header block, because then `From:` and `Subject:` end up on one
+        line. Two questions, two answers.
+        """
+        raus = {}
+        if not uids:
+            return raus
+        for i in range(0, len(uids), 100):
+            teil = ",".join(str(u) for u in uids[i:i + 100])
+            try:
+                typ, daten = self.m.uid(
+                    "FETCH", teil,
+                    "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS "
+                    "(FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES "
+                    "LIST-UNSUBSCRIBE)])")
+            except Exception as e:
+                log("Kopfzeilen nicht lesbar: %s" % str(e)[:120])
+                continue
+            if typ != "OK":
+                continue
+            raus.update(self._koepfe_lesen(daten))
+        strukturen = self.strukturen(list(raus))
+        for uid, satz in raus.items():
+            anh, _ = anhang_und_inline(strukturen.get(uid))
+            satz["anhang"] = len(anh)
+            satz["anhang_gross"] = sum(a["b"] for a in anh)
+        return raus
+
+    @staticmethod
+    def _koepfe_lesen(daten) -> dict:
+        """Pick the header records out of imaplib's answer.
+
+        🔴 The metadata (UID, FLAGS, …) stands in the piece BEFORE the literal —
+        unless the server answers in a different order, then it stands in the one
+        after it. Both are looked at, which costs two lines and saves a class of
+        mails that are otherwise simply missing from the list.
+        """
+        raus = {}
+        stuecke = list(daten or [])
+        for i, el in enumerate(stuecke):
+            if not (isinstance(el, tuple) and len(el) >= 2):
+                continue
+            vor = el[0] or b""
+            nach = stuecke[i + 1] if i + 1 < len(stuecke) and isinstance(stuecke[i + 1], bytes) else b""
+            rand = (vor + b" " + nach).decode("utf-8", "replace")
+            t = re.search(r"UID\s+(\d+)", rand)
+            if not t:
+                continue
+            uid = int(t.group(1))
+            flaggen = re.search(r"FLAGS\s+\(([^)]*)\)", rand)
+            flaggen = [f.lower() for f in (flaggen.group(1).split() if flaggen else [])]
+            groesse = re.search(r"RFC822\.SIZE\s+(\d+)", rand)
+            intern = re.search(r'INTERNALDATE\s+"([^"]+)"', rand)
+            msg = W.msg_aus_bytes(el[1] or b"")
+            name, adresse = W.absender_teile(msg.get("From", ""))
+            wann = _zeitpunkt(msg.get("Date", "")) or _intern_zeit(intern.group(1) if intern else "")
+            raus[uid] = {
+                "uid": uid,
+                "von": name or adresse,
+                "adresse": (adresse or "").lower(),
+                "an": _adressen_kurz(msg.get_all("To") or []),
+                "kopie": _adressen_kurz(msg.get_all("Cc") or []),
+                "betreff": W.dekodieren(msg.get("Subject", "")) or "",
+                "zeit": wann,
+                "groesse": int(groesse.group(1)) if groesse else 0,
+                "gelesen": "\\seen" in flaggen,
+                "markiert": "\\flagged" in flaggen,
+                "beantwortet": "\\answered" in flaggen,
+                "entwurf": "\\draft" in flaggen,
+                "geloescht": "\\deleted" in flaggen,
+                "message_id": (msg.get("Message-Id") or "").strip(),
+                "strang": _strang_schluessel(msg),
+                "abmelden": bool((msg.get("List-Unsubscribe") or "").strip()),
+            }
+        return raus
+
+    # ── One mail, completely ────────────────────────────────────────
+    def mail(self, ordner: str, uid: int, bilder: bool = False,
+             roh_teile: bool = True) -> dict:
+        """Everything needed to display ONE mail — and nothing beyond it.
+
+        🔴 Still BODY.PEEK. Displaying a mail does not make it read; that happens
+        only through `flagge()`, and when it happens is a setting with an „only by
+        hand" position.
+        """
+        self.waehle(ordner)
+        struct = self.strukturen([uid]).get(uid)
+        typ, daten = self.m.uid("FETCH", str(uid),
+                                "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER])")
+        if typ != "OK" or not daten:
+            return {}
+        kopf_roh, rand = b"", ""
+        stuecke = list(daten)
+        for i, el in enumerate(stuecke):
+            if isinstance(el, tuple) and len(el) >= 2:
+                kopf_roh = el[1] or b""
+                nach = stuecke[i + 1] if i + 1 < len(stuecke) and isinstance(stuecke[i + 1], bytes) else b""
+                rand = ((el[0] or b"") + b" " + nach).decode("utf-8", "replace")
+                break
+        if not kopf_roh:
+            return {}
+        msg = W.msg_aus_bytes(kopf_roh)
+        flaggen = re.search(r"FLAGS\s+\(([^)]*)\)", rand)
+        flaggen = [f.lower() for f in (flaggen.group(1).split() if flaggen else [])]
+        name, adresse = W.absender_teile(msg.get("From", ""))
+
+        teile = W._teile(struct) if struct else []
+        text_teil = _erster_text(teile, "plain")
+        html_teil = _erster_text(teile, "html")
+        text, roh_html = "", ""
+        if roh_teile and text_teil:
+            text = _text_dekodieren(self.teil_holen(uid, text_teil["nr"],
+                                                    text_teil["kodierung"]),
+                                    text_teil.get("zeichensatz"))
+        if roh_teile and html_teil:
+            roh_html = _text_dekodieren(self.teil_holen(uid, html_teil["nr"],
+                                                        html_teil["kodierung"]),
+                                        html_teil.get("zeichensatz"))
+        if roh_teile and not text and not roh_html:
+            # A mail without a recognisable structure (or a server that answers a
+            # blueprint we cannot read) still has a body. Fetching BODY.PEEK[TEXT]
+            # is the last resort — never nothing at all.
+            text = _text_dekodieren(self.teil_holen(uid, "TEXT", ""), "")
+        anhaenge, inline = anhang_und_inline(struct, teile)
+        html, blockiert, links = ("", 0, [])
+        if roh_html:
+            html, blockiert, links = html_saeubern(roh_html, bilder, inline, ordner, uid)
+        kopf = W.kopf_lesen(msg, text[:3000])
+        urteil = W.einordnen(kopf, text[:3000]) if kopf.get("adresse") else {}
+        return {
+            "uid": uid, "ordner": ordner,
+            "von": name or adresse, "adresse": (adresse or "").lower(),
+            "an": _adressen_lang(msg.get_all("To") or []),
+            "kopie": _adressen_lang(msg.get_all("Cc") or []),
+            "antwort_an": _adressen_lang(msg.get_all("Reply-To") or []),
+            "betreff": W.dekodieren(msg.get("Subject", "")) or "",
+            "zeit": _zeitpunkt(msg.get("Date", "")),
+            "message_id": (msg.get("Message-Id") or "").strip(),
+            "in_antwort_auf": (msg.get("In-Reply-To") or "").strip(),
+            "abmelden": _abmeldeweg(msg.get("List-Unsubscribe") or ""),
+            "gelesen": "\\seen" in flaggen, "markiert": "\\flagged" in flaggen,
+            "beantwortet": "\\answered" in flaggen, "entwurf": "\\draft" in flaggen,
+            "groesse": int((re.search(r"RFC822\.SIZE\s+(\d+)", rand) or [0, 0])[1] or 0)
+                       if re.search(r"RFC822\.SIZE\s+(\d+)", rand) else 0,
+            "kopfzeilen": _kopfzeilen_liste(msg),
+            "text": text[:TEXT_GRENZE],
+            "html": html[:TEXT_GRENZE * 2],
+            "hat_text": bool(text), "hat_html": bool(roh_html),
+            "fern_blockiert": blockiert,
+            "links_verdacht": [l for l in links if l.get("warnung")][:12],
+            "links_gesamt": len(links),
+            "anhaenge": anhaenge,
+            "phishing": urteil.get("phishing") or "",
+            "klasse": urteil.get("klasse") or "",
+            "grund": urteil.get("grund") or "",
+        }
+
+    def roh(self, ordner: str, uid: int) -> bytes:
+        """The whole mail as it lies on the server — for „show source"."""
+        self.waehle(ordner)
+        typ, daten = self.m.uid("FETCH", str(uid), "(BODY.PEEK[])")
+        if typ != "OK":
+            return b""
+        for el in daten or []:
+            if isinstance(el, tuple) and len(el) >= 2:
+                return el[1] or b""
+        return b""
+
+    # ── Acting ──────────────────────────────────────────────────────
+    def flagge(self, ordner: str, uids: list, flagge: str, an: bool) -> int:
+        """Set or clear a flag. This is the ONLY place that makes a mail read —
+        and it is reached only by a deliberate action or by the setting that says
+        so."""
+        if not uids:
+            return 0
+        self.waehle(ordner, schreiben=True)
+        satz = ",".join(str(int(u)) for u in uids)
+        typ, _ = self.m.uid("STORE", satz, "+FLAGS" if an else "-FLAGS",
+                            "(%s)" % flagge)
+        return len(uids) if typ == "OK" else 0
+
+    def verschieben_viele(self, ordner: str, uids: list, ziel: str) -> dict:
+        """Move — with MOVE where the server can do it, otherwise copy, tick off,
+        expunge.
+
+        🔴 The watchman's rule holds unchanged: `\\Deleted` is set only AFTER a
+        confirmed copy. If the copy fails, the mail stays where it is. And
+        `EXPUNGE` runs only in the source folder of this very move.
+        """
+        if not uids or not ziel:
+            return {"ok": False, "n": 0, "text": txt("k.kein_ziel")}
+        self.waehle(ordner, schreiben=True)
+        satz = ",".join(str(int(u)) for u in uids)
+        if self.kann("MOVE"):
+            typ, _ = self.m.uid("MOVE", satz, self._zitat(ziel))
+            if typ == "OK":
+                return {"ok": True, "n": len(uids)}
+            log("MOVE abgelehnt, es geht per Kopie weiter")
+        typ, _ = self.m.uid("COPY", satz, self._zitat(ziel))
+        if typ != "OK":
+            return {"ok": False, "n": 0, "text": txt("k.kopie_fehl")}
+        self.m.uid("STORE", satz, "+FLAGS", "(\\Deleted)")
+        self.m.expunge()
+        return {"ok": True, "n": len(uids)}
+
+    def anhaengen(self, ordner: str, roh: bytes, flaggen: str = "") -> bool:
+        """Put a mail INTO a folder — the sent copy, a draft. The folder is created
+        if it is missing, because a provider without a drafts folder must not cost
+        the text that was written."""
+        try:
+            self.m.create(self._zitat(ordner))
+        except Exception:
+            pass
+        try:
+            typ, _ = self.m.append(self._zitat(ordner), flaggen or None,
+                                   imaplib.Time2Internaldate(time.time()), roh)
+            return typ == "OK"
+        except Exception as e:
+            log("Anhängen in %s fehlgeschlagen: %s" % (ordner, str(e)[:140]))
+            return False
+
+    def ordner_neu(self, pfad: str) -> dict:
+        """Create a folder — under the inbox, with the server's separator, and the
+        name in modified UTF-7 so an umlaut arrives as an umlaut."""
+        pfad = (pfad or "").strip().strip("/")
+        if not pfad:
+            return {"ok": False, "text": txt("k.kein_name")}
+        voll = "INBOX" + self.trenner + utf7_kodieren(
+            pfad.replace("/", self.trenner))
+        try:
+            self.m.create(self._zitat(voll))
+            self.m.subscribe(self._zitat(voll))
+        except Exception as e:
+            return {"ok": False, "text": str(e)[:160]}
+        self.baum_stand = (0.0, [])
+        return {"ok": True, "name": voll, "text": txt("k.ordner_da", o=pfad)}
+
+
+# ── Small helpers ───────────────────────────────────────────────────────
+def _zeitpunkt(datum: str) -> str:
+    try:
+        return email.utils.parsedate_to_datetime(datum).astimezone().isoformat(
+            timespec="seconds")
+    except Exception:
+        return ""
+
+
+def _intern_zeit(s: str) -> str:
+    """The server's own delivery date — the fallback when a mail brings no `Date`
+    or an unreadable one. Better the wrong kind of date than an empty column."""
+    try:
+        teile = imaplib.Internaldate2tuple(('INTERNALDATE "%s"' % s).encode())
+        if not teile:
+            return ""
+        return datetime.fromtimestamp(time.mktime(teile)).astimezone().isoformat(
+            timespec="seconds")
+    except Exception:
+        return ""
+
+
+def _adressen_kurz(felder: list) -> str:
+    namen = []
+    for f in felder or []:
+        for name, adresse in email.utils.getaddresses([W.dekodieren(str(f))]):
+            namen.append(name or adresse)
+    return ", ".join(n for n in namen if n)[:200]
+
+
+def _adressen_lang(felder: list) -> list:
+    raus = []
+    for f in felder or []:
+        for name, adresse in email.utils.getaddresses([W.dekodieren(str(f))]):
+            if adresse:
+                raus.append({"name": name or "", "adresse": adresse})
+    return raus[:60]
+
+
+def _strang_schluessel(msg) -> str:
+    """Which conversation a mail belongs to: the FIRST Message-Id of its
+    references chain, otherwise its own. Cheap, and correct for every mail
+    program that keeps the chain — which is all of them."""
+    kette = (msg.get("References") or "").split()
+    if kette:
+        return kette[0].strip("<>")[:120]
+    antwort = (msg.get("In-Reply-To") or "").strip()
+    if antwort:
+        return antwort.strip("<>")[:120]
+    return (msg.get("Message-Id") or "").strip().strip("<>")[:120]
+
+
+# Headers that say something to a human. The rest is transport noise and stands
+# in the source view, which is one click away.
+KOPF_ZEIGEN = ("From", "To", "Cc", "Reply-To", "Date", "Subject", "Message-Id",
+               "In-Reply-To", "References", "Return-Path", "Sender",
+               "Delivered-To", "List-Id", "List-Unsubscribe", "Precedence",
+               "Auto-Submitted", "X-Mailer", "User-Agent", "Organization",
+               "Content-Type", "Authentication-Results", "Received-SPF",
+               "DKIM-Signature", "X-Spam-Status", "X-Spam-Score", "Importance",
+               "X-Priority")
+
+
+def _kopfzeilen_liste(msg) -> list:
+    raus = []
+    for name in KOPF_ZEIGEN:
+        for wert in msg.get_all(name) or []:
+            wert = W.dekodieren(str(wert)).replace("\r", " ").replace("\n", " ")
+            # A DKIM signature is 400 characters of base64 — it says „there is
+            # one" and nothing more, so that is what is shown.
+            if name.lower() == "dkim-signature":
+                wert = re.sub(r"b=[^;]+", "b=…", wert)
+            raus.append([name, wert[:400]])
+    return raus
+
+
+def anhang_und_inline(struct, teile=None) -> tuple:
+    """(attachments, inline images) of one mail — ONE place decides which is which.
+
+    🔴 A LOGO IS NOT AN ATTACHMENT. `anhaenge_der_mail()` takes everything with a
+    file name, which is right for the document index: it wants to find every file.
+    For the reader it is wrong — a newsletter builds its layout out of a dozen
+    inline images, and a mail that announces „12 attachments" and then hands out
+    spacer graphics is a mail program nobody trusts.
+
+    🔴 And the list has to count it the same way as the reading pane. It did not
+    for a while: the pane showed one attachment, the row showed two. Hence this
+    function, called from BOTH — the same lesson as with the mailbox choice in the
+    page (one place, not four).
+    """
+    if teile is None:
+        teile = W._teile(struct) if struct else []
+    inline = [{"id": t["id"], "nr": t["nr"], "k": t["kodierung"],
+               "m": ("%s/%s" % (t["typ"], t["subtyp"])).lower()}
+              for t in teile
+              if t.get("id") and t["typ"].upper() == "IMAGE"]
+    drin = {t["nr"] for t in teile
+            if t.get("id") and t.get("verfuegung") == "inline"}
+    anhaenge = [a for a in (W.anhaenge_der_mail(struct) if struct else [])
+                if a["t"] not in drin]
+    return anhaenge, inline
+
+
+def _erster_text(teile: list, art: str) -> dict:
+    """The first body part of a kind — and body means: no file name and not
+    declared an attachment. A text/plain WITH a file name is a text file someone
+    sent, not the letter."""
+    for t in teile or []:
+        if t["typ"].upper() != "TEXT" or t["subtyp"].lower() != art:
+            continue
+        if (t.get("name") or "").strip() or t.get("verfuegung") == "attachment":
+            continue
+        return t
+    return {}
+
+
+def _text_dekodieren(roh: bytes, zeichensatz: str) -> str:
+    """Bytes to text — with the charset the mail itself names.
+
+    🔴 Decoding everything as UTF-8 is the classic: a Latin-1 mail then arrives
+    with „Gr��e" and looks like a broken program. The mail says what it is; if it
+    lies or says nothing, the usual suspects are tried in order.
+    """
+    if not roh:
+        return ""
+    kandidaten = [zeichensatz] if zeichensatz else []
+    kandidaten += ["utf-8", "cp1252", "iso-8859-15", "iso-8859-1"]
+    for satz in kandidaten:
+        if not satz:
+            continue
+        try:
+            return roh.decode(satz)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return roh.decode("utf-8", "replace")
+
+
+def _abmeldeweg(kopf: str) -> str:
+    """The unsubscribe link out of `List-Unsubscribe` — only the http form, never
+    the mailto one. Sending is an action, and an action stays with the reader."""
+    for teil in re.findall(r"<([^>]+)>", kopf or ""):
+        if teil.lower().startswith(("http://", "https://")):
+            return teil[:400]
+    return ""
+
+
+def groesse_kurz(b: int) -> str:
+    b = int(b or 0)
+    for grenze, name in ((1024 ** 3, "GB"), (1024 ** 2, "MB"), (1024, "kB")):
+        if b >= grenze:
+            return ("%.1f %s" % (b / grenze, name)).replace(".0 ", " ")
+    return "%d B" % b
+
+
+# ── HTML mail: three walls, not one ──────────────────────────────────────
+# 🔑 Foreign HTML is displayed here, so the question is not „is my filter good"
+# but „what holds when it is not". Three walls, independent of each other:
+#   1. this cleaner, an ALLOW-list — what is not named does not get through.
+#      A block list would have to know `onerror`, `onanimationstart`, `srcset`
+#      and whatever comes next; an allow list does not care.
+#   2. a `Content-Security-Policy` in the frame: `script-src 'none'`, and images
+#      only from where they are allowed to come.
+#   3. the `sandbox` attribute on the frame, without `allow-scripts`. The browser
+#      then executes nothing, whatever ends up in there.
+# Wall 1 can have a hole. All three at once is a different question.
+from html.parser import HTMLParser
+
+ERLAUBTE_TAGS = {
+    "a", "abbr", "address", "b", "bdi", "bdo", "big", "blockquote", "br",
+    "caption", "center", "cite", "code", "col", "colgroup", "dd", "del", "dfn",
+    "div", "dl", "dt", "em", "figcaption", "figure", "font", "h1", "h2", "h3",
+    "h4", "h5", "h6", "hr", "i", "img", "ins", "kbd", "li", "mark", "nobr",
+    "ol", "p", "pre", "q", "s", "samp", "small", "span", "strike", "strong",
+    "sub", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "time", "tr",
+    "tt", "u", "ul", "var", "wbr",
+}
+# Tags whose CONTENT has to go as well — text inside <script> is code, text
+# inside <title> is not part of the letter.
+# 🔑 `style` is NOT in here. A newsletter carries its layout in a style block,
+# and throwing it away makes every mail look broken. So the block stays and its
+# CONTENT is cleaned — see `_css_saeubern()`.
+STILLE_TAGS = {"script", "head", "title", "noscript", "template",
+               "svg", "math", "object", "embed", "applet", "iframe", "frame",
+               "frameset", "form", "input", "button", "select", "textarea",
+               "option", "link", "meta", "base", "audio", "video", "source"}
+LEERE_TAGS = {"br", "hr", "img", "col", "wbr"}
+ERLAUBTE_ATTRIBUTE = {
+    "*": {"style", "class", "title", "dir", "lang", "align", "valign",
+          "bgcolor", "color", "width", "height"},
+    "a": {"href", "name"},
+    "img": {"src", "alt", "border", "hspace", "vspace"},
+    "table": {"border", "cellpadding", "cellspacing", "summary"},
+    "td": {"colspan", "rowspan", "nowrap"},
+    "th": {"colspan", "rowspan", "nowrap", "scope"},
+    "col": {"span"}, "colgroup": {"span"},
+    "ol": {"start", "type"}, "ul": {"type"}, "li": {"value"},
+    "font": {"face", "size"},
+    "blockquote": {"cite"}, "time": {"datetime"},
+}
+LEERES_BILD = ("data:image/gif;base64,"
+               "R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==")
+BOESE_SCHEMA = re.compile(r"^\s*(javascript|vbscript|data:text|data:application|"
+                          r"file|about|blob)", re.I)
+CSS_BOESE = re.compile(r"(@import|expression\s*\(|behavior\s*:|-moz-binding|"
+                       r"javascript:)", re.I)
+CSS_URL = re.compile(r"url\(\s*['\"]?(?P<u>[^)'\"]+)['\"]?\s*\)", re.I)
+
+
+class _Saeuberer(HTMLParser):
+    """Rebuilds the mail's HTML out of what is allowed — it does not repair the
+    original. Whatever is not in the allow list simply does not appear in the
+    output, and its text does."""
+
+    def __init__(self, bilder: bool, inline: list, ordner: str, uid: int):
+        super().__init__(convert_charrefs=True)
+        self.bilder = bool(bilder)
+        self.cid = {str(t.get("id") or "").strip("<>"): t for t in inline or []}
+        self.ordner, self.uid = ordner, uid
+        self.raus = []
+        self.blockiert = 0
+        self.links = []
+        self.still = 0          # depth inside a tag whose content is dropped
+        self.stapel = []
+        self.stil_puffer = None  # not None while inside a <style> block
+
+    # — text —
+    def handle_data(self, daten):
+        if self.stil_puffer is not None:
+            self.stil_puffer.append(daten)
+            return
+        if self.still:
+            return
+        self.raus.append(_html.escape(daten, quote=False))
+
+    # — tags —
+    def handle_starttag(self, tag, attrs, leer=False):
+        tag = (tag or "").lower()
+        if tag == "style":
+            self.stil_puffer = []
+            return
+        if tag in STILLE_TAGS:
+            if tag not in LEERE_TAGS:
+                self.still += 1
+            return
+        if self.still or tag not in ERLAUBTE_TAGS:
+            return
+        stuecke = []
+        if tag == "img":
+            quelle, zaehlt = self._bildquelle(dict(attrs))
+            if zaehlt:
+                self.blockiert += 1
+            stuecke.append('src="%s"' % _html.escape(quelle, quote=True))
+            if zaehlt:
+                stuecke.append('class="pw-fern" title="%s"'
+                               % _html.escape(txt("k.bild_blockiert"), quote=True))
+        for name, wert in attrs:
+            name = (name or "").lower()
+            wert = wert if wert is not None else ""
+            if name.startswith("on") or name in ("src", "srcset", "background",
+                                                 "poster", "formaction",
+                                                 "lowsrc", "dynsrc", "usemap"):
+                continue
+            if name not in ERLAUBTE_ATTRIBUTE.get("*", set()) and \
+                    name not in ERLAUBTE_ATTRIBUTE.get(tag, set()):
+                continue
+            if name == "style":
+                wert = self._stil(wert)
+                if not wert:
+                    continue
+            if name == "href":
+                wert = self._verweis(wert, attrs)
+                if not wert:
+                    continue
+            if name == "class":
+                wert = re.sub(r"[^\w\s-]", "", wert)[:200]
+            stuecke.append('%s="%s"' % (name, _html.escape(str(wert), quote=True)))
+        if tag == "a":
+            # 🔴 The frame is sandboxed. Without `target` a click would try to
+            # navigate the frame itself and — correctly — be blocked: the link
+            # would look broken. With it, the reader's browser opens the page, and
+            # `noopener` keeps the opened page from reaching back.
+            stuecke.append('target="_blank" rel="noopener noreferrer nofollow"')
+        schluss = " /" if (leer or tag in LEERE_TAGS) else ""
+        self.raus.append("<%s%s%s>" % (tag, (" " + " ".join(stuecke)) if stuecke else "",
+                                       schluss))
+        if not leer and tag not in LEERE_TAGS:
+            self.stapel.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs, leer=True)
+
+    def handle_endtag(self, tag):
+        tag = (tag or "").lower()
+        if tag == "style":
+            css = self._css("".join(self.stil_puffer or ()))
+            self.stil_puffer = None
+            if css:
+                self.raus.append("<style>%s</style>" % css)
+            return
+        if tag in STILLE_TAGS:
+            if self.still:
+                self.still -= 1
+            return
+        if self.still or tag not in ERLAUBTE_TAGS or tag in LEERE_TAGS:
+            return
+        if tag in self.stapel:
+            # Close everything that was opened inside — mail HTML is full of tags
+            # nobody closed, and a stray </div> must not tear the page apart.
+            while self.stapel:
+                offen = self.stapel.pop()
+                self.raus.append("</%s>" % offen)
+                if offen == tag:
+                    break
+
+    def handle_comment(self, daten):
+        pass                    # a comment carries nothing a reader needs
+
+    def handle_decl(self, daten):
+        pass
+
+    def handle_pi(self, daten):
+        pass
+
+    # — the three interesting attributes —
+    def _bildquelle(self, karte: dict) -> tuple:
+        """Returns (source, was it blocked). `cid:` goes to our own endpoint, a
+        `data:` image through, everything remote only when it is allowed."""
+        roh = str(karte.get("src") or "").strip()
+        if roh.lower().startswith("cid:"):
+            kennung = roh[4:].strip().strip("<>")
+            if kennung in self.cid:
+                return ("/api/klient/bild?ordner=%s&uid=%d&cid=%s"
+                        % (urllib.parse.quote(self.ordner), self.uid,
+                           urllib.parse.quote(kennung)), False)
+            return LEERES_BILD, False
+        if roh.lower().startswith("data:image/"):
+            return roh[:200000], False
+        if BOESE_SCHEMA.match(roh):
+            return LEERES_BILD, False
+        if roh.lower().startswith(("http://", "https://", "//")):
+            if self.bilder:
+                return roh[:2000], False
+            return LEERES_BILD, True
+        return LEERES_BILD, False
+
+    def _css(self, roh: str) -> str:
+        """A style block, cleaned.
+
+        Removed: `@import` (fetches from outside), `expression(` and `behavior:`
+        (old Internet Explorer could run code in them), `-moz-binding`. And every
+        `url(...)` that points outward, as long as remote content is off — a
+        background image is a tracking pixel just as much as an `<img>`.
+        """
+        roh = str(roh or "")[:40000]
+        roh = re.sub(r"@import[^;}]*;?", "", roh, flags=re.I)
+        roh = re.sub(r"(expression\s*\(|behavior\s*:|-moz-binding\s*:)[^;}]*",
+                     "", roh, flags=re.I)
+        if not self.bilder:
+            def fern(t):
+                if t.group("u").lower().startswith("data:"):
+                    return t.group(0)
+                self.blockiert += 1
+                return "none"
+            roh = CSS_URL.sub(fern, roh)
+        # A style block cannot contain „</style>" — the parser ended it there. What
+        # is left over is the one character that could open a tag again.
+        return roh.replace("<", "")
+
+    def _stil(self, wert: str) -> str:
+        wert = str(wert or "")
+        if CSS_BOESE.search(wert):
+            return ""
+        if not self.bilder:
+            treffer = CSS_URL.search(wert)
+            if treffer and not treffer.group("u").lower().startswith("data:"):
+                self.blockiert += 1
+                wert = CSS_URL.sub("none", wert)
+        return wert[:1200]
+
+    def _verweis(self, wert: str, attrs: list) -> str:
+        wert = str(wert or "").strip()
+        if BOESE_SCHEMA.match(wert):
+            return ""
+        if not re.match(r"^(https?:|mailto:|#)", wert, re.I):
+            return ""
+        self.links.append({"ziel": wert[:500], "warnung": ""})
+        return wert[:2000]
+
+    def ergebnis(self) -> str:
+        while self.stapel:
+            self.raus.append("</%s>" % self.stapel.pop())
+        return "".join(self.raus)
+
+
+def _wirt(url: str) -> str:
+    try:
+        return (urllib.parse.urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def links_pruefen(links: list, text_je_link: dict) -> list:
+    """Which link says something other than where it goes.
+
+    🔑 Exactly the check the Linkwache was built for, only inside the mail: if the
+    visible text is itself a domain and it is not the one behind the link, that is
+    the oldest trick there is. And a punycode host („xn--") can look like any
+    brand at all.
+    """
+    raus = []
+    for l in links:
+        ziel = l.get("ziel") or ""
+        wirt = _wirt(ziel)
+        sichtbar = (text_je_link.get(ziel) or "").strip()
+        warnung = ""
+        t = re.search(r"\b((?:[\w-]+\.)+[a-z]{2,})\b", sichtbar, re.I)
+        if t and wirt:
+            gezeigt = t.group(1).lower()
+            if not (wirt == gezeigt or wirt.endswith("." + gezeigt)
+                    or gezeigt.endswith("." + wirt)):
+                warnung = "text"
+        if wirt.startswith("xn--") or ".xn--" in wirt:
+            warnung = warnung or "punycode"
+        if re.match(r"^\d+\.\d+\.\d+\.\d+$", wirt):
+            warnung = warnung or "ip"
+        raus.append({"ziel": ziel, "wirt": wirt, "text": sichtbar[:120],
+                     "warnung": warnung})
+    return raus
+
+
+def html_saeubern(roh: str, bilder: bool, inline: list, ordner: str,
+                  uid: int) -> tuple:
+    """(clean HTML, number of blocked remote references, links)."""
+    s = _Saeuberer(bilder, inline, ordner, uid)
+    try:
+        s.feed(roh[:TEXT_GRENZE * 4])
+        s.close()
+    except Exception as e:
+        log("HTML nicht säuberbar: %s" % str(e)[:120])
+        return _html.escape(roh[:4000]), 0, []
+    saubere = s.ergebnis()
+    # The visible text per link — for the comparison „says A, goes to B".
+    text_je_link = {}
+    for treffer in re.finditer(r'<a\b[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
+                               saubere, re.S | re.I):
+        ziel = _html.unescape(treffer.group(1))
+        sichtbar = re.sub(r"<[^>]+>", " ", treffer.group(2))
+        text_je_link.setdefault(ziel, _html.unescape(sichtbar).strip())
+    return saubere, s.blockiert, links_pruefen(s.links, text_je_link)
+
+
+def text_zu_html(text: str) -> str:
+    """Plain text as a readable letter: links clickable, quoted passages as
+    quotes, the signature set apart. Nothing invented, only marked up."""
+    raus, zitat = [], 0
+    for zeile in (text or "").splitlines():
+        tiefe = 0
+        rest = zeile
+        while rest.startswith((">", " >")):
+            rest = rest.lstrip(" ")[1:]
+            tiefe += 1
+        while zitat > tiefe:
+            raus.append("</blockquote>")
+            zitat -= 1
+        while zitat < tiefe:
+            raus.append('<blockquote class="pw-zitat">')
+            zitat += 1
+        raus.append(_verlinken(_html.escape(rest, quote=False)) + "\n")
+    raus.append("</blockquote>" * zitat)
+    ganz = "".join(raus)
+    # „-- " on its own line is the signature separator since the first mail
+    # programs. Setting it apart makes a long letter shorter to read.
+    return re.sub(r"(?m)^(--\s*)$", r'<span class="pw-sig">\1</span>', ganz, count=1)
+
+
+def _verlinken(s: str) -> str:
+    def ersetze(t):
+        url = t.group(0)
+        schwanz = ""
+        while url and url[-1] in ".,;:!?)]}'\"":
+            schwanz, url = url[-1] + schwanz, url[:-1]
+        ziel = url if url.lower().startswith(("http://", "https://")) else "https://" + url
+        return ('<a href="%s" target="_blank" rel="noopener noreferrer nofollow">%s</a>%s'
+                % (_html.escape(ziel, quote=True), url, schwanz))
+    s = re.sub(r"(https?://[^\s<>\"]+|www\.[^\s<>\"]+)", ersetze, s)
+    return re.sub(r"\b([\w.+-]+@[\w-]+\.[\w.-]+)\b",
+                  lambda t: '<a href="mailto:%s">%s</a>' % (t.group(1), t.group(1)), s)
+
+
+def rahmen(inhalt: str, bilder: bool, dunkel: bool = True) -> str:
+    """The document that goes into the frame — with its own policy.
+
+    🔴 The policy is the second wall: `script-src 'none'` means the browser
+    refuses every script, however it got in there. And `img-src` decides for the
+    browser, not for my filter, whether a tracking pixel may be fetched.
+    """
+    bild_quellen = "data: 'self'" + (" https: http:" if bilder else "")
+    politik = ("default-src 'none'; img-src %s; style-src 'unsafe-inline'; "
+               "font-src data:; script-src 'none'; object-src 'none'; "
+               "frame-src 'none'; form-action 'none'; base-uri 'none'"
+               % bild_quellen)
+    grund, schrift, leise, akzent = (("#161410", "#f4efe6", "#a99c88", "#e0a458")
+                                     if dunkel else
+                                     ("#ffffff", "#1a1712", "#6b6151", "#a8622a"))
+    return (
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<meta http-equiv="Content-Security-Policy" content="%s">'
+        '<style>'
+        'html,body{margin:0;padding:0}'
+        'body{background:%s;color:%s;font:15px/1.55 ui-rounded,"SF Pro Rounded",'
+        'system-ui,"Segoe UI",sans-serif;padding:.9rem 1rem 1.4rem;'
+        'word-break:break-word;overflow-wrap:anywhere}'
+        'a{color:%s}'
+        'img{max-width:100%%;height:auto}'
+        'img.pw-fern{min-width:18px;min-height:18px;border:1px dashed %s55;'
+        'border-radius:4px;background:%s22}'
+        'table{max-width:100%%;border-collapse:collapse}'
+        'pre{white-space:pre-wrap;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}'
+        # 🔴 The measure applies to PLAIN TEXT only. On a wide screen a line of
+        # 200 characters is harder to read, not easier. HTML mail keeps its own
+        # width: a newsletter is built for 600 px, and a max-width across it
+        # breaks the layout it came with.
+        '.pw-text{white-space:pre-wrap;max-width:74ch}'
+        '.pw-zitat{margin:.5rem 0;padding:.1rem 0 .1rem .8rem;border-left:2px solid %s55;'
+        'color:%s}'
+        '.pw-sig{color:%s}'
+        'blockquote{margin:.5rem 0;padding:.1rem 0 .1rem .8rem;'
+        'border-left:2px solid %s55;color:%s}'
+        '</style></head><body>%s</body></html>'
+        % (politik, grund, schrift, akzent, akzent, akzent, akzent, leise,
+           leise, akzent, leise, inhalt))
+
+
+# ── One warm connection per mailbox ──────────────────────────────────────
+import contextlib
+
+
+def _zugang(pf_id: str) -> dict:
+    for f in (W.postfaecher() if W is not None else []):
+        if f["id"] == str(pf_id or ""):
+            return f
+    return {}
+
+
+def _schliessen(pf) -> None:
+    try:
+        pf.__exit__(None, None, None)
+    except Exception:
+        pass
+
+
+@contextlib.contextmanager
+def briefkasten(pf_id: str):
+    """The connection of this mailbox — exactly one, and only one caller at a
+    time.
+
+    🔴 An IMAP connection is not thread-safe, and the answer to a command belongs
+    to whoever asked. Two requests on one connection at the same time and both
+    read each other's answer. The lock is per mailbox, so two mailboxes do not
+    wait for each other.
+    """
+    with _V_SCHLOSS:
+        eintrag = _VERBINDUNGEN.setdefault(
+            pf_id, {"schloss": threading.Lock(), "pf": None, "zeit": 0.0})
+        # Along the way: close every OTHER connection that has been idle too long.
+        # A client left open in a browser tab must not hold five sessions on the
+        # provider for a week.
+        for kennung, e in list(_VERBINDUNGEN.items()):
+            if (kennung != pf_id and e["pf"] is not None
+                    and time.time() - e["zeit"] > LEERLAUF
+                    and not e["schloss"].locked()):
+                _schliessen(e["pf"])
+                e["pf"] = None
+    eintrag["schloss"].acquire()
+    try:
+        pf = eintrag["pf"]
+        if pf is not None and (time.time() - eintrag["zeit"] > LEERLAUF or not pf.lebt()):
+            _schliessen(pf)
+            pf = None
+        if pf is None:
+            zug = _zugang(pf_id)
+            if not zug:
+                raise RuntimeError(txt("a.kein_postfach"))
+            pf = Briefkasten(zug)
+            pf.__enter__()
+            eintrag["pf"] = pf
+        eintrag["zeit"] = time.time()
+        yield pf
+    except (imaplib.IMAP4.abort, imaplib.IMAP4.error, OSError, EOFError):
+        _schliessen(eintrag.get("pf"))
+        eintrag["pf"] = None
+        raise
+    finally:
+        eintrag["zeit"] = time.time()
+        eintrag["schloss"].release()
+
+
+def tu(pf_id: str, aufgabe):
+    """Run one job on the mailbox — and once again if the connection had gone
+    stale. A provider hangs up on an idle connection without telling anybody, and
+    the reader must not be the one to find out."""
+    letzter = None
+    for versuch in (1, 2):
+        try:
+            with briefkasten(pf_id) as kasten:
+                return aufgabe(kasten)
+        except (imaplib.IMAP4.abort, OSError, EOFError) as e:
+            letzter = e
+            log("Verbindung erneuern (%d. Versuch): %s" % (versuch, str(e)[:100]))
+    raise letzter if letzter else RuntimeError("keine Verbindung")
+
+
+def verbindungen_schliessen() -> None:
+    """Hang up everywhere — for the end of the process and for the test bench."""
+    with _V_SCHLOSS:
+        for e in _VERBINDUNGEN.values():
+            if e["pf"] is not None:
+                _schliessen(e["pf"])
+            e["pf"] = None
+
+
+# ── Writing and sending ─────────────────────────────────────────────────
+def smtp_zugang(pf_id: str) -> dict:
+    """The sending route of a mailbox — guessed where it is not set.
+
+    🔴 Guessed, not assumed: the guess is shown on the page and can be overwritten
+    there. An outgoing server that silently does not fit is the kind of error that
+    only shows up when a mail matters.
+    """
+    zug = _zugang(pf_id)
+    if not zug:
+        return {}
+    server = str(zug.get("smtp_server") or "").strip()
+    if not server:
+        imap = str(zug.get("server") or "")
+        server = re.sub(r"^imap[.-]?", "smtp.", imap) if imap.startswith("imap") else imap
+    try:
+        port = int(zug.get("smtp_port") or 0)
+    except (TypeError, ValueError):
+        port = 0
+    art = str(zug.get("smtp_art") or "").strip().lower()
+    if not art:
+        art = "ssl" if port == 465 else "starttls"
+    if not port:
+        port = 465 if art == "ssl" else 587
+    return {
+        "server": server, "port": port, "art": art,
+        "benutzer": str(zug.get("smtp_benutzer") or zug.get("adresse") or ""),
+        "passwort": str(zug.get("smtp_passwort") or zug.get("passwort") or ""),
+        "adresse": str(zug.get("adresse") or ""),
+        "absender_name": str(zug.get("absender_name") or ""),
+        "geraten": not str(zug.get("smtp_server") or "").strip(),
+    }
+
+
+def smtp_speichern(d: dict) -> dict:
+    """Store the sending route — in the same file as the mailbox, with the same
+    0600. A second file with a second password would be a second place to forget."""
+    pf_id = str(d.get("pf") or "")
+    liste = list(W.postfaecher() if W is not None else [])
+    eintrag = next((f for f in liste if f["id"] == pf_id), None)
+    if not eintrag:
+        return {"ok": False, "text": txt("a.kein_postfach")}
+    art = str(d.get("art") or "").lower()
+    eintrag["smtp_server"] = str(d.get("server") or "").strip()
+    try:
+        eintrag["smtp_port"] = int(d.get("port") or 0) or 0
+    except (TypeError, ValueError):
+        eintrag["smtp_port"] = 0
+    eintrag["smtp_art"] = art if art in ("starttls", "ssl", "klar") else ""
+    eintrag["smtp_benutzer"] = str(d.get("benutzer") or "").strip()
+    if str(d.get("passwort") or ""):
+        eintrag["smtp_passwort"] = str(d.get("passwort"))
+    eintrag["absender_name"] = str(d.get("absender_name") or "").strip()[:120]
+    W.pf_waehlen("")
+    W.save("postfaecher.json", {"liste": liste}, 0o600)
+    return {"ok": True, "text": txt("a.gespeichert"), "smtp": _smtp_kurz(pf_id)}
+
+
+def _smtp_kurz(pf_id: str) -> dict:
+    """What the page may know about the sending route — everything except the
+    password. Same rule as for the mailbox: taken in, never handed out."""
+    s = smtp_zugang(pf_id)
+    if not s:
+        return {}
+    return {"server": s["server"], "port": s["port"], "art": s["art"],
+            "benutzer": s["benutzer"], "absender_name": s["absender_name"],
+            "passwort_da": bool(s["passwort"]), "geraten": s["geraten"]}
+
+
+def _smtp_verbinden(s: dict):
+    socket.setdefaulttimeout(30)
+    if s["art"] == "ssl":
+        verbindung = smtplib.SMTP_SSL(s["server"], s["port"], timeout=30)
+    else:
+        verbindung = smtplib.SMTP(s["server"], s["port"], timeout=30)
+        verbindung.ehlo()
+        if s["art"] == "starttls":
+            verbindung.starttls()
+            verbindung.ehlo()
+    if s["passwort"]:
+        verbindung.login(s["benutzer"], s["passwort"])
+    return verbindung
+
+
+def smtp_pruefen(d: dict) -> dict:
+    """Check the sending route WITHOUT sending anything.
+
+    🔑 Log in and hang up again. A test that sends a mail to prove it works leaves
+    a real mail behind in a real mailbox — and on a running system that is exactly
+    what must not happen.
+    """
+    pf_id = str(d.get("pf") or "")
+    s = smtp_zugang(pf_id)
+    if not s or not s["server"]:
+        return {"ok": False, "text": txt("k.smtp_kein_server")}
+    for feld in ("server", "port", "art", "benutzer"):
+        if d.get(feld):
+            s[feld] = int(d[feld]) if feld == "port" else str(d[feld])
+    if d.get("passwort"):
+        s["passwort"] = str(d["passwort"])
+    try:
+        verbindung = _smtp_verbinden(s)
+        try:
+            verbindung.quit()
+        except Exception:
+            pass
+        return {"ok": True, "text": txt("k.smtp_ok", server=s["server"], port=s["port"])}
+    except smtplib.SMTPAuthenticationError:
+        return {"ok": False, "text": txt("k.smtp_anmeldung")}
+    except Exception as e:
+        return {"ok": False, "text": txt("k.smtp_fehler", fehler=str(e)[:160])}
+
+
+def eigene_adressen(pf_id: str) -> set:
+    """Every address that is me — the mailboxes plus the personal catalogue.
+
+    Needed for „reply to all": whoever puts himself in the Cc gets his own answer,
+    and on the third round the thread has three copies of everything.
+    """
+    raus = {str((_zugang(pf_id) or {}).get("adresse") or "").lower()}
+    for f in (W.postfaecher() if W is not None else []):
+        raus.add(str(f.get("adresse") or "").lower())
+    try:
+        import umbau as _U
+        raus.update(_U.eigen_laden()["eigene_adressen"])
+    except Exception:
+        pass
+    return {a for a in raus if a and "@" in a}
+
+
+def _betreff_praefix(betreff: str, praefix: str) -> str:
+    """„Re: Re: Re:" is what happens when everyone adds one. Present already —
+    whatever the language — and nothing is added."""
+    b = (betreff or "").strip()
+    if re.match(r"^\s*(re|aw|antw|antwort|rif|res|réf|fwd|fw|wg|weitergeleitet|tr|i)\s*:",
+                b, re.I):
+        return b
+    return "%s %s" % (praefix, b) if b else praefix
+
+
+def vorlage(d: dict) -> dict:
+    """The prefilled form for reply, reply-to-all and forward.
+
+    Built on the server, because everything it needs is here: the original, the
+    own addresses, the signature, the setting for where the quote goes.
+    """
+    pf_id = str(d.get("pf") or "")
+    art = str(d.get("art") or "antwort")
+    ordner, uid = str(d.get("ordner") or "INBOX"), int(d.get("uid") or 0)
+    einst = einstellungen()
+    if art == "neu" or not uid:
+        return {"ok": True, "an": "", "kopie": "", "betreff": "",
+                "text": _signatur(einst), "art": "neu"}
+    m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=False))
+    if not m:
+        return {"ok": False, "text": txt("k.mail_weg")}
+    meine = eigene_adressen(pf_id)
+    antwort_an = [a["adresse"] for a in m.get("antwort_an") or []]
+    absender = antwort_an or ([m["adresse"]] if m.get("adresse") else [])
+    an, kopie = "", ""
+    if art == "weiter":
+        betreff = _betreff_praefix(m["betreff"], txt("k.fwd"))
+    else:
+        betreff = _betreff_praefix(m["betreff"], txt("k.re"))
+        an = ", ".join(absender)
+        if art == "antwort_alle":
+            weitere = []
+            for eintrag in (m.get("an") or []) + (m.get("kopie") or []):
+                adr = (eintrag.get("adresse") or "").lower()
+                if adr and adr not in meine and adr not in [a.lower() for a in absender]:
+                    if adr not in [w.lower() for w in weitere]:
+                        weitere.append(eintrag["adresse"])
+            kopie = ", ".join(weitere)
+    zitat = _zitat_bauen(m, art, einst)
+    text = ((zitat + "\n" + _signatur(einst)) if einst["zitat"] == "oben"
+            else (_signatur(einst) + "\n" + zitat))
+    return {
+        "ok": True, "art": art, "an": an, "kopie": kopie, "betreff": betreff,
+        "text": text,
+        "in_antwort_auf": m.get("message_id") or "",
+        "quelle": {"ordner": ordner, "uid": uid},
+        # Forwarding without the attachment is the classic complaint. They are
+        # offered, ticked on, and fetched from the server only when sending.
+        "anhaenge": (m.get("anhaenge") or []) if art == "weiter" else [],
+    }
+
+
+def _signatur(einst: dict) -> str:
+    sig = str(einst.get("signatur") or "").strip("\n")
+    return ("\n-- \n" + sig + "\n") if sig else "\n"
+
+
+def _zitat_bauen(m: dict, art: str, einst: dict) -> str:
+    text = m.get("text") or ""
+    if not text and m.get("html"):
+        # A mail with HTML only still has to be quotable. The tags come out, the
+        # sentences stay.
+        text = _html.unescape(re.sub(r"<[^>]+>", "", m["html"]))
+        text = re.sub(r"\n{3,}", "\n\n", text)
+    text = text.strip("\n")
+    wann = _datum_lesbar(m.get("zeit") or "", einst)
+    if art == "weiter":
+        kopf = [txt("k.weiter_kopf"),
+                "%s: %s <%s>" % (txt("k.von"), m.get("von") or "", m.get("adresse") or ""),
+                "%s: %s" % (txt("k.datum"), wann),
+                "%s: %s" % (txt("k.betreff"), m.get("betreff") or "")]
+        empfaenger = ", ".join(a["adresse"] for a in m.get("an") or [])
+        if empfaenger:
+            kopf.append("%s: %s" % (txt("k.an"), empfaenger))
+        return "\n" + "\n".join(kopf) + "\n\n" + text + "\n"
+    kopf = (txt("k.zitat_kopf", datum=wann, wer=m.get("von") or m.get("adresse") or "")
+            if einst.get("zitat_kopf") else "")
+    zitiert = "\n".join("> " + z for z in text.splitlines())
+    return ("\n" + (kopf + "\n" if kopf else "") + zitiert + "\n")
+
+
+def _datum_lesbar(iso: str, einst: dict) -> str:
+    try:
+        d = datetime.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return iso or ""
+    form = "%d.%m.%Y, %H:%M" if einst.get("zeitform") == "24" else "%d.%m.%Y, %I:%M %p"
+    return d.strftime(form)
+
+
+def _adressen_aus(feld: str) -> list:
+    """„Name <a@b>, c@d" as a list — through `getaddresses`, not through
+    `split(",")`.
+
+    A QUOTED display name may contain a comma (`"Meier, Anna" <a@b>`), and cutting
+    on the comma would make two broken recipients out of it. Unquoted, the comma
+    really is a separator — which is why `formataddr()` puts the quotes in when a
+    name needs them, instead of hoping it does not.
+    """
+    raus = []
+    for name, adresse in email.utils.getaddresses([str(feld or "")]):
+        adresse = (adresse or "").strip()
+        if adresse and "@" in adresse:
+            raus.append(email.utils.formataddr((name.strip(), adresse)))
+    return raus
+
+
+def _nur_adressen(felder: list) -> list:
+    return [a for _, a in email.utils.getaddresses(felder) if a and "@" in a]
+
+
+def _brief_bauen(d: dict, pf_id: str, einst: dict) -> tuple:
+    """Assemble the mail. Returns (message, recipients, error)."""
+    s = smtp_zugang(pf_id)
+    an = _adressen_aus(d.get("an"))
+    kopie = _adressen_aus(d.get("kopie"))
+    blind = _adressen_aus(d.get("blind"))
+    if einst.get("blind_kopie_selbst") and s.get("adresse"):
+        blind.append(s["adresse"])
+    if not (an or kopie or blind):
+        return None, [], txt("k.kein_empfaenger")
+    msg = EmailMessage()
+    msg["From"] = email.utils.formataddr(
+        (s.get("absender_name") or "", s.get("adresse") or ""))
+    if an:
+        msg["To"] = ", ".join(an)
+    if kopie:
+        msg["Cc"] = ", ".join(kopie)
+    if blind:
+        msg["Bcc"] = ", ".join(blind)
+    if einst.get("antwort_an"):
+        msg["Reply-To"] = str(einst["antwort_an"])
+    msg["Subject"] = str(d.get("betreff") or "")
+    msg["Date"] = email.utils.formatdate(localtime=True)
+    bereich = (s.get("adresse") or "@localhost").split("@")[-1]
+    msg["Message-Id"] = email.utils.make_msgid(domain=bereich)
+    bezug = str(d.get("in_antwort_auf") or "").strip()
+    if bezug:
+        msg["In-Reply-To"] = bezug
+        msg["References"] = bezug
+    # 🔑 A mail program names itself. Not vanity: when something arrives
+    # malformed somewhere, this line is the first clue as to who built it.
+    msg["X-Mailer"] = "Postwache %s" % (W._version() if W is not None else "")
+    msg.set_content(str(d.get("text") or ""), subtype="plain", charset="utf-8")
+    grenze = min(int(einst.get("anhang_grenze") or 25) * 1024 * 1024, MAX_ANHANG)
+    summe = 0
+    for a in (d.get("anhaenge") or [])[:40]:
+        try:
+            roh = base64.b64decode(str(a.get("b64") or ""), validate=False)
+        except Exception:
+            return None, [], txt("k.anhang_kaputt", n=str(a.get("name") or "?"))
+        summe += len(roh)
+        if summe > grenze:
+            return None, [], txt("k.anhang_gross", mb=grenze // (1024 * 1024))
+        typ, _, unter = _mime_raten(str(a.get("name") or "datei"),
+                                    str(a.get("typ") or ""))
+        msg.add_attachment(roh, maintype=typ, subtype=unter,
+                           filename=str(a.get("name") or "datei")[:200])
+    # Forwarded attachments come from the server, not from the browser — nobody
+    # has to download and re-upload them.
+    for u in (d.get("uebernahme") or [])[:40]:
+        roh = tu(pf_id, lambda k, u=u: (k.waehle(str(u.get("ordner") or "INBOX")),
+                                        k.teil_holen(int(u.get("uid") or 0),
+                                                     str(u.get("t") or "1"),
+                                                     str(u.get("k") or "")))[1])
+        if not roh:
+            continue
+        summe += len(roh)
+        if summe > grenze:
+            return None, [], txt("k.anhang_gross", mb=grenze // (1024 * 1024))
+        typ, _, unter = _mime_raten(str(u.get("n") or "datei"), str(u.get("m") or ""))
+        msg.add_attachment(roh, maintype=typ, subtype=unter,
+                           filename=str(u.get("n") or "datei")[:200])
+    return msg, _nur_adressen(an + kopie + blind), ""
+
+
+def _mime_raten(name: str, angabe: str) -> tuple:
+    """(maintype, full, subtype) — the declared type if it is usable, otherwise
+    guessed from the extension, otherwise the neutral one that every mail program
+    understands."""
+    voll = (angabe or "").split(";")[0].strip().lower()
+    if "/" not in voll:
+        voll = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    haupt, _, unter = voll.partition("/")
+    haupt = re.sub(r"[^a-z0-9.+-]", "", haupt) or "application"
+    unter = re.sub(r"[^a-z0-9.+-]", "", unter) or "octet-stream"
+    return haupt, voll, unter
+
+
+def senden(d: dict) -> dict:
+    """Send — and only then everything that goes with it: the copy into the sent
+    folder, the „answered" mark on the original, the draft removed.
+
+    🔴 In that order. Whoever files the copy first and then fails to send has a
+    mail in the sent folder that was never sent — and that is the one error nobody
+    checks for.
+    """
+    pf_id = str(d.get("pf") or "")
+    einst = einstellungen()
+    s = smtp_zugang(pf_id)
+    if not s or not s["server"]:
+        return {"ok": False, "text": txt("k.smtp_kein_server")}
+    msg, empfaenger, fehler = _brief_bauen(d, pf_id, einst)
+    if fehler:
+        return {"ok": False, "text": fehler}
+    fuer_ablage = msg.as_bytes()
+    del msg["Bcc"]                  # a blind copy stays blind on the wire
+    try:
+        verbindung = _smtp_verbinden(s)
+    except smtplib.SMTPAuthenticationError:
+        return {"ok": False, "text": txt("k.smtp_anmeldung")}
+    except Exception as e:
+        return {"ok": False, "text": txt("k.smtp_fehler", fehler=str(e)[:160])}
+    try:
+        verwehrt = verbindung.send_message(msg, from_addr=s["adresse"],
+                                           to_addrs=empfaenger)
+    except Exception as e:
+        try:
+            verbindung.quit()
+        except Exception:
+            pass
+        return {"ok": False, "text": txt("k.smtp_fehler", fehler=str(e)[:160])}
+    try:
+        verbindung.quit()
+    except Exception:
+        pass
+    nachwort = []
+    if verwehrt:
+        # Partly delivered is not „sent". Naming who was refused is the whole
+        # difference between a report and a green tick.
+        nachwort.append(txt("k.teils_verwehrt", wer=", ".join(sorted(verwehrt))[:200]))
+    if einst.get("kopie_gesendet"):
+        ziel = _rollen_ordner(pf_id, "gesendet")
+        if ziel and tu(pf_id, lambda k: k.anhaengen(ziel, fuer_ablage, "(\\Seen)")):
+            nachwort.append(txt("k.kopie_gelegt", o=utf7_dekodieren(ziel)))
+        else:
+            nachwort.append(txt("k.kopie_fehl_ordner"))
+    quelle = d.get("quelle") or {}
+    if quelle.get("uid"):
+        try:
+            tu(pf_id, lambda k: k.flagge(str(quelle.get("ordner") or "INBOX"),
+                                         [int(quelle["uid"])], "\\Answered", True))
+        except Exception as e:
+            log("Antwort-Marke nicht gesetzt: %s" % str(e)[:100])
+    if d.get("entwurf_uid"):
+        entwuerfe = _rollen_ordner(pf_id, "entwuerfe")
+        if entwuerfe:
+            try:
+                tu(pf_id, lambda k: (k.flagge(entwuerfe, [int(d["entwurf_uid"])],
+                                              "\\Deleted", True),
+                                     k.m.expunge()))
+            except Exception as e:
+                log("Entwurf nicht entfernt: %s" % str(e)[:100])
+    if W is not None:
+        # 🔑 The chronicle carries WHO was written to, never WHAT. The body is
+        # stored nowhere — that holds for the outgoing direction too.
+        W.chronik("klient_gesendet", n=len(empfaenger),
+                  text="%d Empfänger" % len(empfaenger))
+    return {"ok": True, "text": " ".join([txt("k.gesendet")] + nachwort)}
+
+
+def entwurf_speichern(d: dict) -> dict:
+    """Put the draft into the drafts folder — the only place it is safe. A text in
+    a browser tab is gone with the tab."""
+    pf_id = str(d.get("pf") or "")
+    einst = einstellungen()
+    msg, _, fehler = _brief_bauen(dict(d, an=d.get("an") or "niemand@invalid"),
+                                  pf_id, einst)
+    if fehler and not msg:
+        return {"ok": False, "text": fehler}
+    ziel = _rollen_ordner(pf_id, "entwuerfe")
+    if not ziel:
+        return {"ok": False, "text": txt("k.kein_entwurfsordner")}
+    if d.get("entwurf_uid"):
+        try:
+            tu(pf_id, lambda k: (k.flagge(ziel, [int(d["entwurf_uid"])],
+                                          "\\Deleted", True), k.m.expunge()))
+        except Exception:
+            pass
+    ok = tu(pf_id, lambda k: k.anhaengen(ziel, msg.as_bytes(), "(\\Draft)"))
+    return ({"ok": True, "text": txt("k.entwurf_gelegt", o=utf7_dekodieren(ziel))}
+            if ok else {"ok": False, "text": txt("k.entwurf_fehl")})
+
+
+def _rollen_ordner(pf_id: str, rolle: str) -> str:
+    """Which folder plays a role — set by hand, otherwise recognised, otherwise
+    created for the two that a client cannot do without."""
+    einst = einstellungen()
+    gesetzt = str(einst.get("ordner_" + rolle) or "").strip()
+    if gesetzt:
+        return gesetzt
+    baum = tu(pf_id, lambda k: k.baum())
+    for o in baum:
+        if o["rolle"] == rolle:
+            return o["name"]
+    if rolle in ("gesendet", "entwuerfe"):
+        name = {"gesendet": "Sent", "entwuerfe": "Drafts"}[rolle]
+        neu = tu(pf_id, lambda k: k.ordner_neu(name))
+        return neu.get("name") or ""
+    return ""
+
+
+# ── What the page asks for ──────────────────────────────────────────────
+def lage(pf_id: str) -> dict:
+    """Everything the client needs to draw itself once."""
+    zug = _zugang(pf_id)
+    faehig = {}
+    ordner = []
+    try:
+        ordner = tu(pf_id, lambda k: k.baum())
+        faehig = tu(pf_id, lambda k: {"sort": k.kann("SORT"), "move": k.kann("MOVE"),
+                                      "trenner": k.trenner})
+    except Exception as e:
+        return {"ok": False, "text": str(e)[:200], "einst": einstellungen(),
+                "ordner": [], "faehig": {}}
+    return {
+        "ok": True, "einst": einstellungen(), "ordner": ordner, "faehig": faehig,
+        "oberflaeche": oberflaeche(),
+        "adresse": zug.get("adresse") or "", "name": zug.get("name") or "",
+        "smtp": _smtp_kurz(pf_id),
+        "rollen": {r: next((o["name"] for o in ordner if o["rolle"] == r), "")
+                   for r in ("posteingang", "gesendet", "entwuerfe", "papierkorb",
+                             "spam", "archiv")},
+    }
+
+
+def liste(d: dict) -> dict:
+    """One page of a folder.
+
+    🔑 Paging happens on the UID list, not on the fetched mails: the list of
+    numbers costs one command even with six thousand mails, the headers only for
+    the fifty being shown. That is the difference between a client that opens and
+    one you wait for.
+    """
+    pf_id = str(d.get("pf") or "")
+    ordner = str(d.get("ordner") or "INBOX")
+    einst = einstellungen()
+    sieb = str(d.get("sieb") or "")
+    suche = str(d.get("suche") or "").strip()[:200]
+    feld = str(d.get("feld") or "alle")
+    sortierung = str(d.get("sortierung") or einst["sortierung"])
+    richtung = str(d.get("richtung") or einst["richtung"])
+    try:
+        pro = max(10, min(200, int(d.get("pro_seite") or einst["pro_seite"])))
+        seite = max(1, int(d.get("seite") or 1))
+    except (TypeError, ValueError):
+        pro, seite = einst["pro_seite"], 1
+
+    def arbeit(k):
+        uids, echt = k.uids(ordner, sieb, suche, feld, sortierung, richtung)
+        gesamt = len(uids)
+        seiten = max(1, (gesamt + pro - 1) // pro)
+        nr = min(seite, seiten)
+        teil = uids[(nr - 1) * pro:nr * pro]
+        koepfe = k.koepfe(teil)
+        gesamt_o, ungelesen_o = k.zaehlen(ordner)
+        return {
+            "ok": True, "ordner": ordner, "gesamt": gesamt, "seite": nr,
+            "seiten": seiten, "pro_seite": pro, "sortiert": echt,
+            "ordner_gesamt": gesamt_o, "ordner_ungelesen": ungelesen_o,
+            # In the order the server gave them — a dictionary has no order and
+            # would show the newest mail somewhere in the middle.
+            "mails": [koepfe[u] for u in teil if u in koepfe],
+        }
+    return tu(pf_id, arbeit)
+
+
+def _bilder_erlaubt(pf_id: str, adresse: str, wunsch) -> bool:
+    """Remote images: off by default, because a remote image is a receipt that the
+    mail was opened, at the exact second it was opened.
+
+    „bekannte" means: someone this mailbox has already received several mails
+    from — the watchman's long-term memory answers that, it has been keeping it
+    for weeks."""
+    if wunsch is not None:
+        return bool(wunsch)
+    regel = einstellungen()["bilder"]
+    if regel == "immer":
+        return True
+    if regel == "nie":
+        return False
+    W.pf_waehlen(pf_id)
+    prof = W.load(W.ABSENDER, {}) or {}
+    eintrag = prof.get((adresse or "").lower()) if isinstance(prof, dict) else None
+    return bool(isinstance(eintrag, dict) and int(eintrag.get("n") or 0) >= 2)
+
+
+def mail_zeigen(d: dict) -> dict:
+    """One mail, ready to display — including the finished frame document.
+
+    🔴 THE one place that turns „displayed" into „read", and only when the setting
+    says „at once". Everything else (after N seconds, by hand) is a deliberate call
+    from the page. One place decides, not four.
+    """
+    pf_id = str(d.get("pf") or "")
+    ordner = str(d.get("ordner") or "INBOX")
+    uid = int(d.get("uid") or 0)
+    einst = einstellungen()
+    wunsch = d.get("bilder")
+    m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=False))
+    if not m:
+        return {"ok": False, "text": txt("k.mail_weg")}
+    bilder = _bilder_erlaubt(pf_id, m.get("adresse") or "", wunsch)
+    if bilder and m.get("hat_html"):
+        m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=True))
+    ansicht = str(d.get("ansicht") or "")
+    if not ansicht:
+        ansicht = "html" if (m.get("hat_html") and einst["html_zuerst"]) else "text"
+    if ansicht == "html" and not m.get("hat_html"):
+        ansicht = "text"
+    if ansicht == "html":
+        inhalt = m["html"]
+    else:
+        text = m.get("text") or ""
+        if not text and m.get("hat_html"):
+            text = _html.unescape(re.sub(r"<[^>]+>", " ", m.get("html") or ""))
+            text = re.sub(r"[ \t]{2,}", " ", re.sub(r"\n{3,}", "\n\n", text))
+        inhalt = '<div class="pw-text">%s</div>' % text_zu_html(text)
+    m["ansicht"] = ansicht
+    m["bilder"] = bilder
+    m["rahmen"] = rahmen(inhalt, bilder)
+    m["ok"] = True
+    if einst["gelesen_nach"] == 0 and not m.get("gelesen"):
+        try:
+            tu(pf_id, lambda k: k.flagge(ordner, [uid], "\\Seen", True))
+            m["gelesen"] = True
+        except Exception as e:
+            log("Gelesen-Marke nicht gesetzt: %s" % str(e)[:100])
+    # The watchman's opinion — where it would file this sender, and why. That is
+    # the one thing no other mail program can show.
+    if einst["wache_grund"]:
+        m["wache"] = wache_urteil(pf_id, m.get("adresse") or "")
+    return m
+
+
+def wache_urteil(pf_id: str, adresse: str) -> dict:
+    """Where the watchman would file this sender — out of ITS learned map, not out
+    of a second opinion of my own."""
+    if not adresse or W is None:
+        return {}
+    W.pf_waehlen(pf_id)
+    karte = W.load(W.ABLAGE, {}) or {}
+    try:
+        ordner, grund, sicher, darf = W.ziel_finden(karte, adresse.lower())
+    except Exception:
+        return {}
+    prof = W.load(W.ABSENDER, {}) or {}
+    eintrag = prof.get(adresse.lower()) if isinstance(prof, dict) else {}
+    klassen = (eintrag or {}).get("klassen") or {}
+    return {"ordner": ordner or "", "zeige": utf7_dekodieren(ordner or ""),
+            "grund": grund, "sicher": int(sicher or 0), "darf": bool(darf),
+            "gesehen": int((eintrag or {}).get("n") or 0),
+            "klasse": max(klassen, key=klassen.get) if klassen else ""}
+
+
+def flaggen(d: dict) -> dict:
+    """Set or clear a flag on one or several mails."""
+    pf_id = str(d.get("pf") or "")
+    ordner = str(d.get("ordner") or "INBOX")
+    uids = [int(u) for u in (d.get("uids") or []) if str(u).isdigit()]
+    welche = {"gelesen": "\\Seen", "markiert": "\\Flagged",
+              "beantwortet": "\\Answered", "geloescht": "\\Deleted"}
+    flagge = welche.get(str(d.get("was") or ""))
+    if not flagge or not uids:
+        return {"ok": False, "text": txt("k.nichts_gewaehlt")}
+    n = tu(pf_id, lambda k: k.flagge(ordner, uids, flagge, bool(d.get("an"))))
+    return {"ok": bool(n), "n": n}
+
+
+def verschieben(d: dict) -> dict:
+    pf_id = str(d.get("pf") or "")
+    ordner = str(d.get("ordner") or "INBOX")
+    ziel = str(d.get("ziel") or "")
+    uids = [int(u) for u in (d.get("uids") or []) if str(u).isdigit()]
+    if not uids:
+        return {"ok": False, "text": txt("k.nichts_gewaehlt")}
+    if ziel == ordner:
+        return {"ok": False, "text": txt("k.selbes_ziel")}
+    erg = tu(pf_id, lambda k: k.verschieben_viele(ordner, uids, ziel))
+    if erg.get("ok") and W is not None:
+        W.chronik("klient_verschoben", n=erg["n"],
+                  text="%d nach %s" % (erg["n"], utf7_dekodieren(ziel)))
+    if erg.get("ok"):
+        erg["text"] = txt("k.verschoben", n=erg["n"], o=utf7_dekodieren(ziel))
+        # For the way back — the same principle as the watchman's journal: whoever
+        # can move must be able to undo it.
+        erg["zurueck"] = {"ordner": ziel, "ziel": ordner, "uids": []}
+    return erg
+
+
+def loeschen(d: dict) -> dict:
+    """Delete — and „delete" means two different things.
+
+    🔴 Normally into the bin: reversible, and that is the point. Only for a mail
+    that is ALREADY in the bin, or when the setting says so, is `\\Deleted` set —
+    and `EXPUNGE` runs only when it was explicitly asked for. The watchman has
+    never deleted anything and still does not; this is the reader's hand.
+    """
+    pf_id = str(d.get("pf") or "")
+    ordner = str(d.get("ordner") or "INBOX")
+    uids = [int(u) for u in (d.get("uids") or []) if str(u).isdigit()]
+    if not uids:
+        return {"ok": False, "text": txt("k.nichts_gewaehlt")}
+    einst = einstellungen()
+    korb = _rollen_ordner(pf_id, "papierkorb")
+    endgueltig = bool(d.get("endgueltig")) or einst["papierkorb"] == "flagge" \
+        or not korb or korb == ordner
+    if not endgueltig:
+        erg = tu(pf_id, lambda k: k.verschieben_viele(ordner, uids, korb))
+        if erg.get("ok"):
+            erg["text"] = txt("k.in_korb", n=erg["n"], o=utf7_dekodieren(korb))
+        return erg
+
+    def arbeit(k):
+        n = k.flagge(ordner, uids, "\\Deleted", True)
+        if d.get("endgueltig") or einst["papierkorb"] != "flagge":
+            k.m.expunge()
+        return n
+    n = tu(pf_id, arbeit)
+    if W is not None and n:
+        W.chronik("klient_geloescht", n=n, text="%d endgültig" % n)
+    return {"ok": bool(n), "n": n, "text": txt("k.geloescht", n=n)}
+
+
+def ordner_neu(d: dict) -> dict:
+    return tu(str(d.get("pf") or ""), lambda k: k.ordner_neu(str(d.get("name") or "")))
+
+
+def adressbuch(d: dict) -> dict:
+    """Who has written here before — the address book nobody had to maintain.
+
+    🔑 The watchman has been keeping `absender.json` for weeks: address, name, how
+    often, when last. That IS the address book, and it is more accurate than one
+    kept by hand.
+    """
+    frage = str(d.get("q") or "").strip().lower()
+    W.pf_waehlen(str(d.get("pf") or ""))
+    prof = W.load(W.ABSENDER, {}) or {}
+    treffer = []
+    for adresse, e in (prof.items() if isinstance(prof, dict) else ()):
+        if not isinstance(e, dict) or "@" not in str(adresse):
+            continue
+        name = str(e.get("name") or "")
+        if frage and frage not in str(adresse).lower() and frage not in name.lower():
+            continue
+        treffer.append({"adresse": adresse, "name": name,
+                        "n": int(e.get("n") or 0), "zuletzt": e.get("zuletzt") or ""})
+    treffer.sort(key=lambda t: (-t["n"], t["adresse"]))
+    return {"ok": True, "treffer": treffer[:12]}
+
+
+def anhang(pf_id: str, ordner: str, uid: int, nr: str, kodierung: str,
+           name: str) -> tuple:
+    """One attachment as (file name, type, bytes)."""
+    roh = tu(pf_id, lambda k: (k.waehle(ordner), k.teil_holen(uid, nr, kodierung))[1])
+    typ = mimetypes.guess_type(name or "datei")[0] or "application/octet-stream"
+    return (name or "anhang"), typ, roh
+
+
+def bild(pf_id: str, ordner: str, uid: int, cid: str) -> tuple:
+    """An inline image out of the mail — found by its Content-ID, which is what the
+    HTML refers to."""
+    def arbeit(k):
+        k.waehle(ordner)
+        struct = k.strukturen([uid]).get(uid)
+        for t in (W._teile(struct) if struct else []):
+            if str(t.get("id") or "").strip("<>") == cid and t["typ"].upper() == "IMAGE":
+                return (("%s/%s" % (t["typ"], t["subtyp"])).lower(),
+                        k.teil_holen(uid, t["nr"], t["kodierung"]))
+        return "", b""
+    return tu(pf_id, arbeit)
+
+
+def roh_text(pf_id: str, ordner: str, uid: int) -> bytes:
+    return tu(pf_id, lambda k: k.roh(ordner, uid))

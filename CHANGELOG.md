@@ -7,6 +7,90 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.0.0] – 2026-09-28
+
+### The Postwache becomes a mail client
+The watchman stays exactly what it was. Next to it there is now a full client:
+folder tree, list, preview pane, search, reply, forward, attachments, drafts,
+sending — and some thirty switches that set all of it.
+
+| | |
+|---|---|
+| `klient.py` | the engine: IMAP access, HTML cleaner, lock, outgoing mail |
+| `post_klient.html` | the wide version — three panes, keyboard shortcuts |
+| `post_mobil.html` | the phone version — one sheet at a time, bottom bar, swipe |
+| `probe_klient.py` | 172 probes against a **fake IMAP server** |
+
+### The lock is part of the feature, not an accessory
+Since 1.0 the overview page has shown subject and sender only, and the reason was
+written down: *not enough to spread an inbox across a web page **without a
+login***. A client shows the body — so it brings the login with it.
+
+* Access word, PBKDF2 with 240,000 rounds, `state/klient.json` at 0600.
+* Session as an `HttpOnly` cookie, `SameSite=Strict`, `Secure` only behind TLS.
+* A brake against guessing: from the fifth wrong try 30 s, then 60, 120, 300, 900
+  — per **address**, not per word.
+* **Every** client action and **every** file route (attachment, inline image,
+  source view) sits behind it. Measured against the running page: 16 of 19 actions
+  answer „locked" without a cookie; the three open ones are the door itself.
+* Optionally (off by default) the same word locks the **watchman page** as well —
+  and then `/api/lage` too, not merely the view.
+
+### Three walls around foreign HTML, not one
+1. An **allow list** rather than a block list (`HTMLParser`): what is not named
+   does not get through.
+2. A **`Content-Security-Policy`** inside the frame: `script-src 'none'`, and
+   `img-src` decides for the browser, not for the filter.
+3. The **`sandbox` attribute** without `allow-scripts`.
+
+Measured against twelve attacks — script, `onerror`, `javascript:`, nested frame,
+form, SVG with script, `meta refresh`, `@import`, `behavior:`, tracking pixel,
+remote background image. Remote images are **off**, and the count stands above the
+letter. A link whose text names a different domain than its target is reported, as
+are punycode hosts and bare IP addresses.
+
+### What this client can do that others cannot
+Next to every mail stands the **watchman's verdict**: which drawer, which folder,
+and why — out of its learned filing. One click files it there. The address book is
+`absender.json`: the watchman has kept it for weeks, nobody had to maintain it.
+
+### Room, and the phone
+* From 1400 px the folder column and the list grow, from 1800 px again. The
+  **letter keeps its measure** (74 characters): a 200-character line is harder to
+  read, not easier. HTML mail keeps its own width — a newsletter is built for
+  600 px.
+* The phone version is **not the wide page made narrow**: one sheet at a time, a
+  bar at the bottom (the top of a six-inch screen is out of thumb reach), finger
+  targets from 44 px, swipe right to archive and left to delete, safe-area insets,
+  16 px inputs so iOS does not zoom.
+* The switch follows the device — and a choice made by hand is **remembered**.
+
+### Three faults only the PICTURE showed
+* **„Ivo Sandstr��m".** `email.message_from_bytes()` reads header lines as ASCII
+  and replaces every other byte with U+FFFD — the information is gone **before**
+  anyone could decode it, and plenty of real mail sends its umlauts raw. The bytes
+  are now decoded first and parsed afterwards; the watchman benefits too.
+* **„09:44 AM" on a page set to 24 hours.** The clock followed the language
+  instead of the setting.
+* **„To: me" under every row of the inbox.** Of course it is. In the sent folder
+  the opposite holds — there the recipient is the only interesting name.
+
+### And two the test bench found
+* A stored outgoing server was **gone on the next read**: the mailbox record is
+  rebuilt from a fixed set of fields and everything else drops out silently.
+* **Renaming a mailbox deleted it as well.** A record you do not fully own is
+  extended, never rebuilt.
+
+### The probes
+A **fake IMAP server** records every command, a **fake SMTP server** accepts
+letters and throws them away. That makes the following measurable rather than
+claimed: not a single fetch without `BODY.PEEK`; browsing opens a folder with
+`EXAMINE` and only an action with `SELECT`; without `MOVE` it is copy → mark →
+expunge, in that order; **and if the copy fails, nothing is marked deleted and
+nothing is expunged**. The outgoing check logs in and hangs up — it sends nothing.
+A blind copy is in the filed copy but not in the sent mail. The history records
+**who**, never **what**.
+
 ## [4.6.0] – 2026-09-27
 
 ### The source is commented in English
