@@ -1765,6 +1765,9 @@ KLIENT_AKTIONEN = {
     "klient_ordner": lambda d, marke: {"ok": True, "ordner": KL.tu(
         _pf(d), lambda k: k.baum(bool(d.get("frisch"))))},
     "klient_liste": lambda d, marke: KL.liste(dict(d, pf=_pf(d))),
+    # Everything new, out of every folder at once — the view the watchman makes
+    # necessary, because it is the one that moved the new mail away.
+    "klient_neu": lambda d, marke: KL.neu_liste(dict(d, pf=_pf(d))),
     "klient_mail": lambda d, marke: KL.mail_zeigen(dict(d, pf=_pf(d))),
     "klient_flaggen": lambda d, marke: KL.flaggen(dict(d, pf=_pf(d))),
     "klient_verschieben": lambda d, marke: KL.verschieben(dict(d, pf=_pf(d))),

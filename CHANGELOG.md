@@ -7,6 +7,63 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.2.0] – 2026-09-28
+
+### ✨ Everything new, in one view
+
+Above the inbox there is now a view of its own. It gathers from **every** folder,
+and next to every line it says **where the mail is now**.
+
+🔑 **This is the view the watchman makes necessary.** It carries new post into
+its folders — and exactly because of that, "what came in" is no longer one folder
+but twelve.
+
+* Cheap by construction: the folder tree already knows the unread count of every
+  folder from `STATUS`, so on the default setting *unread* only folders that have
+  something unread are opened at all — usually two or three, not twenty.
+* Instead of "unread" it can also be *since yesterday*, *last 3 days*, *last 7
+  days* (IMAP `SINCE`). 🔴 That really means "since yesterday" and not "the last
+  24 hours": `SINCE` compares the **date**, without a time — and the labels say so.
+* Trash and drafts always stay out, junk on request.
+* A folder with 2,000 unread newsletters does not eat the budget: **every folder
+  gets the same share**, newest first, and when it had to cut, the line above
+  says so.
+* Sorted by **date** — the only order that means anything across folders. A UID
+  is only comparable inside its own folder.
+* Still `EXAMINE` and `BODY.PEEK`: looking changes nothing.
+
+🔴 **And the trap behind it:** in this view the twelve rows on screen live in six
+folders. Every action (flag, move, delete, open, reply, fetch an attachment) used
+to take the folder from the view — which would have hit the **wrong mail** in
+five cases out of six. Now one place answers it, and bulk actions are grouped by
+folder: inside a folder that is exactly one group and exactly one request, as
+before.
+
+### 🔴 The folder tree stood on its head
+
+The fold triangle was a **column that was only there sometimes**. A folder *with*
+children therefore stood 1.4 rem further right than its own children, which were
+indented one step **less**. The tree read inverted — and the indentation had been
+right all along.
+
+* The triangle is a **fixed column** on every row now, filled or empty.
+* 🔑 Depth is measured **relatively**: nearly every own folder sits under
+  `INBOX`, so counted absolutely the tree starts at step one and hangs in mid-air.
+  The shallowest own folder is the left edge.
+* **One branch per top-level folder**, with air between branches and a guide line
+  under the parent.
+* Role folders no longer fold: they are roles, not a hierarchy — and because they
+  are called `INBOX.Sent` on most servers, the inbox carried a triangle that took
+  every own folder with it when collapsed.
+
+### 🔴 Two places decided the same thing
+
+One function hid the folder controls, another put them back a millisecond later.
+The new view drew its own toolbar and got the other one on top of it. One place
+decides now; the other calls it.
+
+**Test bench:** `probe_klient.py` 200 → **216 probes**, all green.
+
 ## [5.1.0] – 2026-09-28
 
 ### 🔴 A void element must not open a region
