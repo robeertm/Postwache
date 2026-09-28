@@ -1293,6 +1293,47 @@ class Briefkasten(W.Postfach if W is not None else object):
         self.baum_stand = (0.0, [])
         return {"ok": True, "name": voll, "text": txt("k.ordner_da", o=pfad)}
 
+    def ordner_fort(self, name: str, mit_inhalt: bool = False) -> dict:
+        """Delete a folder, and say beforehand what that costs.
+
+        🔴 This is the one action in the whole client that cannot be taken back.
+        `DELETE` takes the mail with it; there is no trash for a folder. So:
+        children are refused (delete them yourself, one at a time, and see every
+        count), a folder that still holds mail is refused until the caller has
+        been told the number and says yes, and a special folder is never deleted
+        at all — every mail program on this mailbox expects it to be there.
+        """
+        alle = self.ordner_liste()
+        if name not in alle or name == "INBOX":
+            return {"ok": False, "text": txt("k.ordner_fort")}
+        rollen = {o["name"]: o["rolle"] for o in self.baum()}
+        if rollen.get(name):
+            return {"ok": False, "text": txt("k.ordner_fest")}
+        t = self.trenner
+        kinder = [o for o in alle if o.startswith(name + t)]
+        if kinder:
+            return {"ok": False, "text": txt("k.ordner_hat_kinder", n=len(kinder)),
+                    "kinder": len(kinder)}
+        mails = self.zaehlen(name)[0]
+        if mails and not mit_inhalt:
+            # Not a refusal — a QUESTION with the number in it. The page asks it
+            # and comes back with the answer.
+            return {"ok": False, "frage": True, "mails": mails,
+                    "text": txt("k.ordner_nicht_leer", n=mails)}
+        try:
+            self.m.unsubscribe(self._zitat(name))
+        except Exception:
+            pass
+        typ, _ = self.m.delete(self._zitat(name))
+        if typ != "OK":
+            return {"ok": False, "text": txt("k.ordner_fort_ging_nicht")}
+        self.baum_stand = (0.0, [])
+        if self.ordner == name:
+            self.ordner = ""
+        return {"ok": True, "name": name, "mails": mails,
+                "text": txt("k.ordner_ist_fort",
+                            o=utf7_dekodieren(name.rsplit(t, 1)[-1]), n=mails)}
+
 
 # ── Small helpers ───────────────────────────────────────────────────────
 def _zeitpunkt(datum: str) -> str:
@@ -2882,8 +2923,47 @@ def loeschen(d: dict) -> dict:
     return {"ok": bool(n), "n": n, "text": txt("k.geloescht", n=n)}
 
 
+def _wache_abgleichen(pf_id: str) -> dict:
+    """Tell the watchman which folders exist NOW.
+
+    🔑 One function for all three cases — created, deleted, moved. It does not
+    ask what happened; it asks the server what IS. That is also the only answer
+    that covers a folder somebody deleted in a completely different mail program.
+    """
+    if W is None:
+        return {}
+    try:
+        W.pf_waehlen(pf_id)
+        return W.ordner_abgleichen(tu(pf_id, lambda k: k.ordner_liste()))
+    except Exception as e:                              # noqa: BLE001
+        log("Ordnerabgleich nicht moeglich: %s" % str(e)[:140])
+        return {"fehler": str(e)[:140]}
+
+
 def ordner_neu(d: dict) -> dict:
-    return tu(str(d.get("pf") or ""), lambda k: k.ordner_neu(str(d.get("name") or "")))
+    antwort = tu(str(d.get("pf") or ""),
+                 lambda k: k.ordner_neu(str(d.get("name") or "")))
+    if antwort.get("ok"):
+        # 🔑 At once, not at the next learning run: an empty folder called
+        # „Steuer" can take post from `steuer@…` the minute it exists — but only
+        # if the map knows that it is there.
+        antwort["wache"] = _wache_abgleichen(str(d.get("pf") or ""))
+    return antwort
+
+
+def ordner_loeschen(d: dict) -> dict:
+    """Delete a folder, and let the watchman forget it in the same breath."""
+    pf_id = str(d.get("pf") or "")
+    antwort = tu(pf_id, lambda k: k.ordner_fort(str(d.get("ordner") or ""),
+                                                bool(d.get("mit_inhalt"))))
+    if antwort.get("ok"):
+        antwort["wache"] = _wache_abgleichen(pf_id)
+        if W is not None:
+            try:
+                W.chronik("klient_ordner_fort", text=str(d.get("ordner") or ""))
+            except Exception:
+                pass
+    return antwort
 
 
 def _einst_ordner_umschreiben(alt: str, neu: str, trenner: str) -> int:
@@ -2943,6 +3023,9 @@ def ordner_ziehen(d: dict) -> dict:
             # has moved, the watchman has not understood it yet.
             log("Wache nicht nachgezogen: %s" % str(e)[:140])
             antwort["wache_fehler"] = str(e)[:140]
+    # The tree has a new shape: one path gone, one path new. Same question,
+    # same answer — ask the server what IS.
+    _wache_abgleichen(pf_id)
     zeige = utf7_dekodieren(antwort["neu"].rsplit(trenner, 1)[-1])
     unter = antwort["neu"].rsplit(trenner, 1)[0] if trenner in antwort["neu"] else ""
     antwort["text"] = txt("k.ordner_gezogen", o=zeige,

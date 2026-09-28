@@ -161,6 +161,10 @@ class FalscherIMAP(threading.Thread):
         self.zahlen = {"MESSAGES": 3, "UNSEEN": 1, "UIDNEXT": 104}
         self.ordner = list(ORDNER)          # this server's own tree, it can change
         self.umbenannt = []
+        # 🔴 A folder created a moment ago is EMPTY. A fake server that answers
+        # „3 mails" for every folder in the world cannot tell the probe whether
+        # the question before deleting is asked for the right reason.
+        self.frisch = set()
         self.idle_an = threading.Event()     # set while a connection is idling
         self.idle_datei = None
         self.schreibt = threading.Lock()
@@ -223,9 +227,10 @@ class FalscherIMAP(threading.Thread):
                  % (marke, "ONLY" if wort == "EXAMINE" else "WRITE"))
         elif wort == "STATUS":
             name = (re.findall(r'"([^"]*)"', args) or ["INBOX"])[0]
+            leer = name in self.frisch
             raus('* STATUS "%s" (MESSAGES %d UNSEEN %d UIDNEXT %d)\r\n'
-                 % (name, self.zahlen["MESSAGES"], self.zahlen["UNSEEN"],
-                    self.zahlen["UIDNEXT"]),
+                 % (name, 0 if leer else self.zahlen["MESSAGES"],
+                    0 if leer else self.zahlen["UNSEEN"], self.zahlen["UIDNEXT"]),
                  "%s OK fertig\r\n" % marke)
         elif wort == "NOOP":
             raus("%s OK fertig\r\n" % marke)
@@ -249,7 +254,19 @@ class FalscherIMAP(threading.Thread):
                 self.idle_an.clear()
                 self.idle_datei = None
             raus("%s OK fertig\r\n" % marke)
-        elif wort in ("CREATE", "SUBSCRIBE", "UNSUBSCRIBE"):
+        elif wort in ("SUBSCRIBE", "UNSUBSCRIBE"):
+            raus("%s OK fertig\r\n" % marke)
+        elif wort == "CREATE":
+            # 🔴 A fake server that says OK and forgets proves nothing: the very
+            # point of creating a folder is that the next LIST has it in it.
+            name = (re.findall(r'"([^"]*)"', args) or [""])[0]
+            if name and name not in [n for _, n in self.ordner]:
+                self.ordner.append((r"\HasNoChildren", name))
+                self.frisch.add(name)
+            raus("%s OK fertig\r\n" % marke)
+        elif wort == "DELETE":
+            name = (re.findall(r'"([^"]*)"', args) or [""])[0]
+            self.ordner = [(f, n) for f, n in self.ordner if n != name]
             raus("%s OK fertig\r\n" % marke)
         elif wort == "RENAME":
             # 🔑 The real server moves the folder, its mail and its subfolders in
@@ -1154,6 +1171,79 @@ belegt = K.ordner_ziehen({"pf": "zug", "ordner": "INBOX.Gel&APY-schtes.Synology"
                           "ziel": "INBOX.Gel&APY-schtes"})
 probe("an denselben Platz noch einmal geht nicht", belegt["ok"] is False,
       belegt.get("text", "")[:40])
+# ── Created and deleted, and what the watchman learns from it ─────────────
+# der Besitzer, 28.09.2026: „und wenn man von hand ordner löscht oder neu anlegt muss
+# die postwache das auch lernen!!" (his words stay his words)
+K.W.pf_waehlen("zug")
+K.W.save("ablage.json", {
+    "absender": {"anna@erfunden.example": {"ordner": "INBOX.Gel&APY-schtes.Synology",
+                                           "treffer": 9, "gesamt": 9},
+                 "bea@erfunden.example": {"ordner": "INBOX.Gesendet",
+                                          "treffer": 4, "gesamt": 4}},
+    "domain": {}, "haupt": {}, "v_absender": {}, "v_domain": {}, "v_haupt": {},
+    "ordner": {"INBOX.Gel&APY-schtes.Synology": 41, "INBOX.Gesendet": 12},
+    "namen": {"synology": "INBOX.Gel&APY-schtes.Synology"},
+    "schwaechen": {"fast_leere_ordner": [], "leere_ordner": []},
+    "gelernt": "2026-09-28T12:00:00"})
+
+erg = K.ordner_neu({"pf": "zug", "name": "Steuer"})
+probe("ein neuer Ordner wird angelegt", erg["ok"] is True, erg.get("text"))
+karte = K.W.load("ablage.json", {})
+probe("die Wache kennt den neuen Ordner SOFORT",
+      "INBOX.Steuer" in (karte.get("ordner") or {}),
+      ", ".join(sorted(karte.get("ordner") or {})[:4]))
+probe("er zaehlt null Mails — und ist trotzdem ein Ziel",
+      (karte.get("ordner") or {}).get("INBOX.Steuer") == 0)
+# 🔑 That is the whole point: the name bridge hangs only on the NAME, so an
+#    empty folder „Steuer" can take post from `steuer@…` from its first second.
+probe("die Namensbruecke nimmt ihn auf",
+      (karte.get("namen") or {}).get("steuer") == "INBOX.Steuer",
+      str((karte.get("namen") or {}).get("steuer")))
+
+# 🔴 Now the other direction: a folder disappears — here by a foreign hand,
+#    exactly as it happens when it is deleted in another mail program.
+server6.ordner = [(f, n) for f, n in server6.ordner
+                  if n != "INBOX.Gel&APY-schtes.Synology"]
+bericht = K._wache_abgleichen("zug")
+karte = K.W.load("ablage.json", {})
+probe("ein fremd geloeschter Ordner faellt aus der Ablage",
+      "INBOX.Gel&APY-schtes.Synology" not in (karte.get("ordner") or {}),
+      "fort %s, neu %s" % (bericht.get("fort"), bericht.get("neu")))
+probe("und die REGEL, die auf ihn zeigte, faellt mit",
+      "anna@erfunden.example" not in (karte.get("absender") or {}),
+      ", ".join(sorted(karte.get("absender") or {})))
+# 🔴 This is the reason: a rule naming a folder that is gone makes the filing
+#    FAIL — every five minutes again, and nobody sees it but the log.
+probe("eine Regel auf einen Ordner, den es noch gibt, bleibt",
+      "bea@erfunden.example" in (karte.get("absender") or {}))
+probe("die Namensbruecke verliert ihn ebenfalls",
+      "synology" not in (karte.get("namen") or {}))
+
+# Deleted by the client itself — with the number in the question.
+frage = K.ordner_loeschen({"pf": "zug", "ordner": "INBOX.Steuer"})
+probe("ein leerer Ordner wird ohne Rueckfrage geloescht", frage.get("ok") is True,
+      frage.get("text"))
+karte = K.W.load("ablage.json", {})
+probe("und die Wache vergisst ihn in derselben Bewegung",
+      "INBOX.Steuer" not in (karte.get("ordner") or {}))
+K.ordner_neu({"pf": "zug", "name": "Steuer"})
+K.ordner_neu({"pf": "zug", "name": "Steuer/Belege"})
+eltern = K.ordner_loeschen({"pf": "zug", "ordner": "INBOX.Steuer"})
+probe("ein Ordner mit Unterordnern wird nicht geloescht",
+      eltern["ok"] is False and eltern.get("kinder") == 1, eltern.get("text", "")[:50])
+K.ordner_loeschen({"pf": "zug", "ordner": "INBOX.Steuer.Belege"})
+K.ordner_loeschen({"pf": "zug", "ordner": "INBOX.Steuer"})
+fest = K.ordner_loeschen({"pf": "zug", "ordner": "INBOX.Gesendet"})
+probe("ein Sonderordner wird nicht geloescht", fest["ok"] is False)
+# 🔴 An empty LIST is a failed request, NOT an empty mailbox — otherwise one
+#    hiccup at the provider would wipe the whole learned map.
+vorher = dict(K.W.load("ablage.json", {}).get("ordner") or {})
+K.W.ordner_abgleichen([])
+probe("eine leere Ordnerliste loescht NICHTS",
+      dict(K.W.load("ablage.json", {}).get("ordner") or {}) == vorher,
+      "%d Ordner unveraendert" % len(vorher))
+
+K.W.pf_waehlen("")
 K.W.pf_waehlen("")
 K.W.save("postfaecher.json", {"liste": [{
     "id": "probe", "name": "Probe", "adresse": "inhaber@erfunden.example",
@@ -1299,6 +1389,18 @@ for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
     _kopf = _text.split("</head>", 1)[0]
     probe("%s entscheidet die Farben im Kopf" % _datei,
           'setAttribute("data-hell"' in _kopf)
+    # 🔴 der Besitzer, 28.09.2026: „standart soll immer nachtmodus sein." So the page
+    # asks the DEVICE nothing: a screen set to light must not hand a light page
+    # to somebody who never chose one. Only an explicit „hell" turns it on.
+    probe("%s fragt das Geraet nicht nach der Tageszeit" % _datei,
+          "prefers-color-scheme" not in _text)
+    probe("%s kennt nur zwei Stellungen" % _datei,
+          'const LICHT_WAHLEN = ["dunkel", "hell"];' in _text)
+    # 🔴 An animation nobody can switch off is an animation somebody has to look
+    # away from. Whoever asked their system for less motion gets none.
+    probe("%s achtet auf prefers-reduced-motion" % _datei,
+          "prefers-reduced-motion" in _text)
+
     # 🔴 And no colour may have its ONLY home in the light block: a token that is
     # missing from `:root` is a colour that does not exist at night.
     _wurzel = set(re.findall(r"(--[a-z0-9-]+)\s*:", _text.split(":root{", 1)[1]
@@ -1307,6 +1409,35 @@ for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
                            _text.split("html[data-hell]{", 1)[1].split("}", 1)[0]))
     probe("%s: jede helle Marke hat ein dunkles Gegenstueck" % _datei,
           not (_hell - _wurzel), ", ".join(sorted(_hell - _wurzel)[:4]))
+
+for _datei in ("post_klient.html", "post_mobil.html"):
+    _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()
+    # Folding, and one button for the whole tree — on BOTH surfaces. A tree with
+    # twenty branches is not easier to read on a phone, it is harder.
+    probe("%s kann falten" % _datei, "function faltenUm(" in _text
+          and "S.zu.has(o.name)" in _text)
+    probe("%s faltet auch alles auf einmal" % _datei, "function alleFalten(" in _text)
+    # 🔴 Roles are not a hierarchy: on most servers they are all called
+    # `INBOX.something`, so the inbox looks like the parent of every one of them.
+    # Give it a triangle and one tap folds Sent, Drafts, Trash and Junk out of
+    # sight. The lesson of 5.2.0 — and it came back on the phone in 5.4.1.
+    probe("%s faltet im Rollenblock nichts" % _datei,
+          "zeile(o, 0, false)" in _text)
+    # 🔴 Moving a folder is ONE command, but the server may be carrying two
+    # thousand mails while it runs. A page that says nothing until it is over
+    # looks broken — so the message STAYS while it runs.
+    probe("%s sagt Bescheid, solange es dauert" % _datei,
+          "function melde(text, gut, bleibt)" in _text and 'k.ordner_zieht' in _text)
+    probe("%s kann einen Ordner loeschen" % _datei, "klient_ordner_loeschen" in _text)
+    probe("%s laesst Ordner mit Ungelesenem atmen" % _datei, '"atmet"' in _text)
+
+_breit2 = io.open(_os.path.join(_HIER, "post_klient.html"), encoding="utf-8").read()
+# 🔴 `dragover` only fires while the pointer MOVES. Held still at the top edge —
+# which is exactly what somebody does who waits for the list to come to them —
+# a scroll step per event would stop dead. So it has to be a timer.
+probe("breite Fassung: die Ordnerspalte rollt beim Ziehen mit",
+      "function ziehRollen(" in _breit2 and "setInterval" in _breit2.split(
+          "function ziehRollen(")[1][:900])
 
 # ── The listening post, as the pages use it ───────────────────────────────
 for _datei in ("post_klient.html", "post_mobil.html"):

@@ -10,18 +10,19 @@
    the way to the day. It reads the choice, nothing else — the rest of the
    machinery lives with the other functions below. */
 (function(){
-  var wahl = "auto";
-  /* `?licht=hell` overrides the stored choice for THIS view — that is how the
-     documentation takes its pictures, and how a link can show somebody the day
-     side without touching their own setting. */
+  /* 🔴 NIGHT is the default, full stop — not „whatever the device says". The
+     Postwache is a dark house; a device set to light would otherwise hand a
+     first-time visitor a page they never chose. Only an explicit „hell" turns
+     the light on: the one in the store, or the one in the address.
+     🔴 `licht`, NOT `ansicht`: the mailbox already answers to `?ansicht=breit`
+     and `?ansicht=mobil` — that is which of the two surfaces is served. */
+  var wahl = "";
   try{ wahl = new URLSearchParams(location.search).get("licht") || ""; }catch(e){}
-  if(wahl !== "hell" && wahl !== "dunkel" && wahl !== "auto"){
-    wahl = "auto";
-    try{ wahl = localStorage.getItem("pw_ansicht") || "auto"; }catch(e){}
+  if(wahl !== "hell" && wahl !== "dunkel"){
+    wahl = "";
+    try{ wahl = localStorage.getItem("pw_ansicht") || ""; }catch(e){}
   }
-  var hell = wahl === "hell" || (wahl === "auto" && window.matchMedia
-    && matchMedia("(prefers-color-scheme: light)").matches);
-  if(hell) document.documentElement.setAttribute("data-hell", "1");
+  if(wahl === "hell") document.documentElement.setAttribute("data-hell", "1");
 })();
 </script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
@@ -556,27 +557,26 @@ if (typeof T === "undefined") {
    out at once instead of silently leaving a gap. Placeholders in braces:
    txt("dok.treffer", {n: 12}). */
 /* ── Day and night ─────────────────────────────────────────────────────────
-   Three positions, one button: automatic (whatever the device says), light, dark.
-   🔑 The choice is kept on the DEVICE, not in the mailbox: a phone in a dark room
+   TWO positions, one button: night and day. 🔴 And night is the DEFAULT — not
+   „automatic", not what the device happens to say. A third position nobody asked
+   for is a switch you have to press twice to understand, and a house this dark
+   should not hand a light page to somebody who never chose one.
+   🔑 The choice lives on the DEVICE, not in the mailbox: a phone in a dark room
    and a desk in the sun are two different answers to the same question, and one
-   setting on the server can only give one of them. */
-/* 🔴 NOT `ANSICHTEN`. That name is taken on this page — it is the list of TABS.
-   The collision with a `const` is a PARSE error, and a parse error kills the whole
-   script: the page still drew its markup and looked perfectly normal in the
-   screenshot, while not one line of it was running. A word this page already uses
-   for something else is not available, however well it fits. */
-const LICHT_WAHLEN = ["auto", "hell", "dunkel"];
-const LICHT_ZEICHEN = {auto:"◐", hell:"☀", dunkel:"☾"};
-/* 🔴 The keys are SPELLED OUT, never assembled from the state. Assembled
-   („allg.ansicht_" + wahl) no literal exists anywhere: the language bench can
-   neither find a typo in it nor see that the key is in use — and it said so out
-   loud the first time this button was written. */
-const LICHT_WORT = {auto:"allg.ansicht_auto", hell:"allg.ansicht_hell",
-                      dunkel:"allg.ansicht_dunkel"};
+   setting on the server can only ever give one of them.
+   🔴 NOT called `ANSICHTEN`: on the watchman page that word is already the list
+   of tabs, and a second `const` of the same name is a PARSE error that kills the
+   whole script — while the page still draws its markup and looks perfectly
+   normal. All three pages use the same names, so the word stays free here too. */
+const LICHT_WAHLEN = ["dunkel", "hell"];
+const LICHT_ZEICHEN = {dunkel:"☾", hell:"☀"};
+/* 🔴 Keys SPELLED OUT, never assembled from the state: assembled, no literal
+   exists anywhere, and the language bench can neither find a typo in it nor see
+   that the key is in use. */
+const LICHT_WORT = {dunkel:"allg.ansicht_dunkel", hell:"allg.ansicht_hell"};
 /* 🔴 ONE variable holds the choice. Read it out of the store on every question
-   and a `?licht=` in the address would win for ever — the button would then
-   write and write and nothing would move, which is exactly the kind of dead
-   knob this page had once already. */
+   and a `?licht=` in the address would win for ever — the button would write
+   and write and nothing would move. */
 let LICHT_WAHL = (function(){
   try{
     const auf = new URLSearchParams(location.search).get("licht");
@@ -585,40 +585,28 @@ let LICHT_WAHL = (function(){
   try{
     const w = localStorage.getItem("pw_ansicht");
     if(LICHT_WAHLEN.indexOf(w) >= 0) return w;
-  }catch(e){ /* a browser may refuse the store — then it is „auto" */ }
-  return "auto";
+  }catch(e){ /* a browser may refuse the store — then it stays night */ }
+  return "dunkel";
 })();
-function lichtGewaehlt(){ return LICHT_WAHL; }
-function lichtAnwenden(){
-  const wahl = lichtGewaehlt();
-  const hell = wahl === "hell" || (wahl === "auto" && window.matchMedia
-    && matchMedia("(prefers-color-scheme: light)").matches);
+function istHell(){ return LICHT_WAHL === "hell"; }
+function lichtAnwenden(neuzeichnen){
   const wurzel = document.documentElement;
-  if(hell) wurzel.setAttribute("data-hell", "1");
+  if(istHell()) wurzel.setAttribute("data-hell", "1");
   else wurzel.removeAttribute("data-hell");
-  /* The browser's own bar takes the colour of the ground — otherwise the page is
-     light and the frame around it stays night. */
   const grund = getComputedStyle(wurzel).getPropertyValue("--grund").trim();
   const marke = document.querySelector('meta[name="theme-color"]');
   if(marke && grund) marke.setAttribute("content", grund);
   const knopf = document.getElementById("lichttaste");
   if(knopf){
-    knopf.textContent = LICHT_ZEICHEN[wahl];
-    knopf.title = txt(LICHT_WORT[wahl]);
+    knopf.textContent = LICHT_ZEICHEN[LICHT_WAHL];
+    knopf.title = txt(LICHT_WORT[LICHT_WAHL]);
     knopf.setAttribute("aria-label", knopf.title);
   }
 }
 function lichtUm(){
-  LICHT_WAHL = LICHT_WAHLEN[(LICHT_WAHLEN.indexOf(LICHT_WAHL) + 1) % LICHT_WAHLEN.length];
+  LICHT_WAHL = LICHT_WAHL === "hell" ? "dunkel" : "hell";
   try{ localStorage.setItem("pw_ansicht", LICHT_WAHL); }catch(e){}
-  lichtAnwenden();
-}
-/* The device switches at sunset — and then so does the page, without anybody
-   reaching for anything. */
-if(window.matchMedia){
-  try{
-    matchMedia("(prefers-color-scheme: light)").addEventListener("change", lichtAnwenden);
-  }catch(e){ /* older browsers: the button still works */ }
+  lichtAnwenden(true);
 }
 
 function txt(schluessel, werte){

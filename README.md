@@ -84,7 +84,9 @@ that will not tell you its hit rate is a claim, not a measurement.
 | 📱 **A version of its own for phones** | Not the wide page made narrow: one sheet at a time, a bar at the bottom, finger targets from 44 px, swipe to archive or delete, long-press to choose several and act on them at once. |
 | 🔒 **A lock in front of the mail** | The client asks for an access word before it shows a single line of a letter. Optionally the watchman page too. |
 | 👂 **New mail arrives by itself** | The page listens (IMAP `IDLE`) instead of asking every minute: measured **0.13 s** from arrival to the top of the list, with nobody pressing anything. One waiting request, one connection at the provider, and it lets go when nobody is looking. |
-| ☀️ **Day and night** | Three positions, one button: automatic (follows the device), day, night. The same colours either way — the brown-black night becomes warm paper, and the gold stays gold. |
+| ☀️ **Day and night** | One button, two positions — and night is the default, full stop: the page does not ask your device. The same colours either way — the brown-black night becomes warm paper, and the gold stays gold. |
+| 🗂 **Folders you can actually handle** | Fold a branch or the whole tree with one button, on both surfaces. Drag a folder somewhere else (the column scrolls along while you do), or delete one — and the question carries the number of mails it would take with it. |
+| 🧠 **And the watchman learns every folder** | Created or deleted — in the Postwache, in another mail program, on the provider's page — the learned map is reconciled against what really exists. A rule pointing at a folder nobody has any more would make the filing fail every five minutes, silently. |
 | 🖐 **Whole folders travel** | Drag a folder onto another and it moves with its mail and its subfolders — one `RENAME`, not thousands of copies. The watchman's learned filing, its document index and its journal are carried over in the same breath. |
 
 ## What the watchman will not do
@@ -151,10 +153,11 @@ field or a search all hold the list still, while the folder counts keep moving.
 brown-black night becomes warm paper, and the gold stays gold. All data
 invented.</i></p>
 
-**Day and night, three positions, one button:** automatic (follows the device),
-day, night. The choice lives on the device, because a phone in a dark room and a
-desk in the sun are two different answers to the same question. When the device
-switches at sunset, so does the page. The letter itself follows too — it is a
+**Day and night, one button, two positions** — and **night is the default**,
+whatever the device says. A dark house should not hand a light page to somebody
+who never chose one, so only an explicit *day* turns the light on. The choice
+lives on the device, because a phone in a dark room and a desk in the sun are two
+different answers to the same question. The letter itself follows too — it is a
 document of its own inside the frame, so the page tells the engine which time of
 day is in force.
 
@@ -167,11 +170,27 @@ they are: Sent, Drafts, Trash and Junk are positions, not drawers.
 
 And the watchman is told, in the same breath — that is the larger half of the
 job. Its learned filing map decides where post goes, so an old folder name left
-in it would make the next run file into a folder that no longer exists *and
-create it*. The document index, the journal (the way back for every mail it ever
-moved) and the folders you pinned by hand in the settings all move with it. If
-that half fails, the page says so: the folder moved, the watchman did not
-understand it.
+in it would make the next run file into a folder that is not there: the copy
+fails, the mail stays in the inbox, and it fails again five minutes later with
+nobody but the log to see it. The document index, the journal (the way back for
+every mail it ever moved) and the folders you pinned by hand in the settings all
+move with it. If that half fails, the page says so: the folder moved, the
+watchman did not understand it.
+
+**The same goes for folders you create or delete** — and „delete" includes the
+one you deleted in a completely different mail program. That is why the map is
+not kept up by remembering what the Postwache itself did, but by asking the
+server what exists: once on every run (a single `LIST`), and at once after every
+folder action in the client. A new folder enters the map with zero mails and is a
+target from its first second — the name bridge hangs only on the name, so an
+empty folder „Steuer" can take post from `steuer@…` right away.
+
+**Folders fold** — one branch, or the whole tree with one button, on both
+surfaces. While you drag a folder the column scrolls along with you, so the top
+of a long list is reachable from the bottom. The icons answer to being touched,
+and a folder with unread mail breathes slowly; a system set to less motion gets
+neither. Deleting a folder is the one thing here that cannot be undone, so the
+engine counts before it asks: *„Delete “Garden” with 77 mails for good?"*
 
 **The lock is part of it, not an accessory.** The overview page has always shown
 subject and sender only, and the reason was written down: not enough to spread an

@@ -2979,6 +2979,69 @@ def pfad_umschreiben(name: str, alt: str, neu: str, trenner: str = ".") -> str:
     return name
 
 
+def ordner_abgleichen(vorhanden) -> dict:
+    """The learned map against the LIVE list of folders: whatever is gone goes
+    out, whatever is new comes in.
+
+    Der Besitzer, 28.09.2026: „und wenn man von hand ordner löscht oder neu anlegt muss
+    die postwache das auch **lernen**!!"
+
+    🔴 And „by hand" means anywhere — in the Postwache, in Apple Mail, in the
+    provider's web page. Which is why this does not hang off a button but off the
+    ONLY thing that is always true: the list the server gives. A rule that names a
+    folder nobody has any more does not file into the void — the copy FAILS, the
+    mail stays in the inbox, and it fails again five minutes later. Nobody sees
+    that but the log.
+
+    🔑 A NEW folder is worth just as much: the name bridge hangs only on folder
+    NAMES, so an empty folder called „Steuer" can take post from `steuer@…` the
+    minute it exists — but only if the map knows it is there.
+    """
+    da = set(vorhanden or ())
+    bericht = {"fort": 0, "neu": 0, "regeln": 0}
+    if not da:
+        return bericht                     # an empty list is a failed LIST, not an empty mailbox
+    karte = load(ABLAGE, None)
+    if not isinstance(karte, dict):
+        return bericht
+    for stufe in ("absender", "domain", "haupt", "v_absender", "v_domain", "v_haupt"):
+        topf = karte.get(stufe)
+        if not isinstance(topf, dict):
+            continue
+        raus = {}
+        for schl, eintrag in topf.items():
+            if isinstance(eintrag, dict) and eintrag.get("ordner") not in da:
+                bericht["regeln"] += 1
+                continue
+            raus[schl] = eintrag
+        karte[stufe] = raus
+    groessen = karte.get("ordner")
+    if isinstance(groessen, dict):
+        for name in list(groessen):
+            if name not in da:
+                groessen.pop(name, None)
+                bericht["fort"] += 1
+        for name in da:
+            if name not in groessen and name not in KEIN_LEHRMEISTER:
+                # 🔑 Zero, not absent: the name bridge is built from THIS list, so
+                # a folder with nothing in it yet can already be a target.
+                groessen[name] = 0
+                bericht["neu"] += 1
+        karte["ordner"] = groessen
+        karte["namen"] = namens_marken(groessen)
+    schwach = karte.get("schwaechen")
+    if isinstance(schwach, dict):
+        for feld in ("fast_leere_ordner", "leere_ordner"):
+            if isinstance(schwach.get(feld), list):
+                schwach[feld] = [o for o in schwach[feld] if o in da]
+    if bericht["fort"] or bericht["neu"] or bericht["regeln"]:
+        karte["abgeglichen"] = datetime.now().isoformat(timespec="seconds")
+        save(ABLAGE, karte)
+        log("Ordner abgeglichen: %d fort, %d neu, %d Regel(n) ohne Ziel"
+            % (bericht["fort"], bericht["neu"], bericht["regeln"]))
+    return bericht
+
+
 def ordner_umgezogen(alt: str, neu: str, trenner: str = ".") -> dict:
     """A folder now hangs somewhere else. Carry the watchman's memory over.
 
@@ -3102,6 +3165,17 @@ def ablage_frisch(pf) -> dict:
             alter = (datetime.now()
                      - datetime.fromisoformat(k["gelernt"])).total_seconds()
             if alter < ABLAGE_FRISCH:
+                # 🔑 Folders come and go between two learning runs — created or
+                # deleted in the Postwache, in another mail program, on the
+                # provider's page. ONE `LIST` per run keeps the map honest, and
+                # it costs a single command. Learning stays a once-a-day affair;
+                # this is only the bookkeeping around it.
+                try:
+                    abgleich = ordner_abgleichen(pf.ordner_liste())
+                    if abgleich["fort"] or abgleich["neu"]:
+                        k = load(ABLAGE, k)
+                except Exception as e:                  # noqa: BLE001
+                    log("Ordnerabgleich nicht moeglich: %s" % str(e)[:140])
                 return k
         except (ValueError, TypeError):
             pass
