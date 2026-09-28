@@ -79,7 +79,7 @@ that will not tell you its hit rate is a claim, not a measurement.
 | ✉️ **A full mail client** | Folder tree, list, preview pane, search, reply, forward, attachments, drafts, sending. Some thirty settings, from where the preview sits to when a mail counts as read. Every row shows the first words of the letter — fetched in pieces, one request per shape, and still `BODY.PEEK`. |
 | ✨ **Everything new, in one view** | Above the inbox: every new mail out of every folder at once, each row saying where it is now. The view the watchman makes necessary — it is the one that moved the mail away. |
 | 📬 **One click from the watchman to the mailbox** | The tab row carries a door to `/post` — a real link that works before any script has run. |
-| 📱 **A version of its own for phones** | Not the wide page made narrow: one sheet at a time, a bar at the bottom, finger targets from 44 px, swipe to archive or delete. |
+| 📱 **A version of its own for phones** | Not the wide page made narrow: one sheet at a time, a bar at the bottom, finger targets from 44 px, swipe to archive or delete, long-press to choose several and act on them at once. |
 | 🔒 **A lock in front of the mail** | The client asks for an access word before it shows a single line of a letter. Optionally the watchman page too. |
 
 ## What the watchman will not do
@@ -117,6 +117,12 @@ where the mail is now. The view the watchman makes necessary: it is the one that
 moved the mail out of the inbox. All data invented.</i></p>
 
 ![The phone version](docs/screenshots/27-phone-list.png)
+
+![Choosing several on the phone](docs/screenshots/34-phone-select.png)
+
+<p align="center"><i>Long-press a row and the avatars become ticks: mark several
+read, flag them, move them, delete them. A selection that spans folders goes out
+as one request per folder. All data invented.</i></p>
 
 Open `http://<host>:8110/post`. A phone gets the phone version, everything else
 the wide one, and either can be switched by hand — the choice is remembered.

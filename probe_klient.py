@@ -1005,6 +1005,30 @@ probe("es sortiert nach Haeufigkeit",
 
 
 # ══ 6. Sending — against a fake SMTP server ═══════════════════════════════
+# ══ 5b. What the pages promise in their own stylesheet ════════════════════
+print("\n── 5b. Die Seiten ──")
+import os as _os
+_HIER = _os.path.dirname(_os.path.abspath(__file__))
+for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
+    _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()
+    # 🔴 The browser's own `[hidden]{display:none}` is ONE selector and loses to
+    # every class with a `display`. The swipe hint carried `hidden`, remembered
+    # being dismissed and stood there anyway. This line is the whole fix, so it
+    # is the thing worth guarding.
+    probe("%s setzt [hidden] durch" % _datei,
+          "[hidden]{display:none!important}" in _text)
+_mobil = io.open(_os.path.join(_HIER, "post_mobil.html"), encoding="utf-8").read()
+for _stueck, _was in (("wahlSchluessel", "Auswahl kennt Ordner UND Nummer"),
+                      ("nachOrdnern", "Aktionen gehen je Ordner hinaus"),
+                      ('id="wahlfuss"', "das Telefon hat eine Auswahlleiste"),
+                      ('id="b_ziel"', "und ein Blatt zum Verschieben")):
+    probe("Handy: %s" % _was, _stueck in _mobil)
+probe("Handy: kein Zahlen-Prompt mehr zum Verschieben",
+      "verschieben_frage" not in _mobil)
+_breit = io.open(_os.path.join(_HIER, "post_klient.html"), encoding="utf-8").read()
+probe("breite Fassung: Auswahl kennt Ordner UND Nummer",
+      "wahlSchluessel" in _breit and "S.gewaehlt.add(wahlSchluessel" in _breit)
+
 print("\n── 6. Der Postausgang ──")
 
 
