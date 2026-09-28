@@ -27,8 +27,12 @@ fehler = []
 #    without any probe reporting it. The list is the statement: what is missing
 #    here is checked nowhere. With the migration (4.4.0) it was entered together
 #    with the file.
+# 🔴 2026-09-28, 5.0.0: `klient.py` and `post_klient.html` entered here TOGETHER
+#    with the files. The client is the mail program — without those two the page
+#    at /post would be a 500 and nothing would say why.
 PROGRAMM = ["postwache.py", "post_web.py", "post_web.html", "VERSION",
-            "ollama_einrichten.py", "umbau.py", "umzug.py"]
+            "ollama_einrichten.py", "umbau.py", "umzug.py",
+            "klient.py", "post_klient.html", "post_mobil.html"]
 ORDNER = ["locales"]
 
 WEGE = {

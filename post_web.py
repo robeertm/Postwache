@@ -64,6 +64,29 @@ try:
     import postwache as W            # one source for drawers and rules
 except Exception:                    # the page must never fail because of the watchman
     W = None
+try:
+    import klient as KL              # since 5.0.0: the mail client
+except Exception:                    # and the watchman page must not fail because of it
+    KL = None
+
+# The client is its own page: it needs the whole window, and the watchman page is
+# a dashboard with a maximum width. One file each, one job each.
+KLIENT_SEITE = "post_klient.html"
+# 🔴 And the phone gets its OWN page, not the wide one squeezed. Der Besitzer,
+# 2026-09-28: „achte darauf das du je nach bildschirmgröße viel platz hast, baue
+# auch eine extraversion für mobile geräte." A phone is a different device: one
+# thing at a time, thumbs instead of a mouse, a bar at the bottom because the top
+# of a six-inch screen is out of reach.
+KLIENT_MOBIL = "post_mobil.html"
+ANSICHT_KEKS = "pw_ansicht"
+# Whoever says „Mobile" here means a phone. An iPad has the room for the wide
+# page — and whoever disagrees switches, and the choice is remembered.
+TELEFON = re.compile(r"(iPhone|iPod|Android.*Mobile|Windows Phone|Mobile Safari"
+                     r"|Opera Mini|IEMobile)", re.I)
+NICHT_TELEFON = re.compile(r"(iPad|Tablet|Silk)", re.I)
+# Nobody uploads more than this in one request. Without a ceiling, a single POST
+# can eat the memory of a Raspberry Pi.
+POST_DECKEL = 48 * 1024 * 1024
 
 
 def _version() -> str:
@@ -801,9 +824,16 @@ def postfach_speichern(d: dict) -> dict:
     if not probe["ok"]:
         return probe
 
-    eintrag = {"id": pid, "name": str(d.get("name") or "").strip() or adresse,
-               "adresse": adresse, "passwort": passwort, "server": server,
-               "port": port, "an": bool(d.get("an", (vorhanden or {}).get("an", True)))}
+    # 🔴 NOT a fresh dictionary — the existing one, with only what this form owns
+    # written over it. Built from scratch, this line silently dropped every field
+    # that belongs to somebody else: since 5.0.0 those are the outgoing server and
+    # the sender name, so RENAMING a mailbox deleted its way out. Found by the test
+    # bench, which asked afterwards whether the setting was still there.
+    eintrag = dict(vorhanden or {})
+    eintrag.update({"id": pid, "name": str(d.get("name") or "").strip() or adresse,
+                    "adresse": adresse, "passwort": passwort, "server": server,
+                    "port": port,
+                    "an": bool(d.get("an", (vorhanden or {}).get("an", True)))})
     liste = [e for e in liste if e["id"] != pid] + [eintrag]
     schreibe("postfaecher.json", {"liste": liste}, 0o600)
     return {"ok": True, "text": "Verbunden — %s. %s" % (adresse, probe["text"]),
@@ -1718,6 +1748,81 @@ def umzug_umleitung(d: dict) -> dict:
     return {"ok": True, "text": txt("z.umleitung_aus")}
 
 
+# ── The mail client (5.0.0) ───────────────────────────────────────────────
+# 🔴 Everything here is BEHIND the access word — except the two that have to be
+# reachable to get through the door at all. The list is the statement: whoever
+# adds an action and forgets to enter it here has it open to anyone who reaches
+# the page.
+KLIENT_OFFEN = ("klient_lage", "klient_anmelden", "klient_wort")
+
+KLIENT_AKTIONEN = {
+    "klient_lage": lambda d, marke: _klient_lage(d, marke),
+    "klient_anmelden": None,          # handled in the request, it sets the cookie
+    "klient_abmelden": None,          # the same, it clears it
+    "klient_wort": lambda d, marke: KL.wort_setzen(str(d.get("neu") or ""),
+                                                   str(d.get("alt") or "")),
+    "klient_einstellung": lambda d, marke: KL.einstellung_setzen(d.get("werte") or d),
+    "klient_ordner": lambda d, marke: {"ok": True, "ordner": KL.tu(
+        _pf(d), lambda k: k.baum(bool(d.get("frisch"))))},
+    "klient_liste": lambda d, marke: KL.liste(dict(d, pf=_pf(d))),
+    "klient_mail": lambda d, marke: KL.mail_zeigen(dict(d, pf=_pf(d))),
+    "klient_flaggen": lambda d, marke: KL.flaggen(dict(d, pf=_pf(d))),
+    "klient_verschieben": lambda d, marke: KL.verschieben(dict(d, pf=_pf(d))),
+    "klient_loeschen": lambda d, marke: KL.loeschen(dict(d, pf=_pf(d))),
+    "klient_ordner_neu": lambda d, marke: KL.ordner_neu(dict(d, pf=_pf(d))),
+    "klient_vorlage": lambda d, marke: KL.vorlage(dict(d, pf=_pf(d))),
+    "klient_senden": lambda d, marke: KL.senden(dict(d, pf=_pf(d))),
+    "klient_entwurf": lambda d, marke: KL.entwurf_speichern(dict(d, pf=_pf(d))),
+    "klient_adressbuch": lambda d, marke: KL.adressbuch(dict(d, pf=_pf(d))),
+    "klient_smtp": lambda d, marke: KL.smtp_speichern(dict(d, pf=_pf(d))),
+    "klient_smtp_pruefen": lambda d, marke: KL.smtp_pruefen(dict(d, pf=_pf(d))),
+    # Filing by hand into the folder the WATCHMAN would have chosen — its map, one
+    # click. Not automatic: it is still the reader who decides.
+    "klient_wie_wache": lambda d, marke: _klient_wie_wache(d),
+}
+
+
+def _pf(d: dict) -> str:
+    """Which mailbox this request is about. `do_POST` has already chosen it — this
+    only passes it on, so that no client action chooses one for itself."""
+    return aktives_pf(str((d or {}).get("pf") or ""))
+
+
+def _klient_lage(d: dict, marke: str) -> dict:
+    """The client's state — in two stages.
+
+    🔴 Without a session ONLY the lock: whether a word is set, and nothing about
+    the mailbox. Folder names alone would already say a lot about a person.
+    """
+    schloss = KL.lage_schloss(marke)
+    if not schloss["an"]:
+        return {"ok": True, "schloss": schloss, "postfaecher": [],
+                "version": _version()}
+    pf = _pf(d)
+    lage = KL.lage(pf)
+    lage["schloss"] = schloss
+    lage["pf"] = pf
+    lage["version"] = _version()
+    lage["postfaecher"] = [{"id": f["id"], "name": f["name"], "adresse": f["adresse"],
+                            "an": bool(f.get("an", True))} for f in pf_liste()]
+    lage["schubladen"] = W.schubladen_namen() if W is not None else {}
+    return lage
+
+
+def _klient_wie_wache(d: dict) -> dict:
+    """Move a mail where the watchman's learned map points — and refuse when it
+    does not point anywhere. A guess would be a folder nobody asked for."""
+    pf = _pf(d)
+    urteil = KL.wache_urteil(pf, str(d.get("adresse") or ""))
+    ziel = urteil.get("ordner") or ""
+    if not ziel:
+        return {"ok": False, "text": txt("k.wache_weiss_nicht")}
+    erg = KL.verschieben(dict(d, pf=pf, ziel=ziel))
+    erg["ziel"] = ziel
+    erg["zeige"] = urteil.get("zeige") or ziel
+    return erg
+
+
 AKTIONEN = {
     "zugang": lambda d: zugang_speichern(d),
     "pruefen": lambda d: pruefen(str(d.get("adresse") or (W.zugang().get("adresse") if W else "")),
@@ -1844,7 +1949,8 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _sende(self, code, koerper, typ="application/json; charset=utf-8"):
+    def _sende(self, code, koerper, typ="application/json; charset=utf-8",
+               zusatz=()):
         if isinstance(koerper, (dict, list)):
             koerper = json.dumps(koerper, ensure_ascii=False).encode("utf-8")
         elif isinstance(koerper, str):
@@ -1853,8 +1959,51 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", typ)
         self.send_header("Content-Length", str(len(koerper)))
         self.send_header("Cache-Control", "no-store")
+        for name, wert in zusatz or ():
+            self.send_header(name, wert)
         self.end_headers()
         self.wfile.write(koerper)
+
+    def _tls(self) -> bool:
+        """Whether the reader is talking to us over TLS. Behind a terminating
+        counterpart that is not visible in the connection, only in the header —
+        and the `Secure` flag on the cookie depends on it: set on plain HTTP, the
+        browser drops the cookie and nobody can log in."""
+        schema = (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
+        return schema.lower() == "https"
+
+    def _marke(self) -> str:
+        return KL.keks_lesen(self.headers.get("Cookie") or "") if KL else ""
+
+    def _gesperrt(self) -> bool:
+        """Is the WATCHMAN page locked too? Off by default — whoever puts the page
+        on the internet turns it on, and then it applies to the data as well, not
+        just to the view. A lock in front of the page with an open `/api/lage`
+        behind it would be decoration."""
+        if KL is None:
+            return False
+        try:
+            if not KL.einstellungen()["sperre_seite"] or not KL.wort_gesetzt():
+                return False
+        except Exception:
+            return False
+        return not KL.sitzung_gueltig(self._marke())
+
+    def _umleiten(self, ziel: str):
+        self.send_response(302)
+        self.send_header("Location", ziel)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _seite(self, name: str, zusatz=()):
+        try:
+            with open(neben_dem_programm(name), encoding="utf-8") as fh:
+                return self._sende(200, seite_mit_sprache(fh.read()),
+                                   "text/html; charset=utf-8", zusatz)
+        except OSError as e:
+            return self._sende(500, "Seite fehlt: %s" % e,
+                               "text/plain; charset=utf-8")
 
     def do_GET(self):
         # 🔴 The path WITHOUT the query part. Before, `self.path` was compared
@@ -1863,21 +2012,125 @@ class Handler(BaseHTTPRequestHandler):
         #    screenshot showed `{"fehler": "not found"}` instead of the page.
         #    Found because the IMAGE was looked at, not the source.
         pfad = self.path.split("?", 1)[0]
+        abfrage = urllib.parse.parse_qs(self.path.partition("?")[2])
+        if pfad.startswith("/api/klient/"):
+            return self._klient_datei(pfad, abfrage)
         if self.path.startswith("/api/lage"):
+            if self._gesperrt():
+                return self._sende(401, {"fehler": txt("k.bitte_anmelden"),
+                                         "gesperrt": True})
             try:
                 return self._sende(200, lage())
             except Exception as e:
                 return self._sende(500, {"fehler": str(e)[:200]})
         if self.path.startswith("/api/installer"):
             return self._installer()
+        if pfad.rstrip("/") in ("/post", "/postfach") and pfad != "/":
+            return self._klient_seite(abfrage)
         if pfad in ("/", "/index.html"):
-            try:
-                with open(neben_dem_programm("post_web.html"), encoding="utf-8") as fh:
-                    return self._sende(200, seite_mit_sprache(fh.read()),
-                                       "text/html; charset=utf-8")
-            except OSError as e:
-                return self._sende(500, "Seite fehlt: %s" % e, "text/plain; charset=utf-8")
+            if self._gesperrt():
+                # The login form stands on the client page — one door, not two.
+                return self._umleiten("/post?zurueck=/")
+            # „Which page opens first" is a setting. Whoever lives in the mail
+            # client should not have to click past the dashboard every time; the
+            # way back is one link in the client's header.
+            if (KL is not None and not abfrage.get("wache")
+                    and KL.einstellungen()["startseite"] == "postfach"):
+                return self._umleiten("/post")
+            return self._seite("post_web.html")
         self._sende(404, {"fehler": txt("a.nicht_gefunden")})
+
+    def _klient_seite(self, abfrage: dict):
+        """Phone version or wide version.
+
+        Order: what the URL asks for › what was chosen last › what the device
+        looks like. 🔴 A choice made by hand is REMEMBERED (a cookie for a year) —
+        without that, the link „wide view" works exactly once and every reload
+        drops the reader back onto the phone page.
+        """
+        wunsch = str((abfrage.get("ansicht") or [""])[0]).lower()
+        gemerkt = self._keks(ANSICHT_KEKS)
+        kopf = self.headers.get("User-Agent") or ""
+        if wunsch in ("breit", "mobil"):
+            gewaehlt = wunsch
+        elif gemerkt in ("breit", "mobil"):
+            gewaehlt = gemerkt
+        elif TELEFON.search(kopf) and not NICHT_TELEFON.search(kopf):
+            gewaehlt = "mobil"
+        else:
+            gewaehlt = "breit"
+        zusatz = []
+        if wunsch in ("breit", "mobil"):
+            zusatz.append(("Set-Cookie",
+                           "%s=%s; Path=/; Max-Age=31536000; SameSite=Strict"
+                           % (ANSICHT_KEKS, gewaehlt)))
+        return self._seite(KLIENT_MOBIL if gewaehlt == "mobil" else KLIENT_SEITE,
+                           zusatz)
+
+    def _keks(self, name: str) -> str:
+        for stueck in (self.headers.get("Cookie") or "").split(";"):
+            schluessel, _, wert = stueck.strip().partition("=")
+            if schluessel.strip() == name:
+                return wert.strip()
+        return ""
+
+    def _klient_datei(self, pfad: str, abfrage: dict):
+        """Attachment, inline image, source text — the three things a client cannot
+        deliver as JSON.
+
+        🔴 Behind the session, every one of them. An attachment link that works
+        without the access word would be the hole the whole lock was built to
+        close — and links get forwarded.
+        """
+        if KL is None:
+            return self._sende(500, {"fehler": txt("k.klient_fehlt")})
+        if not KL.sitzung_gueltig(self._marke()):
+            return self._sende(401, {"fehler": txt("k.bitte_anmelden"),
+                                     "gesperrt": True})
+
+        def hol(name, vor=""):
+            return str((abfrage.get(name) or [vor])[0])
+        pf = aktives_pf(hol("pf"))
+        ordner, uid = hol("ordner", "INBOX"), hol("uid", "0")
+        try:
+            uid = int(uid)
+        except ValueError:
+            return self._sende(400, {"fehler": "UID"})
+        pf_waehlen(pf)
+        try:
+            art = pfad.rsplit("/", 1)[-1]
+            if art == "bild":
+                typ, roh = KL.bild(pf, ordner, uid, hol("cid"))
+                if not roh:
+                    return self._sende(404, {"fehler": txt("k.bild_weg")})
+                return self._sende(200, roh, typ or "application/octet-stream")
+            if art == "roh":
+                roh = KL.roh_text(pf, ordner, uid)
+                return self._sende(200, roh or b"", "text/plain; charset=utf-8")
+            if art == "anhang":
+                name, typ, roh = KL.anhang(pf, ordner, uid, hol("t", "1"),
+                                           hol("k"), hol("n", "anhang"))
+                if not roh:
+                    return self._sende(404, {"fehler": txt("k.anhang_weg")})
+                # 🔴 The file name goes into a HEADER. A line break in it would let
+                # the sender of the mail write their own headers — so only what
+                # cannot be one gets through.
+                sicher = re.sub(r'[\r\n"\\]', "_", name)[:120]
+                self.send_response(200)
+                self.send_header("Content-Type", typ)
+                self.send_header("Content-Length", str(len(roh)))
+                self.send_header("Content-Disposition",
+                                 'attachment; filename="%s"; filename*=UTF-8\'\'%s'
+                                 % (sicher.encode("ascii", "replace").decode(),
+                                    urllib.parse.quote(sicher)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return self.wfile.write(roh)
+            return self._sende(404, {"fehler": txt("a.nicht_gefunden")})
+        except Exception as e:
+            return self._sende(500, {"fehler": str(e)[:200]})
+        finally:
+            pf_waehlen("")
 
     def _installer(self):
         """Deliver the setup helper — as source or as a finished launcher.
@@ -1911,13 +2164,23 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         name = self.path.rsplit("/", 1)[-1]
-        if name not in AKTIONEN:
+        if name not in AKTIONEN and name not in KLIENT_AKTIONEN:
             return self._sende(404, {"ok": False, "text": "unbekannte Aktion"})
         try:
             n = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n > POST_DECKEL:
+            # An attachment arrives as base64 inside the request. Without a ceiling
+            # ONE request is enough to exhaust the memory of a Raspberry Pi — and
+            # that would take the watchman down with it.
+            return self._sende(413, {"ok": False, "text": txt("k.zu_gross")})
+        try:
             d = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
         except Exception:
             d = {}
+        if name in KLIENT_AKTIONEN:
+            return self._klient_aktion(name, d if isinstance(d, dict) else {})
         try:
             d = d if isinstance(d, dict) else {}
             # 🔑 ONE place chooses the mailbox — before every action. Had every
@@ -1935,6 +2198,53 @@ class Handler(BaseHTTPRequestHandler):
                 klient_merken("")
         except Exception as e:
             return self._sende(200, {"ok": False, "text": str(e)[:200]})
+
+    def _klient_aktion(self, name: str, d: dict):
+        """Every client action goes through here — and through the door first.
+
+        🔑 ONE gate for all of them. Had each action asked for itself whether
+        somebody is logged in, the one that forgets would be exactly the one that
+        hands out the mail.
+        """
+        if KL is None:
+            return self._sende(500, {"ok": False, "text": txt("k.klient_fehlt")})
+        marke = self._marke()
+        if name not in KLIENT_OFFEN and not KL.sitzung_gueltig(marke):
+            return self._sende(200, {"ok": False, "gesperrt": True,
+                                     "text": txt("k.bitte_anmelden")})
+        adresse = self.client_address[0] if self.client_address else ""
+        klient_merken(adresse)
+        gewaehlt = aktives_pf(str(d.get("pf") or ""))
+        if d.get("pf") and d["pf"] != (st("ansicht.json", {}) or {}).get("pf"):
+            pf_merken(gewaehlt)
+        pf_waehlen(gewaehlt)
+        try:
+            if name == "klient_anmelden":
+                erg = KL.wort_pruefen(str(d.get("wort") or ""), adresse)
+                if not erg.get("ok"):
+                    return self._sende(200, erg)
+                neue = KL.sitzung_neu(adresse)
+                return self._sende(200, dict(erg, schloss=KL.lage_schloss(neue)),
+                                   zusatz=[("Set-Cookie",
+                                            KL.keks_setzen(neue, self._tls()))])
+            if name == "klient_abmelden":
+                return self._sende(200, KL.sitzung_beenden(marke),
+                                   zusatz=[("Set-Cookie",
+                                            KL.keks_setzen("", self._tls()))])
+            return self._sende(200, KLIENT_AKTIONEN[name](d, marke))
+        except Exception as e:
+            log_fehler(name, e)
+            return self._sende(200, {"ok": False, "text": str(e)[:200]})
+        finally:
+            pf_waehlen("")
+            klient_merken("")
+
+
+def log_fehler(name: str, e: Exception) -> None:
+    """A client error belongs in the log, not only on the page — the page is gone
+    with the tab, and then nobody knows what happened."""
+    if W is not None:
+        W.log("Klient %s: %s: %s" % (name, type(e).__name__, str(e)[:160]))
 
 
 def takt_faden(sekunden: int) -> None:

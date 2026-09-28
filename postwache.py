@@ -650,7 +650,7 @@ def postfaecher() -> list:
         if not adresse or pid in gesehen:
             continue
         gesehen.add(pid)
-        fertig.append({
+        satz = {
             "id": pid,
             "name": str(e.get("name") or "").strip() or adresse,
             "adresse": adresse,
@@ -659,7 +659,27 @@ def postfaecher() -> list:
                        or konfig()["imap_server"] or _server_raten(adresse)),
             "port": int(e.get("port") or 993),
             "an": bool(e.get("an", True)),
-        })
+        }
+        # 🔴 THE WAY OUT BELONGS TO THE MAILBOX (5.0.0). This function does not
+        # copy an entry, it REBUILDS it out of a fixed set of fields — everything
+        # else is silently dropped. The client stored its outgoing server and
+        # promptly kept sending to the guessed one: the file was right, the answer
+        # was old. Found by the test bench, which asked for the EFFECT instead of
+        # trusting the write — the same lesson as with the own address in 4.5.3.
+        # Whoever adds a field to a mailbox has to enter it HERE as well.
+        for feld, vorgabe in (("smtp_server", ""), ("smtp_port", 0),
+                              ("smtp_art", ""), ("smtp_benutzer", ""),
+                              ("smtp_passwort", ""), ("absender_name", "")):
+            wert = e.get(feld, vorgabe)
+            if feld == "smtp_port":
+                try:
+                    wert = int(wert or 0)
+                except (TypeError, ValueError):
+                    wert = 0
+            else:
+                wert = str(wert or "")
+            satz[feld] = wert
+        fertig.append(satz)
     return fertig
 
 
@@ -994,8 +1014,29 @@ def push_status(tok: str, zustand: str, attrs: dict) -> None:
 
 
 # ── Kopfzeilen lesen ──────────────────────────────────────────────────────────
+def msg_aus_bytes(roh: bytes):
+    """A header block as a message — EIGHT-BIT SAFE.
+
+    🔴 `email.message_from_bytes()` reads header lines as ASCII and replaces every
+    other byte with U+FFFD. The information is gone BEFORE anyone could decode it —
+    no later repair can bring it back. And plenty of real mail sends its umlauts
+    raw instead of as `=?UTF-8?B?…?=`.
+
+    Found in the SCREENSHOT of the client, not in the source: the list showed
+    „Ivo Sandstr\ufffd\ufffdm" and „Gr\ufffd\ufffde" where the mailbox has
+    „Ivo Sandström" and „Grüße". So the bytes are decoded FIRST, with the charset
+    that fits, and parsed afterwards.
+    """
+    for satz in ("utf-8", "cp1252", "iso-8859-15"):
+        try:
+            return email.message_from_string(roh.decode(satz))
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return email.message_from_bytes(roh)
+
+
 def dekodieren(roh) -> str:
-    """MIME-kodierte Kopfzeilen lesbar machen (=?UTF-8?B?…?=)."""
+    """Make MIME-encoded header lines readable (=?UTF-8?B?…?=)."""
     if not roh:
         return ""
     try:
@@ -1242,7 +1283,7 @@ class Postfach:
                 roh_text = teil[1]
         if not roh_kopf:
             return None, ""
-        msg = email.message_from_bytes(roh_kopf)
+        msg = msg_aus_bytes(roh_kopf)
         text = ""
         if roh_text:
             try:
@@ -1349,7 +1390,7 @@ class Postfach:
                             t = re.search(rb"UID\s+(\d+)", st[0] or b"")
                             u = int(t.group(1)) if t else letzte_uid
                             if u:
-                                koepfe[u] = email.message_from_bytes(st[1] or b"")
+                                koepfe[u] = msg_aus_bytes(st[1] or b"")
                 typ, roh = self.m.uid("fetch", liste, "(BODYSTRUCTURE)")
                 bauplaene = _strukturen_lesen(roh) if typ == "OK" else {}
                 for u in teil:
@@ -1410,7 +1451,7 @@ class Postfach:
                     # exactly this spot again (two versions of the same question
                     # are one too many).
                     _, adr = absender_teile(
-                        email.message_from_bytes(st[1]).get("From", ""))
+                        msg_aus_bytes(st[1]).get("From", ""))
                     if adr and "@" in adr:
                         zaehler[adr] = zaehler.get(adr, 0) + 1
         except Exception as e:
@@ -1458,7 +1499,7 @@ class Postfach:
                 for st in antw:
                     if not isinstance(st, tuple) or len(st) < 2:
                         continue
-                    msg = email.message_from_bytes(st[1])
+                    msg = msg_aus_bytes(st[1])
                     _, adr = absender_teile(msg.get("From", ""))
                     adr = (adr or "").strip().lower()
                     try:
@@ -1841,9 +1882,18 @@ def _teile(struct, praefix: str = "") -> list:
             dparams = el[1] if len(el) > 1 and isinstance(el[1], list) else []
             break
     name = _param(dparams, "filename") or _param(params, "name")
+    # 🔴 The character set and the Content-ID belong to the part, not to the
+    # reader. The document index does not need either — the CLIENT needs both:
+    # without the charset every text is decoded as UTF-8 and a Latin-1 mail turns
+    # into rubble, and without the Content-ID an inline image cannot be assigned
+    # to the „cid:" in the HTML. Two more fields in the SAME answer, instead of a
+    # second reader asking the same question (5.0.0).
     eintrag = {"nr": nr, "typ": typ, "subtyp": sub, "name": name,
                "groesse": groesse, "kodierung": kod.upper(),
-               "verfuegung": verfuegung}
+               "verfuegung": verfuegung,
+               "zeichensatz": _param(params, "charset"),
+               "id": (str(struct[3]).strip("<>")
+                      if len(struct) > 3 and struct[3] else "")}
     raus = [eintrag]
     if typ.upper() == "MESSAGE" and sub.upper() == "RFC822" and len(struct) > 8:
         innen = struct[8]

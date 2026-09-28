@@ -1,0 +1,1710 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Postwache</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
+<style>
+/* ── The client wears the watchman's clothes ─────────────────────────────
+   Same tokens as `post_web.html`: the warm ground, the amber accent, the glassy
+   cards. Two pages that look like two products would be two products. What is
+   different is the SHAPE: the dashboard is a column of cards with a maximum
+   width, the client is a three-pane window that uses the whole screen. */
+:root{
+  color-scheme: dark;
+  --grund:#12100c;
+  --karte:rgba(255,255,255,.045); --karte2:rgba(255,255,255,.075);
+  --karte-voll:#1d1b17;
+  --rand:rgba(255,255,255,.10); --rand2:rgba(255,255,255,.18);
+  --text:#f4efe6; --leise:#a99c88; --leiser:#7d7264;
+  --akzent:#e0a458; --akzent-tief:#2a1d0a;
+  --ok:#34d399; --info:#60a5fa; --warnung:#fbbf24; --kritisch:#f87171;
+  --r:1.1rem; --r2:.7rem;
+  --ordner:16.5rem;         /* width of the folder column */
+  --zeile:4.35rem;          /* height of a list row — the density setting */
+  --schrift:100%;
+}
+body[data-dichte="eng"]{--zeile:2.55rem}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%;font-size:var(--schrift)}
+html,body{margin:0;height:100%;overflow:hidden}
+body{
+  background:var(--grund); color:var(--text);
+  font-family:ui-rounded,"SF Pro Rounded",system-ui,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(70rem 40rem at 3% -12%, rgba(224,164,88,.13), transparent 60%),
+    radial-gradient(50rem 32rem at 100% 0%, rgba(96,165,250,.07), transparent 58%);
+  background-attachment:fixed;
+}
+h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
+button{font:inherit;color:var(--text);background:var(--karte2);cursor:pointer;
+  border:1px solid var(--rand);border-radius:var(--r2);padding:.42rem .75rem;
+  transition:background .15s ease,border-color .15s ease,transform .06s ease}
+button:hover{background:rgba(255,255,255,.12);border-color:var(--rand2)}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.42;cursor:not-allowed}
+button.haupt{background:var(--akzent);border-color:var(--akzent);color:var(--akzent-tief);
+  font-weight:600}
+button.haupt:hover{filter:brightness(1.07)}
+button.blank{background:transparent;border-color:transparent;padding:.34rem .45rem}
+button.blank:hover{background:var(--karte2);border-color:var(--rand)}
+button.gefahr:hover{background:#f871711f;border-color:#f8717166;color:#fca5a5}
+input,select,textarea{font:inherit;color:var(--text);background:rgba(0,0,0,.28);
+  border:1px solid var(--rand);border-radius:var(--r2);padding:.46rem .6rem;width:100%}
+/* Sliders and checkboxes in the house colour — the browser's blue is the one
+   thing on the page that belongs to somebody else. */
+input[type=range],input[type=checkbox]{accent-color:var(--akzent)}
+input[type=range]{padding:0}
+input:focus,select,textarea:focus{outline:none}
+input:focus-visible,textarea:focus-visible,select:focus-visible,
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--akzent);
+  outline-offset:1px}
+select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--leise) 50%),
+  linear-gradient(135deg,var(--leise) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 55%,calc(100% - 10px) 55%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:1.7rem}
+label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
+.leise{color:var(--leise)} .klein{font-size:.8rem} .kleiner{font-size:.72rem}
+.zahl{font-variant-numeric:tabular-nums}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.13);border-radius:99px;
+  border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24);background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ── Frame ───────────────────────────────────────────────────────── */
+.app{display:grid;grid-template-rows:auto 1fr;height:100%;min-height:0}
+.leiste{display:flex;align-items:center;gap:.7rem;padding:.55rem .8rem;
+  border-bottom:1px solid var(--rand);background:rgba(18,16,12,.82);
+  backdrop-filter:blur(12px);position:relative;z-index:6}
+.wappen{width:2.1rem;height:2.1rem;display:grid;place-items:center;font-size:1.25rem;
+  border-radius:50%;border:1.5px solid var(--akzent);opacity:.95;flex:0 0 auto}
+.marke{display:flex;align-items:baseline;gap:.45rem;min-width:0}
+.marke b{font-size:1.02rem;letter-spacing:-.01em}
+.marke span{font-size:.7rem;color:var(--leiser)}
+.suchfeld{flex:1 1 20rem;min-width:7rem;display:flex;gap:.35rem;align-items:center;
+  background:rgba(0,0,0,.3);border:1px solid var(--rand);border-radius:99px;
+  padding:.1rem .35rem .1rem .75rem;max-width:44rem}
+.suchfeld:focus-within{border-color:var(--akzent)}
+.suchfeld input{border:0;background:transparent;padding:.4rem 0}
+.suchfeld select{border:0;background-color:transparent;width:auto;font-size:.78rem;
+  color:var(--leise);padding:.2rem 1.4rem .2rem .4rem}
+.leiste .rechts{display:flex;gap:.4rem;align-items:center;margin-left:auto;flex:0 0 auto}
+
+.raum{display:grid;min-height:0;grid-template-columns:var(--ordner) minmax(19rem,1fr);
+  grid-template-areas:"ordner liste";}
+.raum[data-vorschau="rechts"]{grid-template-columns:var(--ordner) minmax(17rem,.95fr) minmax(21rem,1.25fr);
+  grid-template-areas:"ordner liste lese"}
+.raum[data-vorschau="unten"]{grid-template-columns:var(--ordner) 1fr;
+  grid-template-rows:minmax(0,.95fr) minmax(0,1.05fr);
+  grid-template-areas:"ordner liste" "ordner lese"}
+.spalte{min-width:0;min-height:0;display:flex;flex-direction:column;
+  border-right:1px solid var(--rand)}
+.spalte:last-child{border-right:0}
+.ordner{grid-area:ordner;overflow:auto;padding:.5rem .45rem 1.5rem}
+.liste{grid-area:liste;overflow:hidden}
+.lese{grid-area:lese;overflow:hidden;border-top:0}
+.raum[data-vorschau="unten"] .lese{border-top:1px solid var(--rand)}
+
+/* ── Folder tree ─────────────────────────────────────────────────── */
+.obaum{display:flex;flex-direction:column;gap:1px}
+.o{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:.6rem;
+  cursor:pointer;border:1px solid transparent;min-width:0}
+.o:hover{background:var(--karte)}
+.o.an{background:rgba(224,164,88,.15);border-color:rgba(224,164,88,.35)}
+.o .ic{flex:0 0 1.1rem;text-align:center;font-size:.92rem;opacity:.95}
+.o .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-size:.87rem}
+.o.an .nm{font-weight:600}
+.o .n{flex:0 0 auto;font-size:.7rem;color:var(--leiser);font-variant-numeric:tabular-nums}
+.o .u{flex:0 0 auto;font-size:.68rem;font-weight:700;color:var(--akzent-tief);
+  background:var(--akzent);border-radius:99px;padding:.05rem .4rem;
+  font-variant-numeric:tabular-nums}
+.ogruppe{margin:.75rem .55rem .25rem;font-size:.66rem;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--leiser)}
+.ofalt{flex:0 0 .9rem;font-size:.72rem;color:var(--leise);text-align:center;
+  cursor:pointer;transition:transform .15s ease}
+.ofalt:hover{color:var(--text)}
+.ofalt.zu{transform:rotate(-90deg)}
+
+/* ── Message list ────────────────────────────────────────────────── */
+.werkzeug{display:flex;align-items:center;gap:.4rem;padding:.45rem .55rem;
+  border-bottom:1px solid var(--rand);background:rgba(18,16,12,.6);flex-wrap:wrap}
+.werkzeug .trenn{width:1px;height:1.3rem;background:var(--rand);margin:0 .15rem}
+.werkzeug select{width:auto;font-size:.78rem;padding:.3rem 1.5rem .3rem .5rem}
+.blaettern{display:flex;align-items:center;gap:.3rem;margin-left:auto;font-size:.76rem;
+  color:var(--leise)}
+.rollen{overflow:auto;flex:1 1 auto;min-height:0}
+.zeilen{display:flex;flex-direction:column}
+.z{display:grid;grid-template-columns:auto auto 1fr auto;gap:.1rem .6rem;
+  align-items:center;padding:.5rem .6rem;border-bottom:1px solid rgba(255,255,255,.055);
+  cursor:pointer;min-height:var(--zeile);position:relative}
+.z:hover{background:var(--karte)}
+.z.an{background:rgba(224,164,88,.13);box-shadow:inset 3px 0 0 var(--akzent)}
+.z.gewaehlt{background:rgba(96,165,250,.12)}
+.z.weg{opacity:.45;text-decoration:line-through}
+.z .haken{grid-row:1/4;width:1.05rem;height:1.05rem;accent-color:var(--akzent);
+  margin:0;cursor:pointer;flex:0 0 auto;opacity:.25;transition:opacity .12s}
+.z:hover .haken,.z .haken:checked,body.wahlmodus .z .haken{opacity:1}
+.z .kreis{grid-row:1/4;width:2.05rem;height:2.05rem;border-radius:50%;display:grid;
+  place-items:center;font-size:.76rem;font-weight:700;letter-spacing:-.02em;
+  flex:0 0 auto;color:#15120c}
+.z .kopfz{display:flex;align-items:baseline;gap:.4rem;min-width:0}
+.z .von{font-size:.87rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  flex:1 1 auto;min-width:0}
+.z.neu .von,.z.neu .bet{font-weight:700}
+.z.neu .bet{color:#fffaf2}
+.z .bet{font-size:.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--text);opacity:.92}
+/* 🔴 In the THIRD column, under the subject. Without the explicit column the
+   second line lands under the checkbox at the far left — the screenshot showed a
+   ragged edge that no test could see. */
+.z .aus{grid-column:3;font-size:.76rem;color:var(--leiser);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.z .rand{grid-row:1/4;display:flex;flex-direction:column;align-items:flex-end;
+  gap:.2rem;flex:0 0 auto}
+.z .wann{font-size:.7rem;color:var(--leise);font-variant-numeric:tabular-nums;
+  white-space:nowrap}
+.z .zeichen{display:flex;gap:.22rem;font-size:.7rem;color:var(--leise);align-items:center}
+.z .punkt{width:.42rem;height:.42rem;border-radius:50%;background:var(--akzent);
+  flex:0 0 auto}
+.z .stern{color:var(--warnung)}
+body[data-dichte="eng"] .z{grid-template-columns:auto auto 1fr auto auto;
+  padding:.24rem .6rem;gap:.55rem}
+body[data-dichte="eng"] .z .kreis{display:none}
+body[data-dichte="eng"] .z .haken{grid-row:auto}
+body[data-dichte="eng"] .z .kopfz{display:contents}
+body[data-dichte="eng"] .z .von{max-width:13rem;flex:0 0 13rem}
+body[data-dichte="eng"] .z .aus{display:none}
+body[data-dichte="eng"] .z .rand{grid-row:auto;flex-direction:row;align-items:center;
+  gap:.45rem}
+.z .strang{grid-column:3;font-size:.7rem;color:var(--leiser)}
+.z.antwort{padding-left:1.7rem}
+.z.antwort::before{content:"⤷";position:absolute;left:.7rem;top:50%;
+  transform:translateY(-50%);color:var(--leiser);font-size:.8rem}
+
+/* ── Reading pane ────────────────────────────────────────────────── */
+.lesekopf{padding:.75rem .9rem .6rem;border-bottom:1px solid var(--rand);
+  background:rgba(255,255,255,.02)}
+.lesekopf h2{font-size:1.06rem;line-height:1.35;margin:0 0 .4rem}
+.wer{display:flex;gap:.6rem;align-items:flex-start}
+.wer .kreis{width:2.5rem;height:2.5rem;border-radius:50%;display:grid;place-items:center;
+  font-size:.92rem;font-weight:700;flex:0 0 auto;color:#15120c}
+.wer .txt{min-width:0;flex:1 1 auto}
+.wer b{display:block;font-size:.92rem}
+.wer .adr{font-size:.78rem;color:var(--leise);word-break:break-all}
+.lesetasten{display:flex;gap:.35rem;flex-wrap:wrap;padding:.5rem .9rem;
+  border-bottom:1px solid var(--rand)}
+.lesetasten button{font-size:.8rem;padding:.35rem .6rem}
+.bahn{display:flex;gap:.45rem;flex-wrap:wrap;padding:.45rem .9rem 0}
+.chip{display:inline-flex;align-items:center;gap:.35rem;padding:.16rem .6rem;
+  border-radius:999px;font-size:.74rem;border:1px solid var(--rand);
+  background:var(--karte2);color:var(--leise);max-width:100%}
+.chip b{font-weight:600;color:var(--text)}
+.chip.ok{color:var(--ok);border-color:#34d39955;background:#34d3991a}
+.chip.warnung{color:var(--warnung);border-color:#fbbf2455;background:#fbbf241a}
+.chip.kritisch{color:var(--kritisch);border-color:#f8717155;background:#f871711a}
+.chip.info{color:var(--info);border-color:#60a5fa55;background:#60a5fa1a}
+.chip.tat{cursor:pointer}
+.chip.tat:hover{background:rgba(255,255,255,.14);color:var(--text)}
+.warnleiste{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;
+  margin:.55rem .9rem 0;padding:.5rem .7rem;border-radius:var(--r2);font-size:.8rem;
+  border:1px solid #f8717155;background:#f871711a;color:#fca5a5}
+.warnleiste.mild{border-color:#fbbf2455;background:#fbbf2414;color:#fcd34d}
+.warnleiste button{padding:.24rem .55rem;font-size:.76rem}
+.anhangreihe{display:flex;gap:.45rem;flex-wrap:wrap;padding:.55rem .9rem 0}
+.anh{display:inline-flex;align-items:center;gap:.4rem;padding:.3rem .55rem;
+  border-radius:.6rem;border:1px solid var(--rand);background:var(--karte2);
+  font-size:.78rem;max-width:20rem;text-decoration:none;color:var(--text)}
+.anh:hover{border-color:var(--rand2);background:rgba(255,255,255,.12)}
+.anh .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.anh .gr{color:var(--leiser);font-size:.7rem;flex:0 0 auto}
+.kopftabelle{margin:.55rem .9rem 0;font-size:.74rem;border-collapse:collapse;
+  width:calc(100% - 1.8rem);display:none}
+.kopftabelle.auf{display:table}
+.kopftabelle td{border-top:1px solid var(--rand);padding:.2rem .4rem;
+  vertical-align:top;word-break:break-word}
+.kopftabelle td:first-child{color:var(--leiser);white-space:nowrap;width:9rem}
+/* The reading pane scrolls as ONE piece: header, chips, attachments and letter
+   together. Two scroll areas in one pane is the kind of thing people fight with
+   instead of reading. So the frame gets the height of its content, measured after
+   loading — see `briefHoehe()`. */
+.lesescroll{flex:1 1 auto;min-height:0;overflow:auto;display:flex;
+  flex-direction:column}
+#brief{width:100%;border:0;background:#161410;display:block;min-height:11rem;
+  flex:0 0 auto}
+.nichtschmal{display:inline}
+/* Preview „off": the letter takes the place of the list instead of squeezing it. */
+.raum[data-vorschau="aus"] .lese{display:none}
+body[data-blick="lese"] .raum[data-vorschau="aus"] .lese{display:flex;grid-area:liste}
+body[data-blick="lese"] .raum[data-vorschau="aus"] .liste{display:none}
+.lese .leer,.liste .leer{display:grid;place-items:center;height:100%;padding:2rem;
+  text-align:center;color:var(--leiser);font-size:.85rem;line-height:1.6}
+.lese .leer .gross{font-size:2.4rem;opacity:.5;display:block;margin-bottom:.5rem}
+
+/* ── Windows: compose, settings, login, help ─────────────────────── */
+.dunkel{position:fixed;inset:0;background:rgba(8,7,5,.68);backdrop-filter:blur(3px);
+  z-index:20;display:none}
+.dunkel.auf{display:block}
+.fenster{position:fixed;z-index:21;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(56rem,94vw);max-height:92vh;display:none;flex-direction:column;
+  background:var(--karte-voll);border:1px solid var(--rand2);border-radius:var(--r);
+  box-shadow:0 24px 70px rgba(0,0,0,.6);overflow:hidden}
+.fenster.auf{display:flex}
+.fkopf{display:flex;align-items:center;gap:.6rem;padding:.65rem .8rem;
+  border-bottom:1px solid var(--rand);background:rgba(255,255,255,.03)}
+.fkopf h2{font-size:.98rem;flex:1 1 auto}
+.fleib{padding:.8rem;overflow:auto;flex:1 1 auto;min-height:0}
+.ffuss{display:flex;gap:.5rem;align-items:center;padding:.65rem .8rem;
+  border-top:1px solid var(--rand);background:rgba(255,255,255,.02);flex-wrap:wrap}
+.schublade{position:fixed;z-index:21;top:0;right:0;height:100%;width:min(34rem,96vw);
+  background:var(--karte-voll);border-left:1px solid var(--rand2);display:none;
+  flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.5)}
+.schublade.auf{display:flex}
+.gruppe{border:1px solid var(--rand);border-radius:var(--r2);padding:.7rem .8rem;
+  margin-bottom:.7rem;background:var(--karte)}
+.gruppe > h3{font-size:.86rem;margin:0 0 .15rem}
+.gruppe > .klein{margin-bottom:.55rem}
+.reihe{display:flex;align-items:center;gap:.8rem;padding:.5rem 0;
+  border-top:1px solid var(--rand)}
+.reihe:first-of-type{border-top:0}
+.reihe .txt{flex:1 1 auto;min-width:0}
+.reihe .txt b{display:block;font-weight:600;font-size:.87rem}
+.reihe .txt span{font-size:.76rem;color:var(--leise)}
+.reihe .stell{flex:0 0 auto;width:11rem;max-width:45%}
+.knebel{flex:0 0 auto;position:relative;width:46px;height:27px;border-radius:999px;
+  border:1px solid var(--rand);background:rgba(255,255,255,.07);cursor:pointer}
+.knebel::after{content:"";position:absolute;top:2px;left:2px;width:21px;height:21px;
+  border-radius:50%;background:#e7ddcd;transition:transform .16s ease}
+.knebel[aria-checked="true"]{background:var(--akzent);border-color:var(--akzent)}
+.knebel[aria-checked="true"]::after{transform:translateX(19px);background:var(--akzent-tief)}
+.feldpaar{display:flex;gap:.6rem;flex-wrap:wrap}
+.feldpaar > div{flex:1 1 12rem;min-width:0}
+.empf{display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem}
+.empf label{flex:0 0 3.2rem;margin:0;text-align:right}
+.vorschlag{position:absolute;z-index:30;background:var(--karte-voll);
+  border:1px solid var(--rand2);border-radius:var(--r2);overflow:hidden;
+  box-shadow:0 12px 34px rgba(0,0,0,.5);display:none;max-height:16rem;overflow-y:auto}
+.vorschlag.auf{display:block}
+.vorschlag div{padding:.4rem .6rem;cursor:pointer;font-size:.82rem}
+.vorschlag div:hover,.vorschlag div.an{background:rgba(224,164,88,.18)}
+.vorschlag small{display:block;color:var(--leiser);font-size:.7rem}
+#v_text{min-height:13rem;resize:vertical;font-family:inherit;line-height:1.5}
+.tor{position:fixed;inset:0;z-index:40;display:none;place-items:center;
+  background:radial-gradient(60rem 40rem at 50% -10%,rgba(224,164,88,.12),transparent 60%),
+  var(--grund)}
+.tor.auf{display:grid}
+.torkarte{width:min(26rem,92vw);background:var(--karte);border:1px solid var(--rand);
+  border-radius:var(--r);padding:1.4rem 1.3rem;backdrop-filter:blur(8px);text-align:center}
+.torkarte .wappen{margin:0 auto .8rem;width:3.2rem;height:3.2rem;font-size:1.9rem}
+.torkarte h1{font-size:1.2rem;margin-bottom:.3rem}
+.torkarte p{margin:.3rem 0 1rem;font-size:.82rem;color:var(--leise);line-height:1.5}
+.torkarte input{text-align:center;margin-bottom:.6rem}
+.melde{position:fixed;left:50%;bottom:1.3rem;transform:translateX(-50%) translateY(2rem);
+  background:var(--karte-voll);border:1px solid var(--rand2);border-radius:99px;
+  padding:.5rem 1rem;font-size:.84rem;z-index:50;opacity:0;pointer-events:none;
+  transition:opacity .2s ease,transform .2s ease;box-shadow:0 10px 30px rgba(0,0,0,.45);
+  max-width:calc(100vw - 2rem)}
+.melde.auf{opacity:1;transform:translateX(-50%) translateY(0)}
+.melde.gut{border-color:#34d39977}
+.melde.schlecht{border-color:#f8717199}
+kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
+  background:var(--karte2);border:1px solid var(--rand);border-bottom-width:2px;
+  border-radius:.35rem;padding:.08rem .34rem;color:var(--text)}
+.tastenliste{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));
+  gap:.3rem .9rem}
+.tastenliste div{display:flex;gap:.5rem;align-items:baseline;font-size:.82rem;
+  padding:.16rem 0}
+.tastenliste kbd{flex:0 0 auto;min-width:1.5rem;text-align:center}
+.laedt{display:inline-block;width:.85rem;height:.85rem;border-radius:50%;
+  border:2px solid var(--rand2);border-top-color:var(--akzent);
+  animation:dreh .7s linear infinite;vertical-align:-.1rem}
+@keyframes dreh{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.laedt{animation-duration:2s}}
+.nurschmal{display:none}
+
+/* ── Big screens: use the room, do not stretch the text ───────────
+   🔑 Two different things. A 27-inch screen should show MORE (wider folder
+   column, wider list, more air) — but a line of text 200 characters long is
+   harder to read, not easier. So: the panes grow, the letter keeps its measure.
+   The reading measure sits in `rahmen()` on the plain-text container, never on
+   HTML mail: a newsletter brings its own width, and a max-width across it breaks
+   the layout it was built with. */
+@media (min-width:1400px){
+  :root{--ordner:18.5rem}
+  .raum[data-vorschau="rechts"]{
+    grid-template-columns:var(--ordner) minmax(21rem,.8fr) minmax(28rem,1.3fr)}
+  .leiste{padding:.6rem 1.1rem}
+  .z{padding:.58rem .9rem}
+  .lesekopf,.lesetasten,.bahn,.anhangreihe,.kopftabelle{
+    padding-left:1.3rem;padding-right:1.3rem}
+  .kopftabelle{width:calc(100% - 2.6rem)}
+  .ordner{padding:.7rem .7rem 2rem}
+}
+@media (min-width:1800px){
+  :root{--ordner:21rem;--zeile:4.7rem}
+  body[data-dichte="eng"]{--zeile:2.7rem}
+  /* At this width the letter no longer needs the extra room — a newsletter is
+     600 px wide and text keeps its measure. So the LIST gets more of it. */
+  .raum[data-vorschau="rechts"]{
+    grid-template-columns:var(--ordner) minmax(26rem,.9fr) minmax(32rem,1.1fr)}
+  .suchfeld{max-width:56rem}
+  .z .kreis{width:2.3rem;height:2.3rem;font-size:.82rem}
+  .lesekopf h2{font-size:1.16rem}
+  .leiste{padding:.7rem 1.5rem}
+  .lesekopf,.lesetasten,.bahn,.anhangreihe{padding-left:1.7rem;padding-right:1.7rem}
+}
+/* Very wide and the preview below: the list would be one endless line of text,
+   so the row content keeps a sane measure and centres. */
+@media (min-width:2200px){
+  .raum[data-vorschau="unten"] .zeilen,
+  .raum[data-vorschau="unten"] .werkzeug{max-width:120rem;margin:0 auto;width:100%}
+}
+
+/* ── Phone: one pane at a time ───────────────────────────────────── */
+@media (max-width:900px){
+  .raum,.raum[data-vorschau="rechts"],.raum[data-vorschau="unten"]{
+    grid-template-columns:1fr;grid-template-rows:1fr;
+    grid-template-areas:"liste"}
+  .spalte{border-right:0}
+  .ordner,.lese{display:none}
+  body[data-blick="ordner"] .ordner{display:flex;grid-area:liste}
+  body[data-blick="ordner"] .liste{display:none}
+  body[data-blick="lese"] .lese{display:flex;grid-area:liste}
+  body[data-blick="lese"] .liste{display:none}
+  .nurschmal{display:inline-flex}
+  .nichtschmal{display:none}
+  .suchfeld{flex:1 1 6rem;max-width:none}
+  .marke span{display:none}
+  .leiste{gap:.4rem;padding:.5rem .55rem}
+}
+</style>
+</head>
+<body data-dichte="bequem" data-blick="liste">
+
+<!-- ── The door. Nothing behind it is drawn before it is open. ───────────── -->
+<div class="tor auf" id="tor">
+  <div class="torkarte">
+    <div class="wappen">📬</div>
+    <h1>Postwache</h1>
+    <p id="tor_text" data-t="k.tor_text"></p>
+    <div id="tor_neu" hidden>
+      <input id="tor_wort1" type="password" autocomplete="new-password"
+             data-t-platzhalter="k.wort_neu">
+      <input id="tor_wort2" type="password" autocomplete="new-password"
+             data-t-platzhalter="k.wort_neu2">
+      <button class="haupt" style="width:100%" onclick="wortSetzen()"
+              data-t="k.wort_setzen"></button>
+    </div>
+    <div id="tor_an" hidden>
+      <input id="tor_wort" type="password" autocomplete="current-password"
+             data-t-platzhalter="k.wort" onkeydown="if(event.key==='Enter')anmelden()">
+      <button class="haupt" style="width:100%" onclick="anmelden()"
+              data-t="k.anmelden"></button>
+    </div>
+    <div class="kleiner leise" style="margin-top:.9rem" id="tor_fuss"></div>
+  </div>
+</div>
+
+<div class="app" id="app" hidden>
+  <header class="leiste">
+    <button class="blank nurschmal" onclick="blick('ordner')"
+            data-t-titel="k.ordner">☰</button>
+    <div class="wappen">📬</div>
+    <div class="marke"><b>Postwache</b><span id="pfname"></span></div>
+    <div class="suchfeld">
+      <span class="leise" aria-hidden="true">🔍</span>
+      <input id="suche" data-t-platzhalter="k.suchen"
+             onkeydown="if(event.key==='Enter')sucheLos();if(event.key==='Escape')sucheLeeren()">
+      <select id="suchfeld" onchange="if($('#suche').value)sucheLos()">
+        <option value="alle" data-t="k.feld_alle"></option>
+        <option value="von" data-t="k.feld_von"></option>
+        <option value="betreff" data-t="k.feld_betreff"></option>
+        <option value="an" data-t="k.feld_an"></option>
+        <option value="text" data-t="k.feld_text"></option>
+      </select>
+      <button class="blank" id="suche_x" onclick="sucheLeeren()" hidden>✕</button>
+    </div>
+    <div class="rechts">
+      <select id="pfwahl" onchange="postfachWechseln(this.value)"
+              style="width:auto;max-width:11rem;font-size:.8rem" hidden></select>
+      <button class="haupt" onclick="verfassen('neu')"><span>✏️</span>
+        <span class="nichtschmal" data-t="k.verfassen"></span></button>
+      <button class="blank" onclick="allesLaden(true)" data-t-titel="k.neu_laden">⟳</button>
+      <button class="blank" onclick="einstAuf()" data-t-titel="k.einstellungen">⚙️</button>
+      <button class="blank" onclick="hilfeAuf()" data-t-titel="k.tastenhilfe">⌨️</button>
+      <button class="blank" onclick="location.href='/?wache=1'"
+              data-t-titel="k.zum_waechter">🛡️</button>
+      <button class="blank" onclick="abmelden()" data-t-titel="k.abmelden">🔒</button>
+    </div>
+  </header>
+
+  <main class="raum" id="raum" data-vorschau="rechts">
+    <nav class="spalte ordner" id="ordner" data-t-aria="k.ordner"></nav>
+
+    <section class="spalte liste">
+      <div class="werkzeug">
+        <input type="checkbox" id="alle_haken" onchange="alleWaehlen(this.checked)"
+               style="width:1.05rem;height:1.05rem;accent-color:var(--akzent)"
+               data-t-titel="k.alle_waehlen">
+        <div id="wahltasten" style="display:none;gap:.4rem" >
+          <button class="blank" onclick="stapel('gelesen',true)" data-t-titel="k.gelesen">📖</button>
+          <button class="blank" onclick="stapel('gelesen',false)" data-t-titel="k.ungelesen">✉️</button>
+          <button class="blank" onclick="stapel('markiert',true)" data-t-titel="k.markieren">⭐</button>
+          <select id="stapel_ziel" onchange="stapelVerschieben(this.value)"
+                  style="width:auto;max-width:10rem"></select>
+          <button class="blank gefahr" onclick="stapelLoeschen()" data-t-titel="k.loeschen">🗑️</button>
+          <span class="kleiner leise" id="wahlzahl"></span>
+        </div>
+        <div id="siebtasten" style="display:flex;gap:.4rem;align-items:center">
+          <select id="sieb" onchange="siebSetzen(this.value)">
+            <option value="" data-t="k.sieb_alle"></option>
+            <option value="ungelesen" data-t="k.sieb_ungelesen"></option>
+            <option value="markiert" data-t="k.sieb_markiert"></option>
+            <option value="unbeantwortet" data-t="k.sieb_unbeantwortet"></option>
+            <option value="anhang" data-t="k.sieb_anhang"></option>
+          </select>
+          <select id="sortierung" onchange="sortSetzen()">
+            <option value="datum" data-t="k.sort_datum"></option>
+            <option value="von" data-t="k.sort_von"></option>
+            <option value="betreff" data-t="k.sort_betreff"></option>
+            <option value="groesse" data-t="k.sort_groesse"></option>
+          </select>
+          <button class="blank" id="richtung" onclick="richtungDrehen()"
+                  data-t-titel="k.richtung">↓</button>
+        </div>
+        <div class="blaettern">
+          <span id="spanne" class="zahl"></span>
+          <button class="blank" id="zurueck" onclick="blaettern(-1)">‹</button>
+          <button class="blank" id="weiter" onclick="blaettern(1)">›</button>
+        </div>
+      </div>
+      <div class="rollen" id="rollen">
+        <div class="zeilen" id="zeilen"></div>
+        <div class="leer" id="listeleer" hidden></div>
+      </div>
+    </section>
+
+    <section class="spalte lese" id="lese"></section>
+  </main>
+</div>
+
+<!-- ── Compose ──────────────────────────────────────────────────────────── -->
+<div class="dunkel" id="dunkel1" onclick="verfassenZu()"></div>
+<div class="fenster" id="verfassenfenster">
+  <div class="fkopf">
+    <h2 id="v_titel"></h2>
+    <span class="kleiner leise" id="v_absender"></span>
+    <button class="blank" onclick="verfassenZu()">✕</button>
+  </div>
+  <div class="fleib">
+    <div class="empf"><label for="v_an" data-t="k.an"></label>
+      <div style="flex:1 1 auto;position:relative">
+        <input id="v_an" autocomplete="off" oninput="vorschlagSuchen(this)"
+               onkeydown="vorschlagTaste(event,this)">
+        <div class="vorschlag" id="vorschlag_an"></div>
+      </div>
+      <button class="blank kleiner" onclick="kopieZeigen()" id="v_mehr">Cc/Bcc</button>
+    </div>
+    <div class="empf" id="v_kopiereihe" hidden><label for="v_kopie" data-t="k.kopie"></label>
+      <div style="flex:1 1 auto;position:relative">
+        <input id="v_kopie" autocomplete="off" oninput="vorschlagSuchen(this)"
+               onkeydown="vorschlagTaste(event,this)">
+        <div class="vorschlag" id="vorschlag_kopie"></div>
+      </div></div>
+    <div class="empf" id="v_blindreihe" hidden><label for="v_blind" data-t="k.blind"></label>
+      <div style="flex:1 1 auto;position:relative">
+        <input id="v_blind" autocomplete="off" oninput="vorschlagSuchen(this)"
+               onkeydown="vorschlagTaste(event,this)">
+        <div class="vorschlag" id="vorschlag_blind"></div>
+      </div></div>
+    <div class="empf"><label for="v_betreff" data-t="k.betreff"></label>
+      <input id="v_betreff"></div>
+    <textarea id="v_text" spellcheck="true"></textarea>
+    <div class="anhangreihe" id="v_anhaenge" style="padding:.55rem 0 0"></div>
+  </div>
+  <div class="ffuss">
+    <button class="haupt" onclick="senden()" id="v_senden" data-t="k.senden"></button>
+    <button onclick="entwurfSpeichern()" data-t="k.entwurf"></button>
+    <label style="display:inline-flex;align-items:center;gap:.4rem;margin:0;cursor:pointer">
+      <input type="file" id="v_datei" multiple style="display:none"
+             onchange="dateienNehmen(this.files)">
+      <button onclick="$('#v_datei').click()" data-t="k.anhaengen"></button>
+    </label>
+    <span class="kleiner leise" id="v_stand" style="margin-left:auto"></span>
+  </div>
+</div>
+
+<!-- ── Settings ─────────────────────────────────────────────────────────── -->
+<div class="dunkel" id="dunkel2" onclick="einstZu()"></div>
+<div class="schublade" id="einstschublade">
+  <div class="fkopf">
+    <h2 data-t="k.einstellungen"></h2>
+    <button class="blank" onclick="einstZu()">✕</button>
+  </div>
+  <div class="fleib" id="einstleib"></div>
+</div>
+
+<!-- ── Keyboard help ────────────────────────────────────────────────────── -->
+<div class="dunkel" id="dunkel3" onclick="hilfeZu()"></div>
+<div class="fenster" id="hilfefenster" style="width:min(40rem,94vw)">
+  <div class="fkopf"><h2 data-t="k.tastenhilfe"></h2>
+    <button class="blank" onclick="hilfeZu()">✕</button></div>
+  <div class="fleib"><div class="tastenliste" id="tastenliste"></div></div>
+</div>
+
+<div class="melde" id="melde"></div>
+
+<script>
+/*SPRACHE*/
+/* Same fallback as on the watchman page, for the same reason: `var T` would
+   collide with the substituted `const T` and that is a PARSE error — the page
+   then looks almost normal and not one button works. */
+if (typeof T === "undefined") {
+  globalThis.T = {};
+  globalThis.LANG = "de";
+  globalThis.SPRACHEN = [["de", "Deutsch"]];
+}
+function txt(schluessel, werte){
+  let s = T[schluessel];
+  if(s === undefined) return schluessel;
+  if(werte) for(const k in werte) s = s.split("{" + k + "}").join(werte[k]);
+  return s;
+}
+function textenSetzen(wurzel){
+  (wurzel || document).querySelectorAll("[data-t]").forEach(el => {
+    el.textContent = txt(el.dataset.t); });
+  (wurzel || document).querySelectorAll("[data-t-titel]").forEach(el => {
+    el.title = txt(el.dataset.tTitel); });
+  (wurzel || document).querySelectorAll("[data-t-platzhalter]").forEach(el => {
+    el.placeholder = txt(el.dataset.tPlatzhalter); });
+  (wurzel || document).querySelectorAll("[data-t-html]").forEach(el => {
+    el.innerHTML = txt(el.dataset.tHtml); });
+  (wurzel || document).querySelectorAll("[data-t-aria]").forEach(el => {
+    el.setAttribute("aria-label", txt(el.dataset.tAria)); });
+}
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+function esc(s){ return String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+/* ── State ─────────────────────────────────────────────────────────────────
+   One object. Every drawing function reads from here and nowhere else — with the
+   state spread over the DOM, the list and the reading pane drift apart, and it
+   shows up as „the wrong mail opened". */
+const S = {
+  pf:"", ordner:"INBOX", seite:1, sieb:"", suche:"", feld:"alle",
+  sortierung:"datum", richtung:"ab", pro:50,
+  mails:[], uid:0, offen:null, gewaehlt:new Set(),
+  ordner_liste:[], rollen:{}, einst:{}, faehig:{}, postfaecher:[],
+  zu:new Set(),            // collapsed folder branches
+  oberflaeche:[],          // how the settings are described — comes from the engine
+  lesemarke:null,          // the timer for „mark read after N seconds"
+  laeuft:false, version:""
+};
+
+function melde(text, gut){
+  const m = $("#melde");
+  m.textContent = text;
+  m.className = "melde auf" + (gut === false ? " schlecht" : (gut ? " gut" : ""));
+  clearTimeout(m._t);
+  m._t = setTimeout(() => m.className = "melde", 5000);
+}
+
+async function sende(aktion, daten){
+  const r = await fetch("/api/" + aktion, {method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(Object.assign({pf: S.pf}, daten || {}))});
+  const a = await r.json().catch(() => ({ok:false, text:"HTTP " + r.status}));
+  /* 🔴 A session can expire while the page is open. Then EVERY answer says
+     „locked" — and the page has to go back to the door instead of drawing empty
+     lists and letting the reader think the mailbox is empty. */
+  if(a && a.gesperrt){ torZeigen({wort:true, an:false}); throw new Error("gesperrt"); }
+  return a;
+}
+
+/* ── Small dressing ──────────────────────────────────────────────────────── */
+function initialen(name, adresse){
+  const s = (name || adresse || "?").trim();
+  const teile = s.replace(/[<>"]/g,"").split(/[\s.@_-]+/).filter(Boolean);
+  if(!teile.length) return "?";
+  if(teile.length === 1) return teile[0].slice(0,2).toUpperCase();
+  return (teile[0][0] + teile[1][0]).toUpperCase();
+}
+/* The colour follows the ADDRESS, so the same sender always has the same one —
+   after two days you recognise the circle before you have read the name. */
+function farbe(adresse){
+  let h = 0;
+  const s = String(adresse || "");
+  for(let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return "hsl(" + h + " 52% 63%)";
+}
+function gr(b){
+  b = Number(b || 0);
+  if(b >= 1048576) return (b/1048576).toFixed(1).replace(".0","") + " MB";
+  if(b >= 1024) return Math.round(b/1024) + " kB";
+  return b + " B";
+}
+/* „14:32" for today, „gestern 09:14", „Mo. 12:04" this week, otherwise the date.
+   A column full of identical dates says nothing; this one says how old it is. */
+function wann(iso){
+  if(!iso) return "";
+  const d = new Date(iso);
+  if(isNaN(d)) return String(iso).slice(0,10);
+  const jetzt = new Date();
+  const tag = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  /* 🔴 The setting decides, not the language. With LANG „en" the locale default
+     is 12 hours — and whoever set „24 hours" watched it be ignored. Seen in the
+     screenshot: „09:44 AM" on a page set to 24. */
+  const uhrform = {hour:"2-digit", minute:"2-digit"};
+  if(S.einst && S.einst.zeitform) uhrform.hour12 = (S.einst.zeitform === "12");
+  const uhr = d.toLocaleTimeString(LANG, uhrform);
+  const tage = Math.round((tag(jetzt) - tag(d)) / 86400000);
+  if(tage === 0) return uhr;
+  if(tage === 1) return txt("k.gestern") + " " + uhr;
+  if(tage < 7) return d.toLocaleDateString(LANG, {weekday:"short"}) + " " + uhr;
+  if(d.getFullYear() === jetzt.getFullYear())
+    return d.toLocaleDateString(LANG, {day:"2-digit", month:"2-digit"});
+  return d.toLocaleDateString(LANG, {day:"2-digit", month:"2-digit", year:"numeric"});
+}
+function langesDatum(iso){
+  if(!iso) return "";
+  const d = new Date(iso);
+  if(isNaN(d)) return String(iso);
+  const form = {weekday:"short", day:"2-digit", month:"short", year:"numeric",
+                hour:"2-digit", minute:"2-digit"};
+  if(S.einst && S.einst.zeitform) form.hour12 = (S.einst.zeitform === "12");
+  return d.toLocaleString(LANG, form);
+}
+function blick(was){ document.body.dataset.blick = was; }
+
+/* ── The door ──────────────────────────────────────────────────────────────
+   🔴 The page starts CLOSED. Not „open and then check": between drawing and the
+   answer lies exactly the moment in which an inbox stands on the screen for
+   anyone. */
+function torZeigen(schloss){
+  $("#tor").classList.add("auf");
+  $("#app").hidden = true;
+  const kein = !schloss.wort;
+  $("#tor_neu").hidden = !kein;
+  $("#tor_an").hidden = kein;
+  /* 🔴 Both keys SPELLED OUT, never a condition INSIDE the call. To find German
+     sentences, the language test bench cuts the literal key out of a translation
+     call — written the other way round it sees a bare call and reads the two keys
+     as prose. The same note stands in `post_web.py`; it holds for every page.
+     (And this comment may not contain such a call either: section 3 reads the
+     page as it is and would look the key up. Found exactly that way.) */
+  $("#tor_text").textContent = kein ? txt("k.tor_kein_wort") : txt("k.tor_text");
+  $("#tor_fuss").textContent = kein ? txt("k.tor_fuss_neu") : txt("k.tor_fuss");
+  setTimeout(() => (kein ? $("#tor_wort1") : $("#tor_wort")).focus(), 60);
+}
+function torWeg(){
+  $("#tor").classList.remove("auf");
+  $("#app").hidden = false;
+}
+async function wortSetzen(){
+  const a = $("#tor_wort1").value, b = $("#tor_wort2").value;
+  if(a.length < 8) return melde(txt("k.wort_kurz"), false);
+  if(a !== b) return melde(txt("k.wort_ungleich"), false);
+  const r = await sende("klient_wort", {neu:a});
+  melde(r.text, r.ok);
+  if(r.ok){ $("#tor_wort1").value = $("#tor_wort2").value = ""; torZeigen({wort:true}); }
+}
+async function anmelden(){
+  const wort = $("#tor_wort").value;
+  if(!wort) return;
+  const r = await sende("klient_anmelden", {wort:wort});
+  if(!r.ok) return melde(r.text, false);
+  $("#tor_wort").value = "";
+  torWeg();
+  await allesLaden(true);
+  /* Came here from the locked watchman page? Then that is where we go back to. */
+  const zurueck = new URLSearchParams(location.search).get("zurueck");
+  if(zurueck) location.href = zurueck;
+}
+async function abmelden(){
+  const r = await sende("klient_abmelden", {});
+  melde(r.text, true);
+  torZeigen({wort:true, an:false});
+}
+
+/* ── Loading ───────────────────────────────────────────────────────────────── */
+async function allesLaden(frisch){
+  if(S.laeuft) return;
+  S.laeuft = true;
+  try{
+    const l = await sende("klient_lage", {});
+    if(!l.schloss || !l.schloss.an){ torZeigen(l.schloss || {wort:false}); return; }
+    torWeg();
+    if(l.ok === false && l.text) melde(l.text, false);
+    S.einst = l.einst || {};
+    S.oberflaeche = l.oberflaeche || S.oberflaeche || [];
+    S.ordner_liste = l.ordner || [];
+    S.rollen = l.rollen || {};
+    S.faehig = l.faehig || {};
+    S.postfaecher = l.postfaecher || [];
+    S.pf = l.pf || S.pf;
+    S.version = l.version || "";
+    S.smtp = l.smtp || {};
+    einstAnwenden();
+    if(!S.ordner || !S.ordner_liste.some(o => o.name === S.ordner))
+      S.ordner = S.rollen.posteingang || (S.ordner_liste[0] || {}).name || "INBOX";
+    $("#pfname").textContent = l.adresse || "";
+    const wahl = $("#pfwahl");
+    wahl.hidden = S.postfaecher.length < 2;
+    wahl.innerHTML = S.postfaecher.map(p =>
+      `<option value="${esc(p.id)}"${p.id === S.pf ? " selected" : ""}>${esc(p.name)}</option>`).join("");
+    ordnerMalen();
+    await ladeListe(frisch);
+  }catch(e){
+    if(String(e.message) !== "gesperrt") melde(txt("k.keine_verbindung"), false);
+  }finally{ S.laeuft = false; }
+}
+
+/* Settings that change the LOOK are applied to the frame, not to every row —
+   one attribute on the body, and the CSS does the rest. */
+function einstAnwenden(){
+  const e = S.einst;
+  document.body.dataset.dichte = e.dichte || "bequem";
+  $("#raum").dataset.vorschau = e.vorschau || "rechts";
+  document.documentElement.style.setProperty("--schrift", (e.schrift || 100) + "%");
+  S.pro = e.pro_seite || 50;
+  if(!S.sieb && e.nur_ungelesen) S.sieb = "ungelesen";
+  S.sortierung = S.sortierung || e.sortierung;
+  S.richtung = S.richtung || e.richtung;
+  $("#sieb").value = S.sieb;
+  $("#sortierung").value = S.sortierung;
+  $("#sortierung").disabled = !S.faehig.sort && S.sortierung === "datum";
+  $("#richtung").textContent = S.richtung === "ab" ? "↓" : "↑";
+}
+
+/* ── Folder tree ───────────────────────────────────────────────────────────── */
+function ordnerMalen(){
+  const liste = S.ordner_liste;
+  const teile = [];
+  const sonder = liste.filter(o => o.rolle);
+  const rest = liste.filter(o => !o.rolle);
+  const zeile = (o) => {
+    const eltern = elternWeg(o);
+    if(eltern.some(p => S.zu.has(p))) return "";
+    const kinder = rest.some(x => x !== o && x.pfad.startsWith(o.pfad + "/") ||
+                                  x.name.startsWith(o.name + (S.faehig.trenner || ".")));
+    const falt = kinder
+      ? `<span class="ofalt ${S.zu.has(o.name) ? "zu" : ""}"
+             onclick="faltenUm(event,'${escJs(o.name)}')">▾</span>` : "";
+    return `<div class="o ${o.name === S.ordner ? "an" : ""}" tabindex="0"
+        style="padding-left:${.55 + o.tiefe * .85}rem"
+        onclick="ordnerWaehlen('${escJs(o.name)}')"
+        onkeydown="if(event.key==='Enter')ordnerWaehlen('${escJs(o.name)}')"
+        title="${esc(o.pfad)} — ${o.gesamt} ${esc(txt("k.mails"))}">
+      ${falt}<span class="ic">${o.icon || "📁"}</span>
+      <span class="nm">${esc(ordnerName(o))}</span>
+      ${o.ungelesen ? `<span class="u">${o.ungelesen}</span>`
+                    : `<span class="n">${o.gesamt || ""}</span>`}
+    </div>`;
+  };
+  teile.push(`<div class="obaum">${sonder.map(zeile).join("")}</div>`);
+  if(rest.length){
+    teile.push(`<div class="ogruppe">${esc(txt("k.eigene_ordner"))}</div>`);
+    teile.push(`<div class="obaum">${rest.map(zeile).join("")}</div>`);
+  }
+  teile.push(`<div style="padding:.7rem .55rem 0">
+    <button class="blank kleiner" onclick="ordnerNeu()">＋ ${esc(txt("k.ordner_neu"))}</button>
+  </div>`);
+  $("#ordner").innerHTML = teile.join("");
+  const ziel = $("#stapel_ziel");
+  ziel.innerHTML = `<option value="">${esc(txt("k.verschieben_nach"))}</option>` +
+    liste.filter(o => o.waehlbar).map(o =>
+      `<option value="${esc(o.name)}">${"·".repeat(o.tiefe)} ${esc(o.zeige)}</option>`).join("");
+}
+/* 🔴 „INBOX" is a word from the protocol, not a name a person gave a folder.
+   Every other folder is called what the server calls it — that IS the truth, and
+   a German mailbox really does have „Gesendet". Only this one is translated. */
+function ordnerName(o){
+  return (o.name.toUpperCase() === "INBOX") ? txt("k.posteingang") : o.zeige;
+}
+function elternWeg(o){
+  const tr = S.faehig.trenner || ".";
+  const teile = o.name.split(tr);
+  return teile.slice(0, -1).map((_, i) => teile.slice(0, i + 1).join(tr));
+}
+function escJs(s){ return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'"); }
+function faltenUm(ev, name){
+  ev.stopPropagation();
+  S.zu.has(name) ? S.zu.delete(name) : S.zu.add(name);
+  ordnerMalen();
+}
+async function ordnerWaehlen(name){
+  S.ordner = name; S.seite = 1; S.gewaehlt.clear(); S.uid = 0; S.offen = null;
+  leseLeeren();
+  ordnerMalen();
+  blick("liste");
+  await ladeListe(false);
+}
+async function ordnerNeu(){
+  const name = prompt(txt("k.ordner_name"));
+  if(!name) return;
+  const r = await sende("klient_ordner_neu", {name:name});
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(r.ok) await allesLaden(true);
+}
+async function postfachWechseln(id){
+  S.pf = id; S.ordner = ""; S.seite = 1; S.uid = 0; S.offen = null;
+  S.gewaehlt.clear(); leseLeeren();
+  await allesLaden(true);
+}
+</script>
+
+<script>
+/* ── The list ──────────────────────────────────────────────────────────────── */
+async function ladeListe(frisch){
+  const r = $("#rollen");
+  const stand = r.scrollTop;
+  if(!S.mails.length) $("#zeilen").innerHTML = ladebalken(8);
+  let a;
+  try{
+    a = await sende("klient_liste", {ordner:S.ordner, seite:S.seite, sieb:S.sieb,
+      suche:S.suche, feld:S.feld, sortierung:S.sortierung, richtung:S.richtung,
+      pro_seite:S.pro});
+  }catch(e){ return; }
+  if(!a || a.ok === false){ melde((a && a.text) || txt("k.ging_nicht"), false); return; }
+  S.mails = a.mails || [];
+  S.seite = a.seite || 1;
+  S.seiten = a.seiten || 1;
+  S.gesamt = a.gesamt || 0;
+  S.sortiert = a.sortiert !== false;
+  listeMalen();
+  if(frisch) r.scrollTop = 0; else r.scrollTop = stand;
+  ordnerZahlAktualisieren(a.ordner_gesamt, a.ordner_ungelesen);
+}
+function ladebalken(n){
+  return Array.from({length:n}, () => `<div class="z" style="pointer-events:none">
+    <span></span><span class="kreis" style="background:var(--karte2)"></span>
+    <div class="kopfz" style="display:block">
+      <div style="height:.7rem;width:8rem;background:var(--karte2);border-radius:4px"></div>
+      <div style="height:.6rem;width:14rem;background:var(--karte);border-radius:4px;
+                  margin-top:.35rem"></div></div><span></span></div>`).join("");
+}
+function ordnerZahlAktualisieren(gesamt, ungelesen){
+  const o = S.ordner_liste.find(x => x.name === S.ordner);
+  if(!o) return;
+  if(typeof gesamt === "number") o.gesamt = gesamt;
+  if(typeof ungelesen === "number") o.ungelesen = ungelesen;
+  ordnerMalen();
+}
+
+function listeMalen(){
+  const z = $("#zeilen"), leer = $("#listeleer");
+  if(!S.mails.length){
+    z.innerHTML = "";
+    leer.hidden = false;
+    leer.innerHTML = `<div><span class="gross">${S.suche ? "🔍" : "📭"}</span>
+      ${esc(txt(S.suche ? "k.nichts_gefunden" : (S.sieb ? "k.nichts_im_sieb" : "k.ordner_leer")))}</div>`;
+    spanneMalen();
+    return;
+  }
+  leer.hidden = true;
+  const eng = (S.einst.dichte === "eng");
+  let vorher = "";
+  z.innerHTML = S.mails.map((m, i) => {
+    const gleich = S.einst.strang && m.strang && m.strang === vorher;
+    vorher = m.strang || "";
+    const gewaehlt = S.gewaehlt.has(m.uid);
+    const wer = S.einst.absender_zeigen === "adresse" ? m.adresse
+              : S.einst.absender_zeigen === "beides"
+                ? (m.von || "") + " · " + (m.adresse || "") : (m.von || m.adresse);
+    const zeichen = [
+      m.markiert ? '<span class="stern">★</span>' : "",
+      m.beantwortet ? "<span>↩</span>" : "",
+      m.anhang ? '<span title="' + esc(txt("k.anhang")) + '">📎</span>' : "",
+      m.abmelden ? '<span title="' + esc(txt("k.newsletter")) + '">📰</span>' : "",
+      !m.gelesen ? '<span class="punkt"></span>' : ""
+    ].filter(Boolean).join("");
+    return `<div class="z ${m.gelesen ? "" : "neu"} ${m.uid === S.uid ? "an" : ""}
+        ${gewaehlt ? "gewaehlt" : ""} ${m.geloescht ? "weg" : ""} ${gleich ? "antwort" : ""}"
+        data-uid="${m.uid}" data-i="${i}" tabindex="0"
+        onclick="zeileKlick(event,${m.uid},${i})"
+        onkeydown="if(event.key==='Enter')mailOeffnen(${m.uid})">
+      <input type="checkbox" class="haken" ${gewaehlt ? "checked" : ""}
+             onclick="event.stopPropagation();wahlUm(${m.uid},${i},event.shiftKey)">
+      <span class="kreis" style="background:${farbe(m.adresse)}"
+            >${esc(initialen(m.von, m.adresse))}</span>
+      <div class="kopfz">
+        <span class="von" title="${esc(m.adresse)}">${esc(wer)}</span>
+        ${eng ? `<span class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</span>` : ""}
+      </div>
+      ${eng ? "" : `<div class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</div>`}
+      <div class="rand">
+        <span class="wann">${esc(wann(m.zeit))}</span>
+        <span class="zeichen">${zeichen}</span>
+      </div>
+      ${(!eng && S.einst.vorschautext) ? `<div class="aus">${
+        esc(zweitzeile(m))}</div>` : ""}
+    </div>`;
+  }).join("");
+  spanneMalen();
+  wahlLeisteMalen();
+}
+/* 🔴 „To der Besitzer Marlow" under every single row of the INBOX says nothing — of
+   course it is to me. In the sent folder the opposite is true: there the
+   recipient is the only interesting name. Seen in the screenshot; in the source
+   one line looked as good as the other. */
+function zweitzeile(m){
+  const raus = [];
+  const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(S.ordner);
+  if(gesendet && m.an) raus.push(txt("k.an") + ": " + m.an);
+  else if(m.adresse && S.einst.absender_zeigen === "name") raus.push(m.adresse);
+  if(m.groesse) raus.push(gr(m.groesse));
+  return raus.join(" · ");
+}
+function spanneMalen(){
+  const von = S.gesamt ? (S.seite - 1) * S.pro + 1 : 0;
+  const bis = Math.min(S.gesamt, S.seite * S.pro);
+  $("#spanne").textContent = S.gesamt
+    ? txt("k.spanne", {von:von, bis:bis, n:S.gesamt.toLocaleString(LANG)}) : "";
+  $("#zurueck").disabled = S.seite <= 1;
+  $("#weiter").disabled = S.seite >= (S.seiten || 1);
+}
+async function blaettern(d){
+  S.seite = Math.max(1, Math.min(S.seiten || 1, S.seite + d));
+  S.gewaehlt.clear();
+  await ladeListe(true);
+}
+
+/* ── Selection ─────────────────────────────────────────────────────────────
+   🔴 A click on the row OPENS, a click on the box SELECTS. Two intentions on one
+   row, and mixing them up means the reader marks a mail as read while trying to
+   tick it. */
+function zeileKlick(ev, uid, i){
+  if(ev.metaKey || ev.ctrlKey){ wahlUm(uid, i, false); return; }
+  if(ev.shiftKey){ wahlUm(uid, i, true); return; }
+  mailOeffnen(uid);
+}
+function wahlUm(uid, i, bereich){
+  if(bereich && S.letzteWahl != null){
+    const [a, b] = [Math.min(S.letzteWahl, i), Math.max(S.letzteWahl, i)];
+    for(let k = a; k <= b; k++) S.gewaehlt.add(S.mails[k].uid);
+  }else{
+    S.gewaehlt.has(uid) ? S.gewaehlt.delete(uid) : S.gewaehlt.add(uid);
+    S.letzteWahl = i;
+  }
+  listeMalen();
+}
+function alleWaehlen(an){
+  S.gewaehlt.clear();
+  if(an) S.mails.forEach(m => S.gewaehlt.add(m.uid));
+  listeMalen();
+}
+function wahlLeisteMalen(){
+  const n = S.gewaehlt.size;
+  $("#wahltasten").style.display = n ? "flex" : "none";
+  $("#siebtasten").style.display = n ? "none" : "flex";
+  $("#wahlzahl").textContent = n ? txt("k.gewaehlt", {n:n}) : "";
+  $("#alle_haken").checked = n > 0 && n === S.mails.length;
+  $("#alle_haken").indeterminate = n > 0 && n < S.mails.length;
+  document.body.classList.toggle("wahlmodus", n > 0);
+}
+function gewaehlteUids(){
+  return S.gewaehlt.size ? [...S.gewaehlt] : (S.uid ? [S.uid] : []);
+}
+
+/* ── Acting ────────────────────────────────────────────────────────────────── */
+async function stapel(was, an, uids){
+  uids = uids || gewaehlteUids();
+  if(!uids.length) return melde(txt("k.nichts_gewaehlt"), false);
+  const r = await sende("klient_flaggen", {ordner:S.ordner, uids:uids, was:was, an:an});
+  if(!r.ok) return melde(r.text || txt("k.ging_nicht"), false);
+  /* Do not refetch the whole list for a flag: the server has confirmed it, and a
+     list that jumps after every click is a list you stop clicking in. */
+  S.mails.forEach(m => { if(uids.includes(m.uid)) m[was] = an; });
+  if(S.offen && uids.includes(S.offen.uid)) S.offen[was] = an;
+  listeMalen();
+  if(was === "gelesen"){
+    const o = S.ordner_liste.find(x => x.name === S.ordner);
+    if(o) o.ungelesen = Math.max(0, (o.ungelesen || 0) + (an ? -uids.length : uids.length));
+    ordnerMalen();
+  }
+  if(S.offen && uids.includes(S.offen.uid)) leseKopfMalen();
+}
+async function stapelVerschieben(ziel, uids){
+  if(!ziel) return;
+  uids = uids || gewaehlteUids();
+  $("#stapel_ziel").value = "";
+  if(!uids.length) return melde(txt("k.nichts_gewaehlt"), false);
+  const r = await sende("klient_verschieben", {ordner:S.ordner, uids:uids, ziel:ziel});
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(r.ok) await nachTat(uids);
+}
+async function stapelLoeschen(uids, endgueltig){
+  uids = uids || gewaehlteUids();
+  if(!uids.length) return melde(txt("k.nichts_gewaehlt"), false);
+  /* 🔴 One mail is not „1 mails". A count that reads as a sentence needs both
+     forms — everywhere else the number stands at the end, where no form is
+     needed at all. */
+  const frage = uids.length === 1 ? txt("k.loeschen_sicher_eine")
+                                  : txt("k.loeschen_sicher", {n:uids.length});
+  if(S.einst.sicherheitsfrage && !confirm(frage)) return;
+  const r = await sende("klient_loeschen", {ordner:S.ordner, uids:uids,
+                                            endgueltig:!!endgueltig});
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(r.ok) await nachTat(uids);
+}
+async function wieWache(uid, adresse){
+  const r = await sende("klient_wie_wache", {ordner:S.ordner, uids:[uid],
+                                             adresse:adresse});
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(r.ok) await nachTat([uid]);
+}
+/* After a move or a delete the mails are gone from this folder. Instead of
+   refetching everything: take them out of the list, open the next one — that is
+   what a reader working through a folder expects. */
+async function nachTat(uids){
+  const stelle = S.mails.findIndex(m => m.uid === S.uid);
+  S.mails = S.mails.filter(m => !uids.includes(m.uid));
+  S.gewaehlt.clear();
+  if(uids.includes(S.uid)){
+    const naechste = S.mails[Math.min(stelle, S.mails.length - 1)];
+    S.uid = 0; S.offen = null; leseLeeren();
+    if(naechste && S.einst.vorschau !== "aus") mailOeffnen(naechste.uid);
+  }
+  listeMalen();
+  const l = await sende("klient_ordner", {frisch:true});
+  if(l.ok){ S.ordner_liste = l.ordner || S.ordner_liste; ordnerMalen(); }
+}
+
+/* ── Filter, sort, search ──────────────────────────────────────────────────── */
+async function siebSetzen(v){ S.sieb = v; S.seite = 1; S.gewaehlt.clear(); await ladeListe(true); }
+async function sortSetzen(){
+  S.sortierung = $("#sortierung").value;
+  if(!S.faehig.sort && S.sortierung !== "datum")
+    melde(txt("k.kein_sort"), false);
+  S.seite = 1; await ladeListe(true);
+}
+async function richtungDrehen(){
+  S.richtung = S.richtung === "ab" ? "auf" : "ab";
+  $("#richtung").textContent = S.richtung === "ab" ? "↓" : "↑";
+  S.seite = 1; await ladeListe(true);
+}
+async function sucheLos(){
+  S.suche = $("#suche").value.trim();
+  S.feld = $("#suchfeld").value;
+  S.seite = 1; S.gewaehlt.clear();
+  $("#suche_x").hidden = !S.suche;
+  await ladeListe(true);
+}
+async function sucheLeeren(){
+  $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true;
+  S.seite = 1; await ladeListe(true);
+}
+</script>
+
+<script>
+/* ── The reading pane ──────────────────────────────────────────────────────── */
+function leseLeeren(){
+  $("#lese").innerHTML = `<div class="leer"><div><span class="gross">✉️</span>
+    ${esc(txt("k.nichts_offen"))}</div></div>`;
+}
+async function mailOeffnen(uid){
+  clearTimeout(S.lesemarke);
+  S.uid = uid;
+  listeMalen();
+  blick("lese");
+  $("#lese").innerHTML = `<div class="leer"><div><span class="laedt"></span></div></div>`;
+  let m;
+  try{ m = await sende("klient_mail", {ordner:S.ordner, uid:uid}); }
+  catch(e){ return; }
+  if(!m || !m.ok){
+    $("#lese").innerHTML = `<div class="leer"><div>${esc((m && m.text) || txt("k.ging_nicht"))}</div></div>`;
+    return;
+  }
+  S.offen = m;
+  leseMalen();
+  const inListe = S.mails.find(x => x.uid === uid);
+  if(m.gelesen && inListe && !inListe.gelesen){ inListe.gelesen = true; listeMalen();
+    ordnerZahlAktualisieren(undefined, Math.max(0,
+      ((S.ordner_liste.find(o => o.name === S.ordner) || {}).ungelesen || 1) - 1)); }
+  /* „Mark as read after N seconds" — the timer belongs to the PAGE, because only
+     it knows whether the mail is still open. It is cleared on every change of
+     mail, otherwise a glance at four mails marks all four. */
+  const nach = Number(S.einst.gelesen_nach);
+  if(nach > 0 && !m.gelesen)
+    S.lesemarke = setTimeout(() => { if(S.uid === uid) stapel("gelesen", true, [uid]); },
+                             nach * 1000);
+}
+function leseMalen(){
+  const m = S.offen;
+  if(!m) return leseLeeren();
+  $("#lese").innerHTML = `
+    <div class="lesescroll" id="lesescroll">
+      <div class="lesekopf" id="lesekopf"></div>
+      <div class="lesetasten" id="lesetasten"></div>
+      <div id="lesehinweise"></div>
+      <table class="kopftabelle" id="kopftabelle">${
+        (m.kopfzeilen || []).map(([n, w]) =>
+          `<tr><td>${esc(n)}</td><td>${esc(w)}</td></tr>`).join("")}</table>
+      <div class="anhangreihe" id="anhangreihe"></div>
+      <iframe id="brief" title="${esc(txt("k.brief"))}"
+              sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+              srcdoc="${esc(m.rahmen || "")}" onload="briefHoehe()"></iframe>
+    </div>`;
+  leseKopfMalen();
+  if(S.einst.kopfzeilen) $("#kopftabelle").classList.add("auf");
+}
+function leseKopfMalen(){
+  const m = S.offen;
+  if(!m) return;
+  const an = (m.an || []).map(a => a.name || a.adresse).join(", ");
+  const kopie = (m.kopie || []).map(a => a.name || a.adresse).join(", ");
+  $("#lesekopf").innerHTML = `
+    <h2>${esc(m.betreff || txt("k.ohne_betreff"))}</h2>
+    <div class="wer">
+      <span class="kreis" style="background:${farbe(m.adresse)}"
+        >${esc(initialen(m.von, m.adresse))}</span>
+      <div class="txt">
+        <b>${esc(m.von || m.adresse)}</b>
+        <div class="adr">${esc(m.adresse)}</div>
+        <div class="kleiner leise" style="margin-top:.2rem">
+          ${an ? esc(txt("k.an") + ": " + an) : ""}
+          ${kopie ? " · " + esc(txt("k.kopie") + ": " + kopie) : ""}
+        </div>
+      </div>
+      <div style="text-align:right;flex:0 0 auto">
+        <div class="kleiner leise">${esc(langesDatum(m.zeit))}</div>
+        <div class="kleiner leise">${esc(gr(m.groesse))}</div>
+      </div>
+    </div>`;
+  const t = [];
+  t.push(`<button onclick="verfassen('antwort',${m.uid})">↩ ${esc(txt("k.antworten"))}</button>`);
+  if((m.an || []).length + (m.kopie || []).length > 1)
+    t.push(`<button onclick="verfassen('antwort_alle',${m.uid})">↩↩ ${esc(txt("k.allen"))}</button>`);
+  t.push(`<button onclick="verfassen('weiter',${m.uid})">➦ ${esc(txt("k.weiterleiten"))}</button>`);
+  t.push(`<button class="blank" onclick="stapel('markiert',${!m.markiert},[${m.uid}])"
+      title="${esc(txt("k.markieren"))}">${m.markiert ? "★" : "☆"}</button>`);
+  t.push(`<button class="blank" onclick="stapel('gelesen',${!m.gelesen},[${m.uid}])"
+      title="${esc(txt(m.gelesen ? "k.ungelesen" : "k.gelesen"))}">${m.gelesen ? "✉️" : "📖"}</button>`);
+  const archiv = S.rollen.archiv;
+  if(archiv && archiv !== S.ordner)
+    t.push(`<button class="blank" onclick="stapelVerschieben('${escJs(archiv)}',[${m.uid}])"
+        title="${esc(txt("k.archivieren"))}">📦</button>`);
+  const spam = S.rollen.spam;
+  if(spam && spam !== S.ordner)
+    t.push(`<button class="blank" onclick="stapelVerschieben('${escJs(spam)}',[${m.uid}])"
+        title="${esc(txt("k.spam"))}">🚫</button>`);
+  t.push(`<button class="blank gefahr" onclick="stapelLoeschen([${m.uid}])"
+      title="${esc(txt("k.loeschen"))}">🗑️</button>`);
+  t.push(`<button class="blank" onclick="$('#kopftabelle').classList.toggle('auf')"
+      title="${esc(txt("k.kopfzeilen"))}">📋</button>`);
+  t.push(`<button class="blank" onclick="quelleZeigen()"
+      title="${esc(txt("k.quelle"))}">{ }</button>`);
+  t.push(`<button class="blank" onclick="briefDrucken()"
+      title="${esc(txt("k.drucken"))}">🖨️</button>`);
+  if(m.hat_html && m.hat_text)
+    t.push(`<button class="blank" onclick="ansichtUm()"
+        title="${esc(txt("k.ansicht_um"))}">${m.ansicht === "html" ? "Aa" : "</>"}</button>`);
+  $("#lesetasten").innerHTML = t.join("");
+
+  /* Banners and chips — everything the reader should know BEFORE clicking. */
+  const h = [];
+  if(m.phishing)
+    h.push(`<div class="warnleiste"><span>🚨</span>
+      <span><b>${esc(txt("k.phishing"))}</b> ${esc(m.phishing)}</span></div>`);
+  if((m.links_verdacht || []).length){
+    const l = m.links_verdacht.map(x =>
+      `<div class="kleiner" style="margin-top:.25rem">${esc(x.text || "—")} →
+        <b>${esc(x.wirt)}</b> <span class="leise">(${esc(txt("k.warn." + x.warnung))})</span></div>`).join("");
+    h.push(`<div class="warnleiste mild"><div><b>${
+      esc(txt("k.links_verdacht", {n:m.links_verdacht.length}))}</b>${l}</div></div>`);
+  }
+  if(m.fern_blockiert)
+    h.push(`<div class="warnleiste mild"><span>🖼️</span>
+      <span>${esc(txt("k.bilder_blockiert", {n:m.fern_blockiert}))}</span>
+      <button onclick="bilderLaden()">${esc(txt("k.bilder_laden"))}</button>
+      <button class="blank" onclick="bilderImmer()">${esc(txt("k.bilder_immer"))}</button></div>`);
+  const c = [];
+  const w = m.wache || {};
+  if(w.klasse || w.ordner){
+    const schub = (S.schubladen || {})[w.klasse] || {};
+    c.push(`<span class="chip info" title="${esc(w.grund || "")}">🛡️
+      ${w.klasse ? esc((schub.icon || "") + " " + (schub.name || w.klasse)) : ""}
+      ${w.zeige ? "· " + esc(txt("k.wache_ordner", {o:w.zeige})) : ""}</span>`);
+    if(w.ordner && w.ordner !== S.ordner)
+      c.push(`<span class="chip tat" onclick="wieWache(${m.uid},'${escJs(m.adresse)}')"
+        >➜ ${esc(txt("k.wie_wache"))}</span>`);
+  }
+  if(w.gesehen)
+    c.push(`<span class="chip">${esc(txt("k.schon_gesehen", {n:w.gesehen}))}</span>`);
+  if(m.abmelden)
+    c.push(`<a class="chip tat" href="${esc(m.abmelden)}" target="_blank"
+      rel="noopener noreferrer">📰 ${esc(txt("k.abmelden_link"))}</a>`);
+  if(c.length) h.push(`<div class="bahn">${c.join("")}</div>`);
+  $("#lesehinweise").innerHTML = h.join("");
+
+  const a = (m.anhaenge || []).map(x => {
+    const url = "/api/klient/anhang?pf=" + encodeURIComponent(S.pf) +
+      "&ordner=" + encodeURIComponent(S.ordner) + "&uid=" + m.uid +
+      "&t=" + encodeURIComponent(x.t) + "&k=" + encodeURIComponent(x.k) +
+      "&n=" + encodeURIComponent(x.n);
+    const ic = x.art === "bild" ? "🖼️" : (x.art === "dokument" ? "📄" : "📎");
+    return `<a class="anh" href="${esc(url)}" download="${esc(x.n)}"
+      title="${esc(x.n + " · " + x.m)}"><span>${ic}</span>
+      <span class="nm">${esc(x.n)}</span><span class="gr">${esc(gr(x.b))}</span></a>`;
+  });
+  $("#anhangreihe").innerHTML = a.length
+    ? `<span class="kleiner leise" style="align-self:center">${
+        esc(txt("k.anhaenge", {n:a.length}))}</span>` + a.join("") : "";
+}
+/* 🔴 The frame is measured, not guessed. `allow-same-origin` WITHOUT
+   `allow-scripts` is the point: the parent may read the document to find its
+   height, and the browser still refuses to run anything inside it. */
+function briefHoehe(){
+  const f = $("#brief");
+  if(!f) return;
+  const messen = () => {
+    try{
+      const d = f.contentDocument;
+      if(!d || !d.body) return;
+      f.style.height = Math.max(160, d.body.scrollHeight + 24) + "px";
+    }catch(e){ f.style.height = "70vh"; }
+  };
+  messen();
+  /* Images arrive after the load event; without the second look every mail with a
+     picture ends up cut off at the bottom. */
+  setTimeout(messen, 350);
+  setTimeout(messen, 1200);
+}
+async function bilderLaden(){
+  const m = await sende("klient_mail", {ordner:S.ordner, uid:S.uid, bilder:1});
+  if(m && m.ok){ S.offen = m; leseMalen(); }
+}
+async function bilderImmer(){
+  await einstellungSetzen("bilder", "immer");
+  await bilderLaden();
+}
+async function ansichtUm(){
+  const neu = S.offen.ansicht === "html" ? "text" : "html";
+  const m = await sende("klient_mail", {ordner:S.ordner, uid:S.uid, ansicht:neu,
+                                        bilder: S.offen.bilder ? 1 : 0});
+  if(m && m.ok){ S.offen = m; leseMalen(); }
+}
+function quelleZeigen(){
+  window.open("/api/klient/roh?pf=" + encodeURIComponent(S.pf) + "&ordner=" +
+    encodeURIComponent(S.ordner) + "&uid=" + S.uid, "_blank");
+}
+function briefDrucken(){
+  const f = $("#brief");
+  try{ f.contentWindow.focus(); f.contentWindow.print(); }
+  catch(e){ window.print(); }
+}
+</script>
+
+<script>
+/* ── Writing ───────────────────────────────────────────────────────────────── */
+async function verfassen(art, uid){
+  const v = await sende("klient_vorlage", {art:art, ordner:S.ordner, uid:uid || 0});
+  if(!v || !v.ok) return melde((v && v.text) || txt("k.ging_nicht"), false);
+  S.brief = {art:art, quelle:v.quelle || null, in_antwort_auf:v.in_antwort_auf || "",
+             anhaenge:[], uebernahme:(v.anhaenge || []).map(a =>
+               Object.assign({}, a, {ordner:(v.quelle || {}).ordner,
+                                     uid:(v.quelle || {}).uid}))};
+  $("#v_titel").textContent = txt({neu:"k.neue_mail", antwort:"k.antworten",
+    antwort_alle:"k.allen", weiter:"k.weiterleiten"}[art] || "k.neue_mail");
+  $("#v_absender").textContent = (S.smtp && S.smtp.server)
+    ? txt("k.von") + " " + ((S.postfaecher.find(p => p.id === S.pf) || {}).adresse || "")
+    : txt("k.smtp_fehlt");
+  $("#v_an").value = v.an || "";
+  $("#v_kopie").value = v.kopie || "";
+  $("#v_blind").value = "";
+  $("#v_betreff").value = v.betreff || "";
+  $("#v_text").value = v.text || "";
+  $("#v_kopiereihe").hidden = !v.kopie;
+  $("#v_blindreihe").hidden = true;
+  $("#v_stand").textContent = "";
+  anhaengeMalen();
+  $("#verfassenfenster").classList.add("auf");
+  $("#dunkel1").classList.add("auf");
+  setTimeout(() => {
+    const feld = (art === "neu" || art === "weiter") ? $("#v_an") : $("#v_text");
+    feld.focus();
+    /* On a reply the cursor belongs BEFORE the quote, not behind it — with the
+       quote below, that is position 0. */
+    if(feld === $("#v_text") && S.einst.zitat !== "oben") feld.setSelectionRange(0, 0);
+  }, 70);
+}
+function verfassenZu(){
+  const leer = !$("#v_an").value && !$("#v_betreff").value.trim() &&
+               !$("#v_text").value.replace(/\s/g, "");
+  if(!leer && !confirm(txt("k.verwerfen_sicher"))) return;
+  $("#verfassenfenster").classList.remove("auf");
+  $("#dunkel1").classList.remove("auf");
+}
+function kopieZeigen(){
+  $("#v_kopiereihe").hidden = false;
+  $("#v_blindreihe").hidden = false;
+  $("#v_mehr").style.display = "none";
+}
+function anhaengeMalen(){
+  const b = S.brief || {anhaenge:[], uebernahme:[]};
+  const eigene = b.anhaenge.map((a, i) =>
+    `<span class="anh"><span>📎</span><span class="nm">${esc(a.name)}</span>
+      <span class="gr">${esc(gr(a.gross))}</span>
+      <button class="blank kleiner" onclick="anhangWeg(${i})">✕</button></span>`);
+  const alte = b.uebernahme.map((a, i) =>
+    `<span class="anh" title="${esc(txt("k.aus_original"))}"><span>↪</span>
+      <span class="nm">${esc(a.n)}</span><span class="gr">${esc(gr(a.b))}</span>
+      <button class="blank kleiner" onclick="uebernahmeWeg(${i})">✕</button></span>`);
+  $("#v_anhaenge").innerHTML = eigene.concat(alte).join("");
+}
+function anhangWeg(i){ S.brief.anhaenge.splice(i, 1); anhaengeMalen(); }
+function uebernahmeWeg(i){ S.brief.uebernahme.splice(i, 1); anhaengeMalen(); }
+function dateienNehmen(dateien){
+  const grenze = (S.einst.anhang_grenze || 25) * 1024 * 1024;
+  [...dateien].forEach(d => {
+    const schon = S.brief.anhaenge.reduce((s, a) => s + a.gross, 0);
+    if(schon + d.size > grenze) return melde(txt("k.anhang_gross",
+      {mb:S.einst.anhang_grenze || 25}), false);
+    const leser = new FileReader();
+    leser.onload = () => {
+      S.brief.anhaenge.push({name:d.name, typ:d.type || "", gross:d.size,
+        b64:String(leser.result).split(",")[1] || ""});
+      anhaengeMalen();
+    };
+    leser.readAsDataURL(d);
+  });
+  $("#v_datei").value = "";
+}
+function briefFelder(){
+  const b = S.brief || {};
+  return {an:$("#v_an").value, kopie:$("#v_kopie").value, blind:$("#v_blind").value,
+    betreff:$("#v_betreff").value, text:$("#v_text").value,
+    anhaenge:b.anhaenge || [], uebernahme:b.uebernahme || [],
+    in_antwort_auf:b.in_antwort_auf || "", quelle:b.quelle || null,
+    entwurf_uid:b.entwurf_uid || 0};
+}
+async function senden(){
+  const k = $("#v_senden");
+  k.disabled = true;
+  $("#v_stand").innerHTML = `<span class="laedt"></span> ${esc(txt("k.sende"))}`;
+  let r;
+  try{ r = await sende("klient_senden", briefFelder()); }
+  catch(e){ k.disabled = false; return; }
+  k.disabled = false;
+  $("#v_stand").textContent = "";
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(r.ok){
+    S.brief = {anhaenge:[], uebernahme:[]};
+    $("#v_an").value = $("#v_kopie").value = $("#v_blind").value = "";
+    $("#v_betreff").value = $("#v_text").value = "";
+    $("#verfassenfenster").classList.remove("auf");
+    $("#dunkel1").classList.remove("auf");
+    await allesLaden(false);
+  }
+}
+async function entwurfSpeichern(){
+  const r = await sende("klient_entwurf", briefFelder());
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+}
+
+/* ── Address book out of the watchman's memory ─────────────────────────────── */
+let vorschlag_zeit = null;
+function letzterTeil(wert){
+  const stuecke = String(wert).split(",");
+  return {vor:stuecke.slice(0, -1), frage:(stuecke[stuecke.length - 1] || "").trim()};
+}
+function vorschlagSuchen(el){
+  clearTimeout(vorschlag_zeit);
+  const kasten = $("#vorschlag_" + el.id.slice(2));
+  const {frage} = letzterTeil(el.value);
+  if(frage.length < 2){ kasten.classList.remove("auf"); return; }
+  vorschlag_zeit = setTimeout(async () => {
+    const r = await sende("klient_adressbuch", {q:frage});
+    const t = (r.treffer || []);
+    if(!t.length){ kasten.classList.remove("auf"); return; }
+    kasten.innerHTML = t.map((x, i) =>
+      `<div data-i="${i}" class="${i === 0 ? "an" : ""}"
+        onclick="vorschlagNehmen('${escJs(el.id)}',${i})">
+        ${esc(x.name || x.adresse)}<small>${esc(x.adresse)} · ${
+        esc(txt("k.mails_n", {n:x.n}))}</small></div>`).join("");
+    kasten._treffer = t;
+    kasten.classList.add("auf");
+  }, 180);
+}
+function vorschlagNehmen(feldId, i){
+  const el = $("#" + feldId), kasten = $("#vorschlag_" + feldId.slice(2));
+  const x = (kasten._treffer || [])[i];
+  if(!x) return;
+  const {vor} = letzterTeil(el.value);
+  /* A name with a comma has to be quoted, otherwise the comma separates two
+     recipients out of one person. */
+  const name = x.name && x.name.includes(",") ? '"' + x.name.replace(/"/g, "") + '"'
+                                              : x.name;
+  const eintrag = name ? name + " <" + x.adresse + ">" : x.adresse;
+  el.value = vor.concat([" " + eintrag]).join(",").replace(/^\s*,?\s*/, "") + ", ";
+  kasten.classList.remove("auf");
+  el.focus();
+}
+function vorschlagTaste(ev, el){
+  const kasten = $("#vorschlag_" + el.id.slice(2));
+  if(!kasten.classList.contains("auf")) return;
+  const zeilen = [...kasten.querySelectorAll("div")];
+  let i = zeilen.findIndex(z => z.classList.contains("an"));
+  if(ev.key === "ArrowDown" || ev.key === "ArrowUp"){
+    ev.preventDefault();
+    zeilen[i] && zeilen[i].classList.remove("an");
+    i = (i + (ev.key === "ArrowDown" ? 1 : zeilen.length - 1)) % zeilen.length;
+    zeilen[i].classList.add("an");
+  }else if(ev.key === "Enter" || ev.key === "Tab"){
+    ev.preventDefault();
+    vorschlagNehmen(el.id, i < 0 ? 0 : i);
+  }else if(ev.key === "Escape"){
+    kasten.classList.remove("auf");
+  }
+}
+</script>
+
+<script>
+/* ── Settings ──────────────────────────────────────────────────────────────
+   🔑 ONE table describes them all. Every switch here exists in the engine's
+   `VORGABEN` as well, and the engine refuses anything it does not know — so a
+   forgotten line here is a missing switch, never a setting that lands nowhere. */
+/* 🔑 There is NO settings table here any more. It stands in `klient.py` next to
+   the defaults it is built from and arrives with the state — otherwise the phone
+   version and this one would each carry their own, and the second one is always
+   the one missing the newest switch. */
+
+function einstAuf(){
+  einstMalen();
+  $("#einstschublade").classList.add("auf");
+  $("#dunkel2").classList.add("auf");
+}
+function einstZu(){
+  $("#einstschublade").classList.remove("auf");
+  $("#dunkel2").classList.remove("auf");
+}
+function einstMalen(){
+  const e = S.einst;
+  const stueck = (f) => {
+    const wert = e[f.s];
+    const titel = esc(txt(f.titel));
+    const hilfe = txt(f.hilfe);
+    const kopf = `<div class="txt"><b>${titel}</b>${
+      hilfe === f.hilfe ? "" : `<span>${esc(hilfe)}</span>`}</div>`;
+    if(f.art === "knebel")
+      return `<div class="reihe">${kopf}
+        <div class="knebel" role="switch" tabindex="0" aria-checked="${!!wert}"
+          aria-label="${titel}"
+          onclick="einstellungSetzen('${f.s}',${!wert})"
+          onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();
+            einstellungSetzen('${f.s}',${!wert})}"></div></div>`;
+    if(f.art === "wahl")
+      return `<div class="reihe">${kopf}<div class="stell"><select aria-label="${titel}"
+        onchange="einstellungSetzen('${f.s}',this.value)">${
+        (f.optionen || []).map(([v, k]) => `<option value="${esc(v)}"${
+          String(v) === String(wert) ? " selected" : ""}>${esc(txt(k))}</option>`).join("")
+        }</select></div></div>`;
+    if(f.art === "zahl")
+      return `<div class="reihe">${kopf}<div class="stell"
+        style="display:flex;gap:.4rem;align-items:center">
+        <input type="range" min="${f.tief}" max="${f.hoch}" step="${f.schritt}"
+          value="${wert}" aria-label="${titel}"
+          oninput="this.nextElementSibling.textContent=this.value+'${f.einheit}'"
+          onchange="einstellungSetzen('${f.s}',Number(this.value))">
+        <span class="kleiner zahl" style="flex:0 0 3rem">${wert}${f.einheit}</span>
+        </div></div>`;
+    if(f.art === "ordner")
+      return `<div class="reihe">${kopf}<div class="stell"><select aria-label="${titel}"
+        onchange="einstellungSetzen('${f.s}',this.value)">
+        <option value="">${esc(txt("k.o_automatisch"))}</option>${
+        S.ordner_liste.filter(o => o.waehlbar).map(o =>
+          `<option value="${esc(o.name)}"${o.name === wert ? " selected" : ""}>${
+          esc(o.pfad)}</option>`).join("")}</select></div></div>`;
+    if(f.mehrzeilig)
+      return `<div style="padding:.5rem 0;border-top:1px solid var(--rand)">
+        <label>${titel}</label><textarea rows="4"
+          onchange="einstellungSetzen('${f.s}',this.value)"
+          >${esc(wert || "")}</textarea></div>`;
+    return `<div class="reihe">${kopf}<div class="stell"><input value="${esc(wert || "")}"
+      aria-label="${titel}" onchange="einstellungSetzen('${f.s}',this.value)"></div></div>`;
+  };
+  const gruppen = (S.oberflaeche || []).map(g =>
+    `<div class="gruppe"><h3>${esc(txt(g.titel))}</h3>
+      <div class="klein leise">${esc(txt(g.hilfe))}</div>
+      ${(g.felder || []).map(stueck).join("")}</div>`);
+
+  /* The sending route and the access word — the two things that are not a view. */
+  const s = S.smtp || {};
+  gruppen.push(`<div class="gruppe"><h3>${esc(txt("k.g_senden"))}</h3>
+    <div class="klein leise">${esc(txt("k.g_senden_hilfe"))}</div>
+    <div class="feldpaar" style="margin-top:.5rem">
+      <div style="flex:2 1 12rem"><label>${esc(txt("k.smtp_server"))}</label>
+        <input id="s_server" value="${esc(s.server || "")}"
+          placeholder="${esc(s.geraten ? txt("k.geraten") : "")}"></div>
+      <div style="flex:0 0 6rem"><label>${esc(txt("k.smtp_port"))}</label>
+        <input id="s_port" class="zahl" value="${esc(s.port || 587)}"></div>
+      <div><label>${esc(txt("k.smtp_art"))}</label><select id="s_art">
+        <option value="starttls"${s.art === "starttls" ? " selected" : ""}>STARTTLS</option>
+        <option value="ssl"${s.art === "ssl" ? " selected" : ""}>SSL/TLS</option>
+        <option value="klar"${s.art === "klar" ? " selected" : ""}>${
+          esc(txt("k.o_klar"))}</option></select></div>
+    </div>
+    <div class="feldpaar" style="margin-top:.5rem">
+      <div><label>${esc(txt("k.smtp_benutzer"))}</label>
+        <input id="s_benutzer" value="${esc(s.benutzer || "")}"></div>
+      <div><label>${esc(txt("k.smtp_passwort"))}</label>
+        <input id="s_passwort" type="password" autocomplete="new-password"
+          placeholder="${esc(s.passwort_da ? txt("k.unveraendert") : txt("k.wie_imap"))}"></div>
+      <div><label>${esc(txt("k.absender_name"))}</label>
+        <input id="s_name" value="${esc(s.absender_name || "")}"></div>
+    </div>
+    <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">
+      <button class="haupt" onclick="smtpSpeichern()">${esc(txt("k.speichern"))}</button>
+      <button onclick="smtpPruefen()">${esc(txt("k.verbindung_pruefen"))}</button>
+      <span class="kleiner leise" id="s_stand" style="align-self:center"></span>
+    </div></div>`);
+
+  gruppen.push(`<div class="gruppe"><h3>${esc(txt("k.g_zugang"))}</h3>
+    <div class="klein leise">${esc(txt("k.g_zugang_hilfe"))}</div>
+    <div class="feldpaar" style="margin-top:.5rem">
+      <div><label>${esc(txt("k.wort_alt"))}</label>
+        <input id="w_alt" type="password" autocomplete="current-password"></div>
+      <div><label>${esc(txt("k.wort_neu"))}</label>
+        <input id="w_neu" type="password" autocomplete="new-password"></div>
+    </div>
+    <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">
+      <button onclick="wortAendern()">${esc(txt("k.wort_aendern"))}</button>
+      <button onclick="abmelden()">🔒 ${esc(txt("k.abmelden"))}</button>
+    </div></div>`);
+  /* The way to the phone version — and it stays there, the server remembers the
+     choice. Useful on a laptop too: it is the quickest way to see what the page
+     looks like on a phone. */
+  gruppen.push(`<div class="gruppe"><h3>${esc(txt("k.ansicht"))}</h3>
+    <div class="klein leise">${esc(txt("k.ansicht_hilfe"))}</div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;padding:.6rem 0">
+      <button onclick="location.href='/post?ansicht=mobil'">📱 ${
+        esc(txt("k.handy_ansicht"))}</button>
+      <button onclick="location.href='/?wache=1'">🛡️ ${esc(txt("k.zum_waechter"))}</button>
+    </div></div>`);
+  gruppen.push(`<div class="klein leise" style="text-align:center;padding:.4rem 0 1.5rem">
+    Postwache ${esc(S.version)}</div>`);
+  $("#einstleib").innerHTML = gruppen.join("");
+}
+async function einstellungSetzen(schluessel, wert){
+  const r = await sende("klient_einstellung", {werte:{[schluessel]:wert}});
+  if(!r.ok) return melde(r.text || txt("k.ging_nicht"), false);
+  S.einst = r.einst || S.einst;
+  einstAnwenden();
+  /* A setting that changes the LIST has to be visible immediately — otherwise it
+     looks as if it did not take. */
+  if(["dichte","absender_zeigen","vorschautext","strang"].includes(schluessel))
+    listeMalen();
+  if(["pro_seite","sortierung","richtung","nur_ungelesen"].includes(schluessel)){
+    S.sortierung = S.einst.sortierung; S.richtung = S.einst.richtung;
+    S.pro = S.einst.pro_seite; S.seite = 1;
+    einstAnwenden(); await ladeListe(true);
+  }
+  if(["bilder","html_zuerst","wache_grund","kopfzeilen"].includes(schluessel) && S.uid)
+    await mailOeffnen(S.uid);
+  if($("#einstschublade").classList.contains("auf")) einstMalen();
+}
+async function smtpSpeichern(){
+  const r = await sende("klient_smtp", {server:$("#s_server").value,
+    port:$("#s_port").value, art:$("#s_art").value, benutzer:$("#s_benutzer").value,
+    passwort:$("#s_passwort").value, absender_name:$("#s_name").value});
+  melde(r.text, r.ok);
+  if(r.ok){ S.smtp = r.smtp || S.smtp; $("#s_passwort").value = ""; einstMalen(); }
+}
+async function smtpPruefen(){
+  $("#s_stand").innerHTML = `<span class="laedt"></span>`;
+  const r = await sende("klient_smtp_pruefen", {});
+  $("#s_stand").textContent = r.text || "";
+  melde(r.text, r.ok);
+}
+async function wortAendern(){
+  const neu = $("#w_neu").value;
+  if(neu.length < 8) return melde(txt("k.wort_kurz"), false);
+  const r = await sende("klient_wort", {neu:neu, alt:$("#w_alt").value});
+  melde(r.text, r.ok);
+  if(r.ok){ $("#w_alt").value = $("#w_neu").value = ""; torZeigen({wort:true, an:false}); }
+}
+
+/* ── Keyboard ──────────────────────────────────────────────────────────────── */
+const TASTEN = [
+  ["j", "k.t_runter"], ["k", "k.t_rauf"], ["Enter", "k.t_oeffnen"],
+  ["u", "k.t_ungelesen"], ["f", "k.t_stern"], ["e", "k.t_archiv"],
+  ["#", "k.t_loeschen"], ["r", "k.t_antwort"], ["a", "k.t_allen"],
+  ["w", "k.t_weiter"], ["c", "k.t_neu"], ["/", "k.t_suche"],
+  ["g", "k.t_posteingang"], ["x", "k.t_waehlen"], ["Esc", "k.t_zu"], ["?", "k.t_hilfe"],
+];
+function hilfeAuf(){
+  $("#tastenliste").innerHTML = TASTEN.map(([t, k]) =>
+    `<div><kbd>${esc(t)}</kbd><span>${esc(txt(k))}</span></div>`).join("");
+  $("#hilfefenster").classList.add("auf");
+  $("#dunkel3").classList.add("auf");
+}
+function hilfeZu(){
+  $("#hilfefenster").classList.remove("auf");
+  $("#dunkel3").classList.remove("auf");
+}
+function offeneFenster(){
+  return $$(".fenster.auf, .schublade.auf").length > 0;
+}
+document.addEventListener("keydown", (ev) => {
+  const feld = /^(INPUT|TEXTAREA|SELECT)$/.test((ev.target.tagName || ""));
+  if(ev.key === "Escape"){
+    if(offeneFenster()){ verfassenZu(); einstZu(); hilfeZu(); }
+    else if(feld) ev.target.blur();
+    else if(S.gewaehlt.size){ S.gewaehlt.clear(); listeMalen(); }
+    else blick("liste");
+    return;
+  }
+  if(feld || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  if(!S.einst.tasten || $("#tor").classList.contains("auf")) return;
+  if(offeneFenster()) return;
+  const i = S.mails.findIndex(m => m.uid === S.uid);
+  const gehe = (d) => {
+    const n = S.mails[Math.max(0, Math.min(S.mails.length - 1, (i < 0 ? -1 : i) + d))];
+    if(n) mailOeffnen(n.uid);
+  };
+  switch(ev.key){
+    case "j": case "ArrowDown": ev.preventDefault(); gehe(1); break;
+    case "k": case "ArrowUp": ev.preventDefault(); gehe(-1); break;
+    case "Enter": if(S.uid) mailOeffnen(S.uid); break;
+    case "u": if(S.uid) stapel("gelesen", !(S.offen || {}).gelesen, [S.uid]); break;
+    case "f": if(S.uid) stapel("markiert", !(S.offen || {}).markiert, [S.uid]); break;
+    case "e": if(S.uid && S.rollen.archiv) stapelVerschieben(S.rollen.archiv, [S.uid]); break;
+    case "#": case "Delete": if(S.uid) stapelLoeschen([S.uid]); break;
+    case "r": if(S.uid) verfassen("antwort", S.uid); break;
+    case "a": if(S.uid) verfassen("antwort_alle", S.uid); break;
+    case "w": if(S.uid) verfassen("weiter", S.uid); break;
+    case "c": verfassen("neu"); break;
+    case "x": if(S.uid) wahlUm(S.uid, i, false); break;
+    case "g": if(S.rollen.posteingang) ordnerWaehlen(S.rollen.posteingang); break;
+    case "/": ev.preventDefault(); $("#suche").focus(); break;
+    case "?": hilfeAuf(); break;
+  }
+});
+
+/* ── Start ─────────────────────────────────────────────────────────────────── */
+textenSetzen(document);
+leseLeeren();
+allesLaden(true);
+/* New mail should show up without pressing anything — but never while somebody is
+   working. Selection, an open window, a focused field: all three block it. */
+setInterval(async () => {
+  if(document.hidden || S.laeuft || offeneFenster() || S.gewaehlt.size) return;
+  if(/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName || "")) return;
+  if(S.seite !== 1 || S.suche) return;
+  try{
+    const l = await sende("klient_ordner", {frisch:true});
+    if(!l.ok) return;
+    const vorher = (S.ordner_liste.find(o => o.name === S.ordner) || {}).gesamt;
+    S.ordner_liste = l.ordner || S.ordner_liste;
+    ordnerMalen();
+    const jetzt = (S.ordner_liste.find(o => o.name === S.ordner) || {}).gesamt;
+    if(jetzt !== vorher) await ladeListe(false);
+  }catch(e){ /* the next round tries again */ }
+}, 60000);
+</script>
+</body>
+</html>
