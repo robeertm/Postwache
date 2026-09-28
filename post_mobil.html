@@ -449,8 +449,12 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
     <span class="u" id="ungelesen" hidden></span>
     <button class="blank" onclick="wahlAn()" id="wahlknopf"
             data-t-titel="k.auswaehlen">☑︎</button>
+    <!-- 🔴 NOT „◐". A half-filled circle is what day/night switches look like
+         everywhere else, and it sat in the top bar where one is expected — so
+         the one thing it could not mean here is „show unread only". It now
+         wears the very mark the list puts on an unread mail. -->
     <button class="blank" onclick="siebUm()" id="siebknopf"
-            data-t-titel="k.sieb_ungelesen">◐</button>
+            data-t-titel="k.sieb_ungelesen">●</button>
     <button class="blank" onclick="blick('suche')" data-t-titel="k.t_suche">🔍</button>
   </div>
   <!-- The same bar, in the same place, while several mails are chosen. -->
@@ -1035,7 +1039,7 @@ function listeMalen(){
       ? `<div class="leerraum"><div><span class="gross">✨</span>
          ${esc(txt("k.nichts_neu"))}</div></div>`
       : `<div class="leerraum"><div>
-      <span class="gross">${S.sieb ? "◐" : "📭"}</span>
+      <span class="gross">${S.sieb ? "●" : "📭"}</span>
       ${esc(txt(S.sieb ? "k.nichts_im_sieb" : "k.ordner_leer"))}</div></div>`;
     $("#mehrknopf").hidden = true;
     return;
