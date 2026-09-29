@@ -361,12 +361,107 @@ for datei in ("postwache.py", "post_web.py", "umbau.py", "umzug.py",
               "probe_leck.py", "demo/demo_daten.py",
               # since 5.0.0: the mail client
               "klient.py", "post_klient.html", "post_mobil.html",
-              "probe_klient.py"):
+              "probe_klient.py", "probe_kopplung.py",
+              "probe_veroeffentlichung.py"):
     stellen = deutsche_kommentare(datei)
     probe("%s: Kommentare englisch" % datei, not stellen,
           "%d deutsche Stelle(n)" % len(stellen))
     for x in stellen[:6]:
         print("        " + x)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# The documents customers read
+# ═══════════════════════════════════════════════════════════════════════════
+# 🔴 Twice a German changelog entry slipped into a public repository, once with
+#    a verbatim quote of the owner in it. Neither belongs there: README and
+#    CHANGELOG are the customer-facing side, they are ENGLISH, and a personal
+#    quote has no business in a public repository.
+#
+# 🔑 What is looked for is the FORM, never a name — this bench is published
+#    itself and must not be the thing it warns about.
+
+import re as _re
+
+# What is deliberately in another language and explained in English.
+ERLAUBTE_FREMDE_STELLEN = (
+    "\u201eHier geht die Post ab\u201c",   # the slogan, quoted and explained in English
+)
+
+_DEUTSCHE_WOERTER = _re.compile(
+    r"\b(und|oder|aber|der|die|das|dem|den|des|ein|eine|einen|einem|eines|"
+    r"nicht|nichts|wird|werden|wurde|ist|sind|war|waren|kann|muss|soll|"
+    r"auf|mit|von|zum|zur|aus|bei|beim|fuer|f\u00fcr|sich|schon|jetzt|noch|auch|"
+    r"nur|dass|wenn|weil|damit|ueber|\u00fcber|durch|gegen|ohne|sehr|immer)\b")
+
+# 🔴 A QUOTE is not every pair of quotation marks. Quoted terms in English
+#    prose are perfectly fine and have been in these files from the start.
+#    What does NOT belong is attributing spoken words to a person — and that
+#    has a shape: a name, a colon (with or without a date before it), then an
+#    opening quotation mark.
+_ZITAT = _re.compile(
+    r"(?m)(?:^|[\s(])([A-Z][a-z\u00e4\u00f6\u00fc]{2,15})"      # a name
+    r"(?:,\s*\d{1,2}\.\s*\d{1,2}\.\s*\d{2,4})?"             # optional date
+    r"\s*:\s*[\u201e\u201c\"\u00ab]")                          # colon, then a quote
+
+
+def _ohne_code(text):
+    """Code blocks and inline code out — no prose lives in there."""
+    text = _re.sub(r"```.*?```", " ", text, flags=_re.S)
+    text = _re.sub(r"`[^`\n]*`", " ", text)
+    return text
+
+
+def pruefe_dokumente(dateien):
+    """dateien: list of (path, display name). Returns a list of findings."""
+    fehler = []
+    for pfad, name in dateien:
+        try:
+            roh = open(pfad, encoding="utf-8").read()   # builtin, needs no io
+        except OSError:
+            fehler.append("%s fehlt" % name)
+            continue
+        text = _ohne_code(roh)
+        for erlaubt in ERLAUBTE_FREMDE_STELLEN:
+            text = text.replace(erlaubt, " ")
+
+        # 1. Verbatim quotes of a person.
+        for m in _ZITAT.finditer(text):
+            stelle = text[max(0, m.start() - 20):m.end() + 70]
+            fehler.append("%s: woertliches Zitat einer Person — gehoert nicht "
+                          "in ein oeffentliches Dokument (…%s…)"
+                          % (name, stelle.replace("\n", " ").strip()))
+
+        # 2. German prose.
+        #
+        # 🔑 It is not the NUMBER of German words that decides, it is their
+        #    DENSITY. A single word being named is not German text: this
+        #    changelog explains in one place why a pattern failed to match a
+        #    German word, and the slogan is an idiom that gets explained in
+        #    English. Both are right as they are. German PROSE looks different —
+        #    there the function words stand close together.
+        stellen = [m.start() for m in _DEUTSCHE_WOERTER.finditer(text)]
+        for i, anfang in enumerate(stellen):
+            nahe = [x for x in stellen[i:] if x - anfang <= 120]
+            if len(nahe) >= 3:
+                auszug = text[max(0, anfang - 30):anfang + 150]
+                fehler.append("%s: deutscher Fliesstext — README und CHANGELOG "
+                              "sind ENGLISCH (…%s…)"
+                              % (name, auszug.replace("\n", " ").strip()))
+                break
+    return fehler
+
+
+print("\n── Die Dokumente, die Kunden lesen ──")
+_befunde = pruefe_dokumente([
+    (os.path.join(HIER, "README.public.md"), "README.public.md"),
+    (os.path.join(HIER, "CHANGELOG.public.md"), "CHANGELOG.public.md"),
+])
+probe("README und CHANGELOG sind englisch und ohne Zitate", not _befunde,
+      "%d Befund(e)" % len(_befunde))
+for _b in _befunde:
+    print("        " + _b)
+
 
 print("\n%s  %d Fehlschlaege" % ("ALLES GRUEN" if not fehler else "ROT", len(fehler)))
 sys.exit(1 if fehler else 0)
