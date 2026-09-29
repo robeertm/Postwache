@@ -252,31 +252,47 @@ services:
 mkdir -p data && docker compose up -d
 ```
 
-### Over Tailscale — the way in we recommend
+### Over Tailscale — one command
 
-A private network beats a forwarded port. With the overlay file in this repo,
-the Postwache is reachable at `https://postwache.<your-tailnet>.ts.net` — HTTPS with a
-certificate Tailscale fetches and renews itself, no port open anywhere, no
-reverse proxy, and nobody outside your tailnet can even knock.
+A private network beats a forwarded port. Paste a Tailscale auth key and you
+are done:
 
 ```bash
-# once: Tailscale admin console → Settings → Keys → reusable auth key
-echo 'TS_AUTHKEY=tskey-auth-...' >> .env
-# and Settings → DNS → MagicDNS + HTTPS certificates switched on
-
-docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d
+./deploy/tailscale.sh tskey-auth-xxxxxxxxxxxx
 ```
 
-The overlay only changes what has to change: postwache gives up its published
-port and runs inside the `tailscale` container's network, which is what lets
-`tailscale serve` reach it on `127.0.0.1` without opening anything. Want the
-address in your own network to keep working as well? Uncomment the `ports:`
-block on the **tailscale** service — that is where the network lives now.
+That is the whole setup. The Postwache is then at
+`https://postwache.<your-tailnet>.ts.net` — HTTPS with a certificate Tailscale
+fetches and renews by itself, no port open anywhere, no reverse proxy, and
+nobody outside your tailnet can even knock. Which matters more here than for
+most things: this page can read your mail.
 
-The auth key is needed once, to join. After that this machine's identity sits
+Get the key from the Tailscale admin console → *Settings → Keys →
+Generate auth key* (switch on **Reusable**). And once, in *Settings → DNS*,
+turn on **MagicDNS** and **HTTPS Certificates** — the only thing the script
+cannot do for you, and it will tell you if it is still missing.
+
+<details><summary>What the script does, if you would rather do it by hand</summary>
+
+It writes two lines into `.env` and starts the stack:
+
+```
+TS_AUTHKEY=tskey-auth-xxxxxxxxxxxx
+COMPOSE_FILE=docker-compose.yml:docker-compose.tailscale.yml
+```
+
+`COMPOSE_FILE` is the part worth knowing: with it in `.env`, a plain
+`docker compose up -d` uses the Tailscale overlay from then on — you never have
+to remember `-f docker-compose.yml -f docker-compose.tailscale.yml` again. The
+overlay changes only what must change: the Postwache gives up its published
+port and runs inside the `tailscale` container's network, which is what lets
+`tailscale serve` reach it on `127.0.0.1` without opening anything.
+
+The auth key is needed once, to join. Afterwards this machine's identity sits
 in `./tailscale/state` (git-ignored), so the key can be revoked and the
 container keeps running.
 
+</details>
 
 ### From source
 
@@ -425,6 +441,23 @@ You can also search **backwards**: *"every mail with a PDF from the tax office"*
 select them, and send the lot over in one go. Already-handed-over documents are
 marked, so you never send the same paper twice.
 
+**There is nothing to connect.** Install the two together and the link is
+already made:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/robeertm/Postwache/main/deploy/install-both.sh | bash
+```
+
+One secret in one `.env` is read by both sides — DocuSort creates the service
+account, the Postwache writes it down. Nobody types anything.
+
+Running both already, separately? Then it is one click each side: DocuSort
+shows a **pairing line** under *Settings → Postwache*; paste it here under
+*Pairing line from DocuSort*. Or press *Find DocuSort* and the Postwache looks
+for it where it can actually be reached — same Docker network, same machine,
+or your tailnet. No network is scanned; only places that follow from how the
+two are installed get asked.
+
 </td><td>
 
 **Together**
@@ -465,16 +498,31 @@ marked, so you never send the same paper twice.
 
 ## Updating
 
-**Docker never re-pulls a running container.** `:latest` is a label, not a
-subscription:
+**It happens by itself.** Both the `docker-compose.yml` in this repository and
+the one-command installer ship **Watchtower switched on**: a new image is
+pulled nightly at 04:00 and the container recreated. You do not have to do
+anything.
+
+```
+WATCHTOWER_SCHEDULE=0 30 3 * * *     # in .env, if you want a different time
+```
+
+What it costs, stated plainly: Watchtower needs the **Docker socket**, which is
+effectively root on the host. It is mounted read-only, but it is still a
+privilege you are handing to a container. Not willing? Delete the `watchtower`
+service and do it by hand — because **Docker never re-pulls a running
+container**, `:latest` being a label and not a subscription:
 
 ```bash
 docker compose pull && docker compose up -d
 ```
 
-`docker-compose.yml` ships a commented **Watchtower** block if you want it done
-for you (nightly at 04:00). It needs the Docker socket, which is effectively
-root on the host — that is the price, stated plainly.
+**Already running a Watchtower of your own?** Check whether it names the
+containers it watches. One started with a list of names — `watchtower app1
+app2` — updates only those and will *not* pick the Postwache up; one started
+with no names watches everything and will. Ours names only `postwache`, so the
+two never fight over the same container. If yours already covers everything,
+delete our `watchtower` service and let yours do the work.
 
 ## Honest limitations
 

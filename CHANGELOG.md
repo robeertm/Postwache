@@ -7,6 +7,71 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.7.0] – 2026-09-29
+
+### Changed
+
+**Tailscale: from an instruction to one command.**
+
+```bash
+./deploy/tailscale.sh tskey-auth-xxxxxxxxxxxx
+```
+
+That is the whole setup. The script writes the key AND `COMPOSE_FILE` into
+`.env`, starts everything, and prints the finished address — which it reads out
+of `tailscale cert`, the same trick already used elsewhere in these projects.
+
+🔑 `COMPOSE_FILE` is the real gain: with that line in `.env`, a plain
+`docker compose up -d` uses both files from then on. Nobody has to remember
+`-f docker-compose.yml -f docker-compose.tailscale.yml` again — and nobody
+starts by accident with a published port and no tailnet because they forgot it
+once.
+
+**Watchtower is switched ON, no longer commented out.** Nightly at 04:00, the
+time movable with `WATCHTOWER_SCHEDULE` in `.env`. It is the maintained fork
+`ghcr.io/nicholas-fedor/watchtower`, and it watches ONLY the `postwache`
+container — which is exactly why it does not fight with a Watchtower you
+already run.
+
+🔴 Worth knowing: an existing Watchtower does NOT automatically pick this up. One
+started with a list of container names updates only those. The README says how
+to tell.
+
+### Added
+
+**The connection to DocuSort makes itself.**
+
+* **Installed together → no clicks at all.** `deploy/install-both.sh` or
+  `docker-compose.both.yml`: one secret in one `.env`, read by both sides.
+  DocuSort creates the service account with it, the Postwache writes it down.
+* **Installed separately → one click each side.** DocuSort shows a **pairing
+  line** under *Settings → Postwache*; there is a field for it here. Plus a
+  **Find DocuSort** button that asks from *here* — because reachable means
+  reachable by the one who has to arrive, not by the browser.
+
+🔴 The https rule stays, with exactly two exceptions: this machine
+(`localhost`, `127.0.0.1`) and a name without a dot (`docusort`) while the
+Postwache itself runs in a container — then it is a service name from the same
+compose file and the request never leaves the host. A home-network address is
+still refused; a password in the clear across the LAN is precisely what the
+rule exists to prevent.
+
+**`probe_kopplung.py`** — 30 checks, no network needed: the address rule, „the
+environment sets up, it does not overwrite", a rotated key, the pairing line,
+and three broken lines that must write nothing.
+
+### Fixed
+
+🔴 **The build workflow also ran on tags — and pushed `:latest` along with it.**
+Tagging an older version would have handed every customer OLD code as `latest`
+on their next pull. It now builds from `main` only; every version already gets
+its own image tag from that push.
+
+### Also
+
+**Tags and releases for every version** (v4.5.1 … v5.7.0), so there is a
+downloadable archive for each.
+
 ## [5.6.0] – 2026-09-29
 
 ### Added
