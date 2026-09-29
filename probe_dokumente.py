@@ -8,6 +8,7 @@ the rules of the handover.
 mid-sentence, with a bracket in the file name, with =?UTF-8?Q?…?= and with
 filename*0*. That is exactly where a naively built reader fails — and silently.
 """
+import io
 import os
 import sys
 import tempfile
@@ -359,6 +360,47 @@ pruefe("base64", W.teil_entpacken(b"SGFsbG8gV2VsdA==", "BASE64"), b"Hallo Welt")
 pruefe("quoted-printable", W.teil_entpacken(b"Gr=C3=BC=C3=9Fe", "QUOTED-PRINTABLE"),
        "Grüße".encode("utf-8"))
 pruefe("7bit bleibt, wie es ist", W.teil_entpacken(b"roh", "7BIT"), b"roh")
+
+# ── The Tailscale way into the container ────────────────────────────────────
+# der Besitzer, 29.09.2026: „eine tailscale konfiguration in den jeweiligen docker zum
+# konfigurieren bekommen, standart komunikationsweg".
+_HIER = os.path.dirname(os.path.abspath(__file__))
+_ts_pfad = os.path.join(_HIER, "docker-compose.tailscale.yml")
+_serve_pfad = os.path.join(_HIER, "tailscale", "serve.json")
+pruefe("es gibt eine Tailscale-Ueberlagerung", os.path.isfile(_ts_pfad), True)
+pruefe("und die Serve-Beschreibung daneben", os.path.isfile(_serve_pfad), True)
+if os.path.isfile(_ts_pfad):
+    _ts = io.open(_ts_pfad, encoding="utf-8").read()
+    # 🔴 `ports: !reset []` and NOT `ports: []`: Compose MERGES lists across
+    #    files. With an empty list the published port from the main file stays
+    #    standing — and a container that publishes a port AND rides another
+    #    one's network is refused by Docker at start. `docker compose config`
+    #    calls the broken version valid, which is why the rule lives here.
+    pruefe("der Port wird mit !reset entfernt, nicht mit einer leeren Liste",
+           "ports: !reset []" in _ts, True)
+    pruefe("die App laeuft im Netz des Tailscale-Dienstes",
+           "network_mode: service:tailscale" in _ts, True)
+    # 🔴 With no key the start must ABORT, not come up quietly with no network.
+    pruefe("ohne TS_AUTHKEY bricht der Start ab",
+           "${TS_AUTHKEY:?" in _ts, True)
+    pruefe("der Zustand liegt in einem eigenen Band",
+           "./tailscale/state:/var/lib/tailscale" in _ts, True)
+if os.path.isfile(_serve_pfad):
+    import json as _json
+    _serve = _json.load(io.open(_serve_pfad, encoding="utf-8"))
+    _ziel = _serve["Web"]["${TS_CERT_DOMAIN}:443"]["Handlers"]["/"]["Proxy"]
+    # 🔑 The port in serve.json has to be the one the page really listens on —
+    #    otherwise the address is there and nothing is behind it.
+    _haupt = io.open(os.path.join(_HIER, "docker-compose.yml"),
+                     encoding="utf-8").read()
+    pruefe("serve.json zeigt auf den Port, auf dem die Seite hoert",
+           _ziel.endswith(":8110") and '"8110:8110"' in _haupt, True)
+# 🔴 The state folder carries this machine's identity — it does NOT belong in
+#    the repository.
+_gi = io.open(os.path.join(_HIER, ".gitignore"), encoding="utf-8").read() \
+    if os.path.isfile(os.path.join(_HIER, ".gitignore")) else ""
+pruefe("der Tailscale-Zustand ist vom Repo ausgeschlossen",
+       "tailscale/state/" in _gi, True)
 
 schlecht = [n for n, i, s in F if i != s]
 print("\nGESAMT: %d Proben, %d Fehlschlaege" % (len(F), len(schlecht)))

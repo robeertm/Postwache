@@ -1254,7 +1254,12 @@ function zeichneStatKopf(){
   const k = L.statistik || {};
   const el = $("#stat_quelle");
   if(!el) return;
-  el.textContent = !k.gebaut ? txt("stat.leer")
+  /* 🔴 The subtitle describes WHERE the numbers come from. With no numbers
+     there is no source to describe — and the card body already says „not
+     calculated yet" right underneath. Saying it twice in a row looked like a
+     glitch on the phone, where the two lines sit directly on top of each
+     other. */
+  el.textContent = !k.gebaut ? ""
     : txt("stat.quelle", {mails: k.mails, ordner: k.ordner, von: k.von, bis: k.bis,
                         ab: k.vollstaendig_ab, eigene: k.eigene_ausgelassen,
                         stand: zeit(k.gebaut)});
@@ -1533,7 +1538,8 @@ function bauChronik(){
   return c.length
     ? c.map(e => `<div class="reihe"><div class="txt">
         <b>${esc(e.titel || e.art)}${e.anzahl > 1 ? " ×" + e.anzahl : ""}</b>
-        <span>${esc(zeit(e.zeit))} · ${esc(e.detail||"")}</span></div></div>`).join("")
+        <span>${esc(zeit(e.zeit))}${e.detail ? " \u00b7 " + esc(e.detail) : ""
+          }</span></div></div>`).join("")
     /* 🔴 Stood here in German inside the JavaScript since 2.x. Only found when
        the language test bench was widened to „nichts“ on 2026-09-27 — `\bnicht\b`
        does not match „nichts“. */

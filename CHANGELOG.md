@@ -7,6 +7,57 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.6.0] – 2026-09-29
+
+### Added
+
+**Tailscale as the way in — no open port.** A new `docker-compose.tailscale.yml`
+sits next to the main file as an OVERLAY, so an existing install keeps working
+untouched and the private-network path is one extra `-f` away:
+
+```bash
+echo 'TS_AUTHKEY=tskey-auth-…' >> .env
+docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d
+```
+
+The Postwache is then at `https://postwache.<your-tailnet>.ts.net`, HTTPS with a
+certificate Tailscale fetches and renews by itself. No port open, no reverse
+proxy, no certificate to look after — and nobody outside the tailnet has
+anything to knock on.
+
+🔴 `ports: !reset []`, not `ports: []`. Compose MERGES lists across files: with
+an empty list the published port from the main file stays, and a container that
+publishes a port AND rides another's network is refused by Docker at start.
+Found by actually rendering the merged file — `docker compose config` called the
+broken version valid.
+
+🔴 The auth key lives in `.env`, never in the repository, and is needed once:
+afterwards this machine's identity sits in `tailscale/state/` (git-ignored) and
+the key can be revoked. Counter-tested: without `TS_AUTHKEY` the start aborts
+instead of quietly coming up with no network.
+
+### Fixed
+
+**The phone view, measured sheet by sheet.** A new instrument walks all ten
+sheets of the mailbox and all four tabs of the watchman page at three widths
+(320/390/430 px) in WebKit — the engine an iPhone actually draws with — and
+measures horizontal scroll, overhang past the right edge, tap targets under
+44 px, text under 12.5 px, clipped text and the iOS zoom trap (inputs under
+16 px). Result: **0 horizontal scroll, 0 overhang, 0 clipped text, 0 zoom
+traps**, on every sheet at every width.
+
+Three things only the PICTURE showed, and all three are fixed:
+
+* the unread filter's **●** stood in the header as a white lump beside three
+  thin signs — as a glyph it is the size of ☰, only solid. What it means is the
+  small dot the list puts on an unread mail, so it is drawn that size now; the
+  tap target stays 44 × 44;
+* „not calculated yet" appeared **twice in a row**, once as the subtitle and
+  once in the card body. The subtitle says WHERE the numbers come from; with no
+  numbers there is nothing to describe, so it stays empty;
+* the history ended on a bare „ · " — the separator was printed whether or not
+  anything followed it.
+
 ## [5.5.0] – 2026-09-29
 
 ### Changed
