@@ -7,6 +7,21 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.8.1] – 2026-09-29
+
+### Changed
+
+**The benches are no longer published.** Nine `probe_*.py` files stood in the
+root next to seven files of program — scaffolding in front of the house, and
+the first thing anybody saw when they opened the project. They were never part
+of the product: nothing imports them, no `Dockerfile` copies them, and no
+rollout has ever carried them. They stay in the owner's tree from now on, so
+the root shows the program and nothing else.
+
+Earlier entries in this file still name them by filename. Those entries stay as
+they were written — they record what happened at the time; this is the note
+that explains where those files went.
+
 ## [5.8.0] – 2026-09-29
 
 ### Added
