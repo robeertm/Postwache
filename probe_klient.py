@@ -101,7 +101,7 @@ KOPF_103 = ("From: Amt Sandström <amt@erfunden.example>\r\n"
             "Date: Thu, 25 Sep 2026 08:00:00 +0200\r\n"
             "References: <eins@erfunden.example>\r\n"
             "Message-Id: <drei@erfunden.example>\r\n\r\n").encode("utf-8")
-TEXT_101 = b"Hallo der Besitzer,\r\npasst dir Donnerstag?\r\n"
+TEXT_101 = b"Hallo Rosa,\r\npasst dir Donnerstag?\r\n"
 # 🔴 windows-1252, not UTF-8 and not pure Latin-1: the euro sign does not exist in
 # Latin-1, and this is exactly the charset German invoice mail really arrives in.
 TEXT_102_LATIN = "Sehr geehrter Kunde,\nIhre Rechnung über 49,90 € liegt bei.\n".encode("cp1252")
@@ -694,7 +694,7 @@ probe("eine nackte Adresse im Text wird anklickbar",
 probe("ein Verweis im Text traegt noopener",
       "noopener" in K.text_zu_html("sieh https://erfunden.example"))
 
-# 🔴 The one that cost der Besitzer every HTML mail (5.0.1). A void element has no end
+# 🔴 The one that cost every HTML mail its body (5.0.1). A void element has no end
 # tag — so it must never open a region that waits for one. `<meta>` stood in the
 # silent list and NOT in the void list, and with that the counter went to 1 at
 # the top of nearly every newsletter and never came back: everything after it
@@ -834,7 +834,7 @@ vor = len(server.befehle)
 mit = kasten.koepfe([101, 102, 103], auszug=True)
 neue = [b for b in server.befehle[vor:] if "BODY.PEEK[" in b and "HEADER" not in b]
 probe("die Liste zeigt den Anfang des Briefes",
-      mit.get(101, {}).get("auszug", "").startswith("Hallo der Besitzer"),
+      mit.get(101, {}).get("auszug", "").startswith("Hallo Rosa"),
       repr(mit.get(101, {}).get("auszug")))
 probe("auch wenn der Brief in windows-1252 geschrieben ist",
       "49,90 €" in mit.get(102, {}).get("auszug", ""),
@@ -1172,8 +1172,8 @@ belegt = K.ordner_ziehen({"pf": "zug", "ordner": "INBOX.Gel&APY-schtes.Synology"
 probe("an denselben Platz noch einmal geht nicht", belegt["ok"] is False,
       belegt.get("text", "")[:40])
 # ── Created and deleted, and what the watchman learns from it ─────────────
-# der Besitzer, 28.09.2026: „und wenn man von hand ordner löscht oder neu anlegt muss
-# die postwache das auch lernen!!" (his words stay his words)
+# When somebody deletes or creates a folder by hand, the Postwache has to
+# learn that too.
 K.W.pf_waehlen("zug")
 K.W.save("ablage.json", {
     "absender": {"anna@erfunden.example": {"ordner": "INBOX.Gel&APY-schtes.Synology",
@@ -1385,9 +1385,9 @@ for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
 # the watchman page for its open TAB, while a COOKIE of that very name carries
 # the third meaning (wide page or phone page). Two meanings in one slot wipe each
 # other: opening the watchman page wrote „uebersicht" over the light choice, and
-# the light button wrote „hell" over the remembered tab. Der Besitzer, 28.09.2026: „in
-# der mobilen ansicht geht der tag nacht umschalter nicht" — the switch worked
-# every time it was pressed; its MEMORY was taken from underneath it. A duplicate
+# the light button wrote „hell" over the remembered tab. The reported symptom
+# was that the day/night switch did not work on the phone — but the switch
+# worked every time it was pressed; its MEMORY was taken from underneath it. A duplicate
 # `const` at least kills the script loudly; a shared slot fails in silence.
 #
 # So the slots are declared here, with their purpose, and nothing else may exist.
@@ -1427,9 +1427,8 @@ for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
           bool(_par) and ('localStorage.getItem("pw_%s")' % _par.group(1)) in _text,
           _par.group(1) if _par else "kein Parameter gefunden")
 
-# 🔑 „New" is where a session starts, not the inbox. Der Besitzer, 29.09.2026:
-# „immer wenn man sich neu verbindet und das postfach sich anzeigen laesst soll
-# standart immer ‚Neu‘ angezeigt werden, aktuell zeigts auf den posteingang."
+# 🔑 „New" is where a session starts, not the inbox: every fresh connection
+# opens there instead of on the inbox.
 # The reason sits in the watchman itself: it moves new mail OUT of the inbox
 # into a dozen folders, so the inbox is the one place that does NOT show what
 # has arrived.
@@ -1455,8 +1454,8 @@ for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
     _kopf = _text.split("</head>", 1)[0]
     probe("%s entscheidet die Farben im Kopf" % _datei,
           'setAttribute("data-hell"' in _kopf)
-    # 🔴 der Besitzer, 28.09.2026: „standart soll immer nachtmodus sein." So the page
-    # asks the DEVICE nothing: a screen set to light must not hand a light page
+    # 🔴 Night mode is the default, always. So the page asks the DEVICE
+    # nothing: a screen set to light must not hand a light page
     # to somebody who never chose one. Only an explicit „hell" turns it on.
     probe("%s fragt das Geraet nicht nach der Tageszeit" % _datei,
           "prefers-color-scheme" not in _text)
@@ -1608,7 +1607,7 @@ post = FalscherSMTP()
 post.start()
 K.smtp_speichern({"pf": "probe", "server": "127.0.0.1", "port": post.port,
                   "art": "klar", "benutzer": "inhaber@erfunden.example",
-                  "passwort": "geheim", "absender_name": "der Besitzer Erfunden"})
+                  "passwort": "geheim", "absender_name": "Rosa Erfunden"})
 kurz = K._smtp_kurz("probe")
 probe("der Postausgang ist gespeichert", kurz["server"] == "127.0.0.1"
       and kurz["passwort_da"] is True)
@@ -1623,7 +1622,7 @@ probe("der gespeicherte Postausgang ueberlebt das Lesen des Postfachs",
 PW.postfach_speichern({"id": "probe", "name": "Probe, umbenannt"})
 probe("und er ueberlebt das Bearbeiten des Postfachs auf der Waechterseite",
       K.smtp_zugang("probe")["port"] == post.port
-      and K.smtp_zugang("probe")["absender_name"] == "der Besitzer Erfunden",
+      and K.smtp_zugang("probe")["absender_name"] == "Rosa Erfunden",
       str(K._smtp_kurz("probe")))
 probe("die Pruefung erreicht den Server", K.smtp_pruefen({"pf": "probe"})["ok"])
 probe("die Pruefung sendet NICHTS", not post.briefe and "DATA" not in post.befehle,
@@ -1640,7 +1639,7 @@ erg = K.senden({"pf": "probe", "an": "Anna Beispiel <anna@erfunden.example>",
 probe("gesendet", erg["ok"], erg.get("text"))
 brief = (post.briefe[-1] if post.briefe else b"").decode("utf-8", "replace")
 probe("der Absender traegt den eingestellten Namen",
-      "der Besitzer Erfunden" in brief and "inhaber@erfunden.example" in brief)
+      "Rosa Erfunden" in brief and "inhaber@erfunden.example" in brief)
 probe("der Betreff kommt mit Umlaut an (kodiert)",
       "Subject:" in brief and ("=?utf-8?" in brief.lower() or "Rückfrage" in brief))
 probe("die Mail hat eine Message-Id", re.search(r"(?mi)^Message-Id:\s*<[^>]+@", brief) is not None)

@@ -213,10 +213,9 @@ pruef("voellig unbekannter Absender -> Auffang",
 pruef("leerer Absender -> Auffang",
       umbau.ziel_fuer(mail("", ""))[0], umbau.AUFFANG)
 
-print("\n── Neue Post selbst einsortieren (27.09., dessen Nachtrag) ──")
-# der Besitzer: new mail must always be analysed and filed, and where new folders are
-# needed it should create them on its own — „wenn neue mails kommen muessen die
-# immer analysiert werden und einsortiert werden“.
+print("\n── Neue Post selbst einsortieren (27.09., Nachtrag) ──")
+# New mail must always be analysed and filed, and where new folders are
+# needed it should create them on its own.
 import tempfile
 _tmp = tempfile.mkdtemp()
 _echt = umbau.out_pfad
@@ -275,8 +274,8 @@ pruef("beides leer -> NICHT bewegen",
       umbau.mid_bestaetigt("", ""), False)
 
 print("\n── Mehrdeutige Absender: die Domain darf nicht entscheiden ──")
-# der Besitzer, 2026-09-27 — he has mail from check24, who offer everything; he booked a
-# trip there, so that mail should appear under travel and not under insurance.
+# Mail from check24, who offer everything: a trip was booked there, so that
+# mail belongs under travel and not under insurance.
 # 🔴 This already stood in phase 1 (2026-09-11): „check24.de does hotels AND
 #    insurance — the main domain may suggest, not act.“ I let it act anyway.
 for von, betreff, soll in (
@@ -310,8 +309,8 @@ pruef("eindeutiger Absender bleibt unberuehrt",
       "Banking.PayPal")
 
 print("\n── Netzaussetzer: die Verbindung wird wiederholt ──")
-# der Besitzer, 2026-09-27: „manchmal ist das postfach nicht erreichbar.“ (sometimes the
-# mailbox is unreachable) Measured: the provider takes 8 simultaneous connections —
+# The mailbox is sometimes unreachable.
+# Measured: the provider takes 8 simultaneous connections —
 # NO rate limit. But the Pi's log holds two genuine DNS dropouts. A two-second
 # hiccup must not abort a six-minute run.
 import postwache as _pw
@@ -351,8 +350,8 @@ finally:
     _pw.Postfach, umbau.stand_schreiben, umbau.time.sleep = _echt_pf, _echt_stand, _echt_schlaf
 
 print("\n── Leere Ordner entfernen: was NIE angefasst wird ──")
-# der Besitzer, 2026-09-27: remove folders that are no longer needed, but only when
-# there are no mails left in them.
+# Remove folders that are no longer needed, but only when there are no mails
+# left in them.
 # 🔴 Special folders are recognised by their FLAG, not by their name — an English
 #    mailbox calls the trash something else, the flag is the same.
 for flags, soll in (("\\HasNoChildren", False),

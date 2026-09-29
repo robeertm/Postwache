@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """Postwache — the mail client behind the watchman (since 5.0.0).
 
-Der Besitzer, 2026-09-28: „mach aus der postwache einen richtig schönen email client,
-mit allem drum und dran, schön aufgearbeitet mit vorschau alles einstellbar."
+The brief: turn the Postwache into a real mail client — preview and all, and
+everything adjustable.
 
 This module is the engine: it reads folders, lists and mails, hands out
 attachments, sets flags, moves, deletes, writes and sends. The page
@@ -2782,7 +2782,7 @@ def mail_zeigen(d: dict) -> dict:
     # 🔑 Where the answer does not depend on the sender, it is known BEFORE the
     # mail is fetched — and then the mail is fetched once instead of twice. Only
     # „known senders" has to see the address first; that alone costs a second
-    # pass, and with the setting on „always" der Besitzer paid it on every single mail.
+    # pass, and with the setting on „always" it was paid on every single mail.
     vorab = (None if wunsch is None and einstellungen()["bilder"] == "bekannte"
              else _bilder_erlaubt(pf_id, "", wunsch))
     m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=bool(vorab)))
@@ -2991,9 +2991,8 @@ def _einst_ordner_umschreiben(alt: str, neu: str, trenner: str) -> int:
 def ordner_ziehen(d: dict) -> dict:
     """Move a folder — and tell everything that knew it by name.
 
-    Der Besitzer, 28.09.2026: „man muss auch ganze ordner am besten per drag and drop
-    verschieben können mit mailinhalt, postwache soll das dann auch mitbekommen
-    wegen lernen und so."
+    A whole folder travels by drag and drop, mail and all — and the watchman
+    has to notice, for the sake of what it has learned.
 
     🔑 The second half of that sentence is the bigger half. The provider does the
     move in one command; the watchman has LEARNED that folder — who writes into

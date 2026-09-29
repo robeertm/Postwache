@@ -2,18 +2,15 @@
 # -*- coding: utf-8 -*-
 """Postwache — restructuring: reorder the whole mailbox.
 
-Der Besitzer, 2026-09-27 — build it so that his entire mailbox is restructured
+The task: restructure an entire mailbox
 completely; it should analyse every mail and sort it into a sensible folder
 structure, never delete mail but only move it within the mailbox; the current
 structure is silly, and archived mail should be sorted too and taken out of the
-archive:
-„ich moechte das du die so baust das mein gesamtes postfach komplett neu
-strukturiert wird … niemals mails loeschen nur verschieben innerhalb des
-postfaches … auch archivierte mails sortieren und aus dem archiv holen.“
+archive.
 
-This is **phase 2**, which has been in the plan since 2026-09-11 („meine ordner
-sind auch nicht perfekt, aber das soll ja der agent spaeter fuer mich neu
-sortieren“). Phase 1 has already measured the weaknesses of the filing.
+This is **phase 2**, which has been in the plan since 2026-09-11: the existing
+folders are not perfect either, and sorting them afresh is what the agent is
+for. Phase 1 has already measured the weaknesses of the filing.
 
 🔑 THREE STAGES, SEPARATE AND IN THIS ORDER
    1. `inventar`  — reads EVERY mail header. Read-only, `BODY.PEEK`.
@@ -213,7 +210,7 @@ def inventar(nur: str = "", voll: bool = False) -> int:
     zug = pw.zugang()
     t0 = time.time()
     # What was in it last time — from that, everything that has not changed is
-    # carried over. 🔴 der Besitzer, 2026-09-27: after the restructuring the mailbox has
+    # carried over. 🔴 Measured: after the restructuring the mailbox has
     # 132 folders instead of 53, and a full inventory therefore took 7 minutes
     # instead of 27 seconds. The same mails, only spread more finely — the cost
     # sits in the folder, not in the post.
@@ -756,7 +753,7 @@ def ziel_fuer(m: dict):
 
 
 # ── Stage 2b: derive structure FROM THE CONTENT ────────────────────
-# der Besitzer, 2026-09-27 — it should analyse and sort all mails and build the new
+# The task: analyse and sort all mails and build the new
 # folder structure based on the mail contents.
 #
 # 🔑 The rules above cover what he named EXPLICITLY (banking, house building)
@@ -848,9 +845,9 @@ def kategorie_aus_inhalt(betreffe: list) -> str:
 
 
 # ── The vocabulary: learning from his OWN folders ───────────────────
-# der Besitzer, 2026-09-27 — why is the catch folder not being sorted? These are clear
-# mails with clear content that could be filed beautifully; build the app so that
-# these are recognised properly too — and not by me but always by the Postwache,
+# Why is the catch folder not being sorted? These are clear mails with clear
+# content that could be filed beautifully; the app has to recognise these
+# properly too — and not by a person but always by the Postwache,
 # which uses AI, doesn't it?
 #
 # Measured against the 489 mails in the catch folder: 234 different sender
@@ -1174,8 +1171,7 @@ def ki_kategorien(offen: dict, karte: dict):
 
 
 # ── Use the AI in the workshop, where it runs ─────────────────────
-# der Besitzer, 2026-09-27: the Postwache should use the AI in the workshop, where it
-# runs.
+# The Postwache uses the AI in the workshop, where it runs.
 #
 # 🔴 The workshop is a TASK BOOK, not a model endpoint. `local_engine` knows
 #    `create_thread` and a queue — an agent picks the task up later. There is no
@@ -1445,8 +1441,8 @@ def struktur_lernen(inv: dict, mit_ki: bool = True) -> dict:
 def ziel_fuer_neue(m: dict, merken: bool = True):
     """Where does THIS one new mail belong? For the watchman, not for the plan.
 
-    Der Besitzer, 2026-09-27 — when new mail arrives it must always be analysed and
-    filed, and where new folders are needed it should create them on its own.
+    When new mail arrives it must always be analysed and filed, and where new
+    folders are needed it should create them on its own.
 
     🔑 The decision is REMEMBERED. With a single mail `kategorie_aus_inhalt()`
        sees only one subject — tomorrow the same sender might come out differently,
@@ -1824,8 +1820,7 @@ def zurueck(grenze: int = 0) -> int:
 def verbindung(zug: dict, schreiben: bool, versuche: int = 3):
     """An open connection — with a retry on a network hiccup.
 
-    🔴 der Besitzer, 2026-09-27: „manchmal ist das postfach nicht erreichbar.“
-    (sometimes the mailbox is unreachable) Measured: the provider takes 8
+    🔴 The mailbox is sometimes unreachable. Measured: the provider takes 8
     simultaneous connections without complaint, so there is NO rate limit. But the
     Pi's log holds two genuine dropouts („Temporary failure in name resolution“,
     2026-09-21 and -23) — a two-second DNS hiccup must not abort a six-minute run.
@@ -1943,8 +1938,8 @@ def ablage_veralten() -> bool:
 
 
 # ── Stage 4: remove empty folders ───────────────────────────────
-# der Besitzer, 2026-09-27 — what the Postwache may do is remove folders that are no
-# longer needed, but only when there are no mails in them any more.
+# What the Postwache may do is remove folders that are no longer needed, but
+# only when there are no mails in them any more.
 #
 # 🔑 „NO LONGER NEEDED“ IS NOT THE SAME AS „EMPTY“. A folder he created himself
 #    and that is waiting for post (`Github`, `Linkedin`, `Traderepublic`) is

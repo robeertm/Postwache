@@ -5,8 +5,8 @@
     python3 probe_veroeffentlichung.py
 
 🔴 Why this bench exists (29.09.2026). DocuSort had been pushed, the container
-   image was current, everything was green — and der Besitzer asked „warum ist mein
-   docusort nicht aktuell?". Tag and release are HAND work, and they had been
+   image was current, everything was green — and a running installation still
+   reported itself up to date. Tag and release are HAND work, and they had been
    left undone, so a source install compared its own version against the newest
    RELEASE, found them equal and truthfully reported „up to date". A defect the
    interface reports as a success.

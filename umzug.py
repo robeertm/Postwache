@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """umzug.py — bring a whole mailbox to another provider.
 
-Der Besitzer, 2026-09-27 — you name two providers (which already works), then you can
-run them in parallel or say: transfer mail from provider A to provider B and sort
+Two providers are named (which already works), then they can
+run in parallel or say: transfer mail from provider A to provider B and sort
 it straight away into a nice structure according to the content of the mail; once
 the migration is finished you can delete everything at provider A or set up a
 permanent redirection of the mail through the Postwache, so that provider A keeps
@@ -93,9 +93,8 @@ def out_pfad(name: str) -> str:
 
 # ── Status for the page ──────────────────────────────────────
 # Built like `umbau.stand_schreiben`, with a file of its own: a migration can take
-# hours, and he has to see where it stands without reading a log. (der Besitzer,
-# 2026-09-27: „sehe nicht wie weit das ordner loeschen ist.“ — I cannot see how
-# far the folder deletion has got.)
+# hours, and somebody has to see where it stands without reading a log —
+# how far the folder deletion has got, for instance.
 def stand_schreiben(**felder) -> None:
     d = stand_lesen()
     if felder.get("laeuft") and not d.get("laeuft"):
@@ -992,7 +991,7 @@ def quelle_leeren(von_id: str, nach_id: str, freigabe: str = "",
 
 
 # ── Stage 6: permanent redirection ────────────────────────────
-# der Besitzer — or set up a permanent redirection of the mail through the Postwache, so
+# Or set up a permanent redirection of the mail through the Postwache, so
 # that provider A keeps no mail but everything arrives at provider B and is filed
 # there.
 #

@@ -362,8 +362,8 @@ pruefe("quoted-printable", W.teil_entpacken(b"Gr=C3=BC=C3=9Fe", "QUOTED-PRINTABL
 pruefe("7bit bleibt, wie es ist", W.teil_entpacken(b"roh", "7BIT"), b"roh")
 
 # ── The Tailscale way into the container ────────────────────────────────────
-# der Besitzer, 29.09.2026: „eine tailscale konfiguration in den jeweiligen docker zum
-# konfigurieren bekommen, standart komunikationsweg".
+# Tailscale is the standard way in: every project that customers install from
+# GitHub carries its own configuration for it, next to the compose file.
 _HIER = os.path.dirname(os.path.abspath(__file__))
 _ts_pfad = os.path.join(_HIER, "docker-compose.tailscale.yml")
 _serve_pfad = os.path.join(_HIER, "tailscale", "serve.json")

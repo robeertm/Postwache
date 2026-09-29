@@ -3,7 +3,7 @@
 
 ARCHITECTURE (the reason this costs little) — inherited from the das Schwesterprojekt:
 The watchman here is MUTE. No language model, no tokens. It runs every minute
-from cron (der Besitzer, 2026-09-19; every 5 before that — a run without new mail
+from cron (since 2026-09-19; every 5 before that — a run without new mail
 takes 0.2 s), looks at the NEW mails (only those since the last remembered UID)
 and classifies them by fixed, readable rules. The AGENT in the workshop is only
 woken when the watchman itself does not know what to do — that is, for mails that
@@ -146,10 +146,8 @@ MAX_WECKRUFE_PRO_TAG = 4
 UNKLAR_SCHWELLE = 8          # this many unclear mails make a judgement worthwhile
 
 # ── The owner's own filing is the teacher ────────────────────────────
-# der Besitzer, 2026-09-11 — find the best way by itself and create more categories,
-# maybe even from the mails themselves:
-# „soll automatisch den besten weg finden und auch mehr kategorien erstellen,
-# vieleicht auch aus mails kategorien erstellen."
+# The task: find the best way by itself and create more categories, perhaps
+# even from the mails themselves.
 #
 # 🔑 The categories already exist: 35 topic folders, filled by hand over
 # years. They are his own decisions — any drawer we invented would be worse. The
@@ -848,13 +846,10 @@ def einstellungen() -> dict:
         # With this switched on, everything from the four alarm classes stays
         # put, even when the filing map knows a target.
         "wichtiges_bleibt": bool(e.get("wichtiges_bleibt", False)),
-        # der Besitzer, 2026-09-27 — new mail must always be analysed and filed, and
-        # where new folders are needed it should create them on its own:
-        # „wenn neue mails kommen muessen die immer analysiert werden und
-        # einsortiert werden und wenn es neue ordner braucht dann soll es die
-        # selbstaendig erstellen.“
-        # 🔴 That lifts the bolt from 2.0 („only where he has already filed
-        # something himself“). So it stays a SWITCH: whoever wants the old
+        # New mail must always be analysed and filed, and where new folders
+        # are needed it should create them on its own.
+        # 🔴 That lifts the bolt from 2.0 („only where the owner has already
+        # filed something himself“). So it stays a SWITCH: whoever wants the old
         # principle back turns it off. Phishing always stays put, and the alert
         # goes out regardless of where the mail travels.
         "selbst_sortieren": bool(e.get("selbst_sortieren", True)),
@@ -883,7 +878,7 @@ def zugang(pf_id: str = "") -> dict:
     return faecher[0]
 
 
-# ── Bericht an der Besitzer (Telegram, derselbe Bot wie das Schwesterprojekt/DocuSort) ─────────
+# ── Report to the owner (Telegram, the same bot as das Schwesterprojekt/DocuSort) ───────
 def tg_zugang(key: str) -> str:
     v = load("telegram_zugang.json", {}) or {}
     if isinstance(v, dict) and v.get(key):
@@ -1581,7 +1576,7 @@ class Postfach:
 
 
 # ── Documents in the post ────────────────────────────────────────
-# der Besitzer, 2026-09-25 — mails carrying PDFs or similar documents with
+# The task: mails carrying PDFs or similar documents with
 # information in them (no photos, no PNGs and the like) should be handed over to
 # DocuSort for filing; and he wants to search filed mails for such documents,
 # also retroactively.
@@ -2110,7 +2105,7 @@ def dokumente_suchen(idx: dict, frage: str = "", art: str = "dokument",
 
 # ── Handover to DocuSort ──────────────────────────────────────
 # 🔑 The route is DocuSort's FRONT DOOR: `POST /upload`, the same one the
-# browser uses. Der Besitzer on DocuSort, 2026-09-20 — there is only the upload button
+# browser uses. The rule set for DocuSort: there is only the upload button
 # and nothing else, one central place to tip everything into, DocuSort does the
 # rest, no different entry points. A second route (SSH into the VM's inbox
 # folder) would have been quicker to build and would have broken exactly that
@@ -2650,8 +2645,8 @@ def haupt_domain(adresse: str) -> str:
 def lauf_buchen(felder: dict) -> dict:
     """Record every run — and derive the interval from OBSERVATION.
 
-    🔑 der Besitzer, 2026-09-12: „kann nirgends sehen wann und wie oft die läuft.“ (I
-    cannot see anywhere when and how often it runs.) A cron entry is an
+    🔑 Nowhere could anybody see WHEN and HOW OFTEN the watchman runs. A cron
+    entry is an
     INTENTION. What is built here is the reality: the last run timestamps, and
     from them the median gap. Exactly the difference that the homelab tab's
     scheduled-task monitoring hung on the very same day — a configured interval
@@ -2710,11 +2705,11 @@ def ablage_lernen(pf, melden=None) -> dict:
       2. the full domain
       3. the main domain
 
-    Along the way the WEAKNESSES of the filing are written down too: senders he
-    has put sometimes here and sometimes there, and folders that are nearly
-    empty. That is the raw material for the later restructuring of the
-    structure — he said so himself on 2026-09-11: „meine ordner sind auch nicht
-    perfekt, aber das soll ja der agent spaeter fuer mich neu sortieren.“
+    Along the way the WEAKNESSES of the filing are written down too: senders
+    that were put sometimes here and sometimes there, and folders that are
+    nearly empty. That is the raw material for the later restructuring — the
+    owner's own folders are not perfect either, and sorting them afresh is
+    what the agent is for.
     """
     t0 = time.time()
     # 🔴 2026-09-27: TWO private mail addresses stood here in the source — in
@@ -2838,10 +2833,8 @@ def _tagesreihe(tage: dict, ab: str) -> list:
 def statistik_lernen(pf) -> dict:
     """The numbers behind the mailbox — from the REAL headers.
 
-    Der Besitzer, 2026-09-12: „bau mal in die postwache eine kleine statistik ein,
-    wieviel mails pro tag kommen, zu welcher zeit wer am haeufigsten schreibt“
-    (build a small statistic into the Postwache: how many mails per day, at what
-    time, who writes most often).
+    A small statistic in the Postwache: how many mails arrive per day, at
+    what time, and who writes most often.
 
     🔑 `Date:` and `From:` of every mail in all incoming folders are read — not
     what the Postwache has seen since it was set up. Otherwise he would have had
@@ -2983,8 +2976,8 @@ def ordner_abgleichen(vorhanden) -> dict:
     """The learned map against the LIVE list of folders: whatever is gone goes
     out, whatever is new comes in.
 
-    Der Besitzer, 28.09.2026: „und wenn man von hand ordner löscht oder neu anlegt muss
-    die postwache das auch **lernen**!!"
+    When somebody deletes or creates a folder by hand, the Postwache has to
+    LEARN that too.
 
     🔴 And „by hand" means anywhere — in the Postwache, in Apple Mail, in the
     provider's web page. Which is why this does not hang off a button but off the
@@ -3695,9 +3688,9 @@ def escalate(title: str, body: str, art: str = "weckruf") -> int:
 
 
 # ── What became of a wake-up call (4.5.0) ────────────────────────────
-# der Besitzer, 2026-09-27 — what infuriates him and must be fixed: the workshop always
-# has heaps of tasks sitting in it with the agent stuck in the queue and nothing
-# happening; he wants to follow 100 % of what goes on in the Postwache.
+# What has to be fixed: the workshop always has heaps of tasks sitting in it
+# with the agent stuck in the queue and nothing happening — while the point is
+# to follow 100 % of what goes on in the Postwache.
 #
 # 🔴 MEASURED on 2026-09-27: TEN tasks of the Postwache had been sitting at
 #    `queued`, `attempts=0`, since 2026-09-11, WITHOUT an error. The cause lay
@@ -4047,7 +4040,7 @@ def main() -> int:
     # 🔴 A mailbox that does not answer must not hold up the others: every run
     # stands on its own, its failure stays its own.
     # ── Permanent redirection (changing provider) ───────────────────────
-    # der Besitzer, 2026-09-27 — or set up a permanent redirection of the mail through
+    # Or set up a permanent redirection of the mail through
     # the Postwache, so that provider A keeps no mail but everything arrives at
     # provider B and is filed there.
     #
