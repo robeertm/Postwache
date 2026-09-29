@@ -679,7 +679,15 @@ const S = {
   mails:[], uid:0, offen:null, ordner_liste:[], rollen:{}, einst:{}, faehig:{},
   oberflaeche:[], postfaecher:[], brief:null, seiten:1, gesamt:0, laeuft:false,
   version:"", blick:"liste",
-  neu:false,               // the „New" view instead of a folder
+  /* 🔑 „New" is where a session starts, not the inbox. Der Besitzer, 29.09.2026:
+     „immer wenn man sich neu verbindet und das postfach sich anzeigen läßt soll
+     standart immer ‚Neu‘ angezeigt werden, aktuell zeigts auf den posteingang."
+     The reason sits in the watchman itself: it moves new mail OUT of the inbox
+     into a dozen folders, so somebody who lands in the inbox is looking at the
+     one place that does NOT show what has arrived. The choice lasts for the
+     session — open a folder and you stay there, and ⟳ does not pull you back
+     either; only a fresh connection starts at „New" again. */
+  neu:true,                // the „New" view instead of a folder
   zu:new Set(),            // collapsed folder branches
   wahl:false,              // choosing several at once
   gewaehlt:new Set()       // …and which ones
