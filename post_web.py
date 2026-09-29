@@ -16,12 +16,14 @@ login.
 """
 from __future__ import annotations
 
+import base64
 import imaplib
 import io
 import json
 import os
 import re
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -1324,17 +1326,65 @@ def ds_kurz() -> dict:
     }
 
 
+DS_MARKE = "pw1."          # how a pairing line from DocuSort starts
+
+
+def im_container() -> bool:
+    """Does this process run inside a container?
+
+    In order of how much each signal can be trusted — and deliberately NOT the
+    cgroup line: under cgroup v2 `/proc/1/cgroup` often says nothing but
+    `0::/`.
+    """
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+
+
+def ds_adresse_pruefen(url: str) -> str:
+    """Empty means „fine“; otherwise this is the reason it is not.
+
+    🔴 HTTPS stays mandatory — this account's password travels over that
+    connection. Two exceptions, and only two, because neither ever leaves the
+    machine:
+
+      · **This machine itself** (`localhost`, `127.0.0.1`, `[::1]`). What never
+        reaches a wire cannot be read off one.
+      · **A name without a dot** (`docusort`, say) — and only when WE run in a
+        container ourselves. Then it is a service name from the same compose
+        file, resolved inside the Docker network, and the request crosses a
+        bridge inside the host rather than the network. That case IS the
+        automatic pairing when both programs were installed together.
+
+    Everything else — an address in the home network, any name with a dot —
+    stays on HTTPS. A password in the clear across the LAN is not a special
+    case; it is exactly what this rule exists to prevent.
+    """
+    url = (url or "").strip().rstrip("/")
+    if not url:
+        return ""
+    if url.startswith("https://"):
+        return ""
+    if not url.startswith("http://"):
+        return txt("a.https")
+    rest = url[len("http://"):]
+    wirt = rest.split("/")[0].split("@")[-1]
+    ohne_tor = wirt.rsplit(":", 1)[0] if wirt.count(":") == 1 else wirt
+    ohne_tor = ohne_tor.strip("[]").lower()
+    if ohne_tor in ("localhost", "127.0.0.1", "::1"):
+        return ""
+    if "." not in ohne_tor and ":" not in ohne_tor and im_container():
+        return ""
+    return txt("a.https")
+
+
 def ds_zugang_speichern(d: dict) -> dict:
     z = st("docusort.json", {})
     if not isinstance(z, dict):
         z = {}
     if "url" in d:
         url = str(d.get("url") or "").strip().rstrip("/")
-        if url and not url.startswith("https://"):
-            # 🔴 HTTPS only. This account's password goes over that connection;
-            # DocuSort speaks nothing but TLS anyway (http:// gets no answer
-            # there at all).
-            return {"ok": False, "text": txt("a.https")}
+        grund = ds_adresse_pruefen(url)
+        if grund:
+            return {"ok": False, "text": grund}
         z["url"] = url
     if "benutzer" in d:
         z["benutzer"] = str(d.get("benutzer") or "").strip()
@@ -1349,6 +1399,167 @@ def ds_zugang_speichern(d: dict) -> dict:
             pass
     schreibe("docusort.json", z, 0o600)      # 🔴 0600, like the mailbox credentials
     return {"ok": True, "text": txt("a.gespeichert")}
+
+
+def ds_aus_umgebung() -> str:
+    """Set the DocuSort access from the environment, at start-up.
+
+    Der Besitzer, 29.09.2026: „wer beide programme installiert hat bekommt die
+    verbindung zwischen beiden sofort gesetzt … die kunden sollen nichts machen
+    muessen das ist ganz wichtig!!"
+
+    When both programs are installed together, one `.env` holds the pairing
+    word and both sides read it: DocuSort creates the account with it, and this
+    is where the Postwache writes it down. Nobody types anything.
+
+    🔑 The environment SETS UP; it does not overwrite. Whatever a person typed
+    on the page stays — unless the entry came from the environment in the first
+    place (`aus_umgebung`), because then a new word in the `.env` is meant to
+    replace the old one, and without this the handover would break after a key
+    rotation and nobody would know why.
+    """
+    url = (os.environ.get("POSTWACHE_DS_URL") or "").strip().rstrip("/")
+    wort = os.environ.get("POSTWACHE_DS_PASSWORT") or ""
+    benutzer = (os.environ.get("POSTWACHE_DS_BENUTZER") or "Postwache").strip()
+    if not (url and wort):
+        return ""
+    grund = ds_adresse_pruefen(url)
+    if grund:
+        return "POSTWACHE_DS_URL abgelehnt: %s" % grund
+    z = st("docusort.json", {})
+    if not isinstance(z, dict):
+        z = {}
+    schon_da = bool(z.get("url") and z.get("benutzer") and z.get("passwort"))
+    if schon_da and not z.get("aus_umgebung"):
+        return ""                         # a person set this up — hands off
+    if (z.get("url") == url and z.get("benutzer") == benutzer
+            and z.get("passwort") == wort):
+        return ""                         # nothing changed
+    z.update({"url": url, "benutzer": benutzer, "passwort": wort,
+              "aus_umgebung": True})
+    z.setdefault("aktiv", True)
+    z.setdefault("max_mb", 25.0)
+    schreibe("docusort.json", z, 0o600)
+    return "DocuSort-Zugang aus der Umgebung eingetragen (%s)" % url
+
+
+def ds_kopplung_einloesen(d: dict) -> dict:
+    """Redeem the pairing line that DocuSort shows in its settings.
+
+    One click there (copy), one here (paste). The line carries address, user and
+    pairing word, base64 around a small JSON object — 🔴 which is an encoding,
+    not encryption: it is a secret and belongs in `docusort.json` with 0600,
+    the same as the mailbox credentials.
+    """
+    zeile = str(d.get("zeile") or "").strip()
+    if not zeile.startswith(DS_MARKE):
+        return {"ok": False, "text": txt("a.ds_kopplung_kaputt")}
+    roh = zeile[len(DS_MARKE):].strip()
+    roh += "=" * (-len(roh) % 4)
+    try:
+        inhalt = json.loads(base64.urlsafe_b64decode(roh.encode("ascii")))
+        url = str(inhalt["url"]).strip().rstrip("/")
+        benutzer = str(inhalt["benutzer"]).strip()
+        wort = str(inhalt["passwort"])
+    except Exception:
+        return {"ok": False, "text": txt("a.ds_kopplung_kaputt")}
+    if not (url and benutzer and wort):
+        return {"ok": False, "text": txt("a.ds_kopplung_kaputt")}
+    grund = ds_adresse_pruefen(url)
+    if grund:
+        # DocuSort names the address the browser reached it on. If that is
+        # plain http on a LAN address, it is not good enough for a password —
+        # say so instead of storing it.
+        return {"ok": False, "text": grund}
+    z = st("docusort.json", {})
+    if not isinstance(z, dict):
+        z = {}
+    z.update({"url": url, "benutzer": benutzer, "passwort": wort,
+              "aus_umgebung": False})
+    z.setdefault("aktiv", True)
+    z.setdefault("max_mb", 25.0)
+    schreibe("docusort.json", z, 0o600)
+    # 🔑 And then really log in once. A stored access that does not work looks
+    # exactly like one that does.
+    erg = ds_pruefen()
+    if not erg.get("ok"):
+        return erg
+    return {"ok": True, "text": txt("a.ds_gekoppelt", benutzer=benutzer, url=url)}
+
+
+def _tor_des_wirts() -> str:
+    """The default gateway — that is the host, seen from inside a container."""
+    try:
+        with io.open("/proc/net/route", encoding="utf-8") as f:
+            for zeile in f.read().split("\n")[1:]:
+                teile = zeile.split()
+                if len(teile) > 2 and teile[1] == "00000000":
+                    h = teile[2]
+                    return ".".join(str(int(h[i:i + 2], 16))
+                                    for i in (6, 4, 2, 0))
+    except Exception:
+        pass
+    return ""
+
+
+def ds_suchen(_d=None) -> dict:
+    """Where is DocuSort? Asked from HERE.
+
+    🔑 A reachability search belongs on the side that has to GET there. Asked
+    from the browser, an address can answer „reachable“ while the Postwache
+    cannot get to it at all — that lesson cost a round with Ollama already.
+
+    No network is scanned. Only places that are given by how the two are
+    installed get asked:
+    """
+    kandidaten = []
+    if im_container():
+        kandidaten.append("http://docusort:8080")      # same compose network
+    kandidaten.append("https://docusort")              # MagicDNS short name
+    kandidaten.append("http://127.0.0.1:8080")         # side by side, no container
+    if im_container():
+        kandidaten.append("http://host.docker.internal:8080")
+        tor = _tor_des_wirts()
+        if tor:
+            kandidaten.append("http://%s:8080" % tor)
+
+    gefunden = []
+    for basis in kandidaten:
+        v = _ist_docusort(basis)
+        if v:
+            gefunden.append({"url": basis, "version": v})
+    if not gefunden:
+        return {"ok": False, "text": txt("a.ds_nicht_gefunden"),
+                "gesucht": kandidaten}
+    erster = gefunden[0]
+    return {"ok": True, "url": erster["url"], "gefunden": gefunden,
+            "text": txt("a.ds_gefunden", url=erster["url"],
+                        version=erster["version"])}
+
+
+def _ist_docusort(basis: str) -> str:
+    """Its version if a DocuSort answers there, otherwise empty.
+
+    🔴 Asked at `/api/version`, which needs no login — and the answer has to
+    LOOK like DocuSort. „Something answered on 8080“ is not the same as „this
+    is DocuSort“.
+    """
+    ktx = None
+    if basis.startswith("https://"):
+        # A tailnet name carries a real certificate; a self-signed one on the
+        # machine itself is still better than not asking at all.
+        ktx = ssl.create_default_context()
+        ktx.check_hostname = False
+        ktx.verify_mode = ssl.CERT_NONE
+    try:
+        req = urllib.request.Request(basis.rstrip("/") + "/api/version",
+                                     headers={"User-Agent": "Postwache/%s" % VERSION})
+        with urllib.request.urlopen(req, timeout=4, context=ktx) as a:
+            d = json.loads(a.read(4000).decode("utf-8", "replace"))
+        v = str(d.get("current") or "")
+        return v if v and ("has_update" in d or "container" in d) else ""
+    except Exception:
+        return ""
 
 
 def ds_pruefen(_d=None) -> dict:
@@ -1854,6 +2065,8 @@ AKTIONEN = {
     "statistik_neu": statistik_neu,
     "docusort": ds_zugang_speichern,
     "docusort_pruefen": ds_pruefen,
+    "docusort_suchen": ds_suchen,
+    "docusort_kopplung": ds_kopplung_einloesen,
     "dokumente_nachtragen": dokumente_nachtragen,
     # The single and the bulk button go through THE SAME function.
     "dokument_geben": dokumente_geben,
@@ -2290,6 +2503,16 @@ def takt_faden(sekunden: int) -> None:
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    # 🔑 Before anything else: if the environment carries a DocuSort access,
+    # write it down. That is what makes the pairing free of clicks when both
+    # programs were installed together.
+    try:
+        meldung = ds_aus_umgebung()
+        if meldung:
+            print(meldung, flush=True)
+    except Exception as e:
+        print("DocuSort-Zugang aus der Umgebung ging nicht: %s" % str(e)[:200],
+              flush=True)
     takt = int(os.environ.get("POSTWACHE_TAKT") or 0)
     if takt > 0:
         takt_faden(takt)

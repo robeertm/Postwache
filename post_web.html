@@ -1134,8 +1134,14 @@ function dsTippt(){
   const k = $("#dskarte");
   if(!k) return false;
   if(k.contains(document.activeElement)) return true;
-  const p = $("#ds_pass");
-  return !!(p && p.value !== "");
+  /* 🔴 EVERY field that holds typed text belongs in here, not just the
+     password. The card redraws on its own every few seconds; a pairing line
+     that was pasted but not yet redeemed would simply vanish under the
+     cursor — and the person would think the paste failed. */
+  return ["#ds_pass", "#ds_zeile"].some(w => {
+    const f = $(w);
+    return !!(f && f.value !== "");
+  });
 }
 
 function bauDocuSort(){
@@ -1147,6 +1153,14 @@ function bauDocuSort(){
         <span>${d.eingerichtet ? txt("ds.an_ja") : txt("ds.an_nein")}</span></div>
       <div class="knebel" role="switch" aria-checked="${!!d.aktiv}"
            onclick="tu('docusort', {aktiv: ${!d.aktiv}})"></div>
+    </div>
+    <div class="hinweis" style="margin-top:.6rem">${txt("ds.kopplung_hilfe")}</div>
+    <div class="feldpaar">
+      <div style="flex:3 1 22rem"><label for="ds_zeile">${txt("ds.kopplung")}</label>
+        <input id="ds_zeile" placeholder="pw1.…" autocomplete="off"
+               onkeydown="if(event.key==='Enter')dsKopplung()"></div>
+      <div style="align-self:end">
+        <button class="haupt" onclick="dsKopplung()">${txt("ds.einloesen")}</button></div>
     </div>
     <div class="feldpaar">
       <div style="flex:2 1 20rem"><label for="ds_url">${txt("allg.adresse")}</label>
@@ -1167,6 +1181,7 @@ function bauDocuSort(){
     <div class="knopfreihe">
       <button class="haupt" onclick="dsSpeichern()">${txt("allg.speichern")}</button>
       <button onclick="dsPruefen()">${txt("allg.pruefen")}</button>
+      <button onclick="dsSuchen()">${txt("ds.suchen")}</button>
     </div>`;
 }
 
@@ -1183,6 +1198,35 @@ async function dsSpeichern(){
 async function dsPruefen(){
   melde(txt("ds.meldet_an"));
   const r = await sende("docusort_pruefen", {});
+  melde(r.text || "", r.ok);
+}
+
+/* One click here, one there: DocuSort shows the line, this redeems it.
+   🔴 The field is cleared either way — it carries a password, and a password
+   has no business sitting in the DOM after it has been used. */
+async function dsKopplung(){
+  const feld = $("#ds_zeile");
+  if(!feld || !feld.value.trim()) return;
+  melde(txt("ds.meldet_an"));
+  const r = await sende("docusort_kopplung", {zeile: feld.value.trim()});
+  feld.value = "";
+  melde(r.text || "", r.ok);
+  hole();
+}
+
+/* 🔑 The search runs on the SERVER, not here. Asked from this browser an
+   address can answer „reachable“ while the Postwache cannot get there at all —
+   different machine, different network, its own container. The one who has to
+   arrive is the one who asks. */
+async function dsSuchen(){
+  melde(txt("ds.sucht"));
+  const r = await sende("docusort_suchen", {});
+  if(r.ok && r.url){
+    const feld = $("#ds_url");
+    if(feld) feld.value = r.url;
+    const b = $("#ds_benutzer");
+    if(b && !b.value) b.value = "Postwache";
+  }
   melde(r.text || "", r.ok);
 }
 
