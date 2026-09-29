@@ -7,6 +7,36 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.8.0] – 2026-09-29
+
+### Added
+
+**More than one page at a time — or a whole folder.** Ticking every row only
+ever reached the fifty on screen, and turning the page threw the selection
+away. Now the selection lives across pages, and once a page is fully ticked the
+bar offers **Select all 1,247** — meaning every mail the current view holds. A
+search or a filter narrows it the same way: „all" is every HIT, never more than
+what stands on screen, because the numbers come from the very list the page is
+cut out of.
+
+On the phone it is the same button in two steps rather than a fourth control in
+a 320 px bar: the first press takes what is loaded, the second takes the folder.
+
+### Fixed
+
+🔴 **A large selection could not have worked before, and would have failed
+silently.** An IMAP command is one line and servers cut it off after a few
+kilobytes — 12,000 mails written out one by one are **60 KB**. They now go out
+as RANGES (`1:12000` — seven bytes for that same folder), and a set that cannot
+be folded together, such as scattered search hits, is additionally cut into
+pieces short enough for one line. Measured: 3,000 scattered mails leave in 19
+commands, the longest 931 bytes; a gapless folder leaves in exactly one.
+The watchman's rule is untouched: `\Deleted` is set only after a confirmed
+copy, now per piece.
+
+Requests are cut the same way, 500 at a time, so no single request runs for
+minutes — and between two pieces the bar says how far it has got.
+
 ## [5.7.1] – 2026-09-29
 
 ### Fixed

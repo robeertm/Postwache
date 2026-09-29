@@ -1160,6 +1160,47 @@ class Briefkasten(W.Postfach if W is not None else object):
         return b""
 
     # ── Acting ──────────────────────────────────────────────────────
+    # 🔴 An IMAP command is ONE line, and servers cut it off at a few kilobytes.
+    #    Measured: 12.000 mails written out one by one are **60 KB** — far over
+    #    any limit, so „mark the whole folder" would simply have failed. Written
+    #    as RANGES the same folder is **7 bytes** (`1:12000`).
+    #
+    #    But ranges alone are not enough: a scattered selection (a search, a
+    #    folder with holes) still came to 15–16 KB. So the set is also cut into
+    #    pieces — and the criterion is the LENGTH of the line, not a number of
+    #    mails, because that is what the server actually limits.
+    _SATZ_MAX = 900
+
+    @staticmethod
+    def _uid_satz(uids) -> str:
+        """`[1,2,3,7,9,10]` → `1:3,7,9:10`."""
+        zahlen = sorted({int(u) for u in uids})
+        teile, i = [], 0
+        while i < len(zahlen):
+            j = i
+            while j + 1 < len(zahlen) and zahlen[j + 1] == zahlen[j] + 1:
+                j += 1
+            teile.append(str(zahlen[i]) if i == j
+                         else "%d:%d" % (zahlen[i], zahlen[j]))
+            i = j + 1
+        return ",".join(teile)
+
+    @classmethod
+    def _uid_stuecke(cls, uids):
+        """The set in pieces, each one short enough for a single command."""
+        zahlen = sorted({int(u) for u in uids})
+        stueck, raus = [], []
+        for u in zahlen:
+            stueck.append(u)
+            if len(cls._uid_satz(stueck)) > cls._SATZ_MAX:
+                raus.append(stueck[:-1] or stueck)
+                stueck = [] if stueck[:-1] else []
+                if not raus[-1] or raus[-1][-1] != u:
+                    stueck = [u]
+        if stueck:
+            raus.append(stueck)
+        return [x for x in raus if x]
+
     def flagge(self, ordner: str, uids: list, flagge: str, an: bool) -> int:
         """Set or clear a flag. This is the ONLY place that makes a mail read —
         and it is reached only by a deliberate action or by the setting that says
@@ -1167,10 +1208,17 @@ class Briefkasten(W.Postfach if W is not None else object):
         if not uids:
             return 0
         self.waehle(ordner, schreiben=True)
-        satz = ",".join(str(int(u)) for u in uids)
-        typ, _ = self.m.uid("STORE", satz, "+FLAGS" if an else "-FLAGS",
-                            "(%s)" % flagge)
-        return len(uids) if typ == "OK" else 0
+        getan = 0
+        for stueck in self._uid_stuecke(uids):
+            typ, _ = self.m.uid("STORE", self._uid_satz(stueck),
+                                "+FLAGS" if an else "-FLAGS", "(%s)" % flagge)
+            if typ != "OK":
+                # 🔑 What is already set stays set. The number says how far it
+                #    got, instead of reporting a partial success as a failure.
+                log("STORE refused after %d mail(s)" % getan)
+                break
+            getan += len(stueck)
+        return getan
 
     def verschieben_viele(self, ordner: str, uids: list, ziel: str) -> dict:
         """Move — with MOVE where the server can do it, otherwise copy, tick off,
@@ -1183,18 +1231,29 @@ class Briefkasten(W.Postfach if W is not None else object):
         if not uids or not ziel:
             return {"ok": False, "n": 0, "text": txt("k.kein_ziel")}
         self.waehle(ordner, schreiben=True)
-        satz = ",".join(str(int(u)) for u in uids)
-        if self.kann("MOVE"):
-            typ, _ = self.m.uid("MOVE", satz, self._zitat(ziel))
-            if typ == "OK":
-                return {"ok": True, "n": len(uids)}
-            log("MOVE abgelehnt, es geht per Kopie weiter")
-        typ, _ = self.m.uid("COPY", satz, self._zitat(ziel))
-        if typ != "OK":
-            return {"ok": False, "n": 0, "text": txt("k.kopie_fehl")}
-        self.m.uid("STORE", satz, "+FLAGS", "(\\Deleted)")
-        self.m.expunge()
-        return {"ok": True, "n": len(uids)}
+        getan, kopiert = 0, False
+        for stueck in self._uid_stuecke(uids):
+            satz = self._uid_satz(stueck)
+            if self.kann("MOVE"):
+                typ, _ = self.m.uid("MOVE", satz, self._zitat(ziel))
+                if typ == "OK":
+                    getan += len(stueck)
+                    continue
+                log("MOVE abgelehnt, es geht per Kopie weiter")
+            typ, _ = self.m.uid("COPY", satz, self._zitat(ziel))
+            if typ != "OK":
+                # 🔴 The watchman's rule, unchanged: `\\Deleted` is set ONLY
+                #    after a confirmed copy. If the copy fails, this piece stays
+                #    where it is — and whatever already went across stays across.
+                if not getan:
+                    return {"ok": False, "n": 0, "text": txt("k.kopie_fehl")}
+                break
+            self.m.uid("STORE", satz, "+FLAGS", "(\\Deleted)")
+            kopiert = True
+            getan += len(stueck)
+        if kopiert:
+            self.m.expunge()
+        return {"ok": bool(getan), "n": getan}
 
     def anhaengen(self, ordner: str, roh: bytes, flaggen: str = "") -> bool:
         """Put a mail INTO a folder — the sent copy, a draft. The folder is created
@@ -2713,6 +2772,14 @@ def liste(d: dict) -> dict:
     except (TypeError, ValueError):
         pro, seite = einst["pro_seite"], 1
 
+    # 🔑 „Select everything" needs the numbers of everything — and they are
+    #    ALREADY here: `uids` is the full list, the page is only a slice of it.
+    #    So the answer carries them when they are asked for, and nothing has to
+    #    be searched a second time. They belong to what is on screen: after a
+    #    search or with a filter on, „everything" means every HIT, not the whole
+    #    folder.
+    alle_uids = bool(d.get("alle_uids"))
+
     def arbeit(k):
         uids, echt = k.uids(ordner, sieb, suche, feld, sortierung, richtung)
         gesamt = len(uids)
@@ -2725,6 +2792,7 @@ def liste(d: dict) -> dict:
             "ok": True, "ordner": ordner, "gesamt": gesamt, "seite": nr,
             "seiten": seiten, "pro_seite": pro, "sortiert": echt,
             "ordner_gesamt": gesamt_o, "ordner_ungelesen": ungelesen_o,
+            "alle_uids": [int(u) for u in uids] if alle_uids else None,
             # In the order the server gave them — a dictionary has no order and
             # would show the newest mail somewhere in the middle.
             "mails": [koepfe[u] for u in teil if u in koepfe],
