@@ -7,6 +7,36 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.5.0] – 2026-09-29
+
+### Changed
+
+**Opening the mailbox now starts in „New", not in the inbox.**
+
+That is not a matter of taste. The watchman moves new mail **out** of the inbox
+into a dozen folders — so somebody who lands in the inbox is looking at the one
+place that does NOT show what has arrived. The „New" view puts those folders
+back together into one list, with the folder written beside every row.
+
+Measured on both surfaces: a fresh connection opens „New"; choosing a folder
+keeps that folder; the reload button does **not** pull you back; and only a new
+connection starts at „New" again. A folder stays set beside it, because every
+action that names no target falls back on it.
+
+### Fixed
+
+**A hole in the language bench.** The check that keeps comments English saw only
+the FIRST line of a multi-line `/* … */` block: the following lines start with
+no comment marker of their own, and the rule meant for „a comment behind code"
+threw them away. German prose inside the body of a block comment had never been
+looked at since the translation in 4.6.0. The decision is now made once per
+BLOCK. After closing it the existing code proved clean — the only findings were
+three comments from this very update.
+
+🔑 And a quotation INSIDE a quotation is set with single marks (‚…'), or the
+inner closing mark ends the outer one and half the sentence counts as prose
+again.
+
 ## [5.4.2] – 2026-09-28
 
 ### 🔴 One slot, one meaning — the theme switch keeps its choice again

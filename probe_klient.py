@@ -1427,6 +1427,25 @@ for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
           bool(_par) and ('localStorage.getItem("pw_%s")' % _par.group(1)) in _text,
           _par.group(1) if _par else "kein Parameter gefunden")
 
+# 🔑 „New" is where a session starts, not the inbox. Der Besitzer, 29.09.2026:
+# „immer wenn man sich neu verbindet und das postfach sich anzeigen laesst soll
+# standart immer ‚Neu‘ angezeigt werden, aktuell zeigts auf den posteingang."
+# The reason sits in the watchman itself: it moves new mail OUT of the inbox
+# into a dozen folders, so the inbox is the one place that does NOT show what
+# has arrived.
+for _datei in ("post_klient.html", "post_mobil.html"):
+    _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()
+    _zustand = _text.split("const S = {", 1)[1].split("};", 1)[0]
+    probe("%s startet in der Ansicht „Neu“" % _datei,
+          re.search(r"(?m)^\s*neu\s*:\s*true\s*,", _zustand) is not None,
+          "neu:false" if "neu:false" in _zustand.replace(" ", "")
+          else "neu:true")
+    # 🔴 And a folder stays set beside it: every action that names no target
+    #    falls back on it — an empty folder name would be a call into nothing
+    #    the moment somebody moves a mail out of the „New" view.
+    probe("%s hat trotzdem einen Ordner in der Hand" % _datei,
+          re.search(r'ordner\s*:\s*"INBOX"', _zustand) is not None)
+
 # ── The day mode ──────────────────────────────────────────────────────────
 for _datei in ("post_klient.html", "post_mobil.html", "post_web.html"):
     _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()

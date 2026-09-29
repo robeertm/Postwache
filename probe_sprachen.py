@@ -269,6 +269,9 @@ DEUTSCHE_WORTE = re.compile(
     r"darf|soll|jede|jeder|wieder|beim|ohne|hier|dort|alles|etwas|deshalb|"
     r"trotzdem|sonst|genau|zwei|drei|ganz|erst|schlimmer|besser)\b", re.I)
 ZITAT = re.compile(u"\u201e.*?[\u201c\"]", re.S)
+# \U0001f511 A quotation INSIDE a quotation is set with the single marks
+#    ‚‘ -- German typography says so, and it keeps this pattern from
+#    closing on the inner one and reporting the rest of the sentence as prose.
 # \U0001f534 Identifiers are not prose. This program is named in German
 #    (`ziel_fuer`, `darf`, `ohne`) on purpose, and a comment that mentions a name
 #    or a string literal is not a German comment. So code references in backticks,
@@ -279,15 +282,26 @@ CODE = re.compile(r"`[^`]*`|\"[^\"\n]*\"|'[^'\n]*'")
 
 
 def nur_kommentartext(roh):
-    """Von einer Kommentierung nur den TEXT -- ohne Code, Zitate und Literale."""
-    zeilen = []
-    for z in roh.split("\n"):
-        # A comment behind code: everything before the # is program, not text.
-        if not z.lstrip().startswith(("#", "//", "/*", "*", "<!--")):
+    """Von einer Kommentierung nur den TEXT -- ohne Code, Zitate und Literale.
+
+    \U0001f534 Found on 2026-09-29: a block that OPENS with `/*` or `<!--` runs
+    on over its following lines, and those do not start with a comment marker of
+    their own. Blanking them -- which is right for a comment sitting behind code
+    -- threw away everything but the first line of every block comment in the
+    HTML files. German prose in the body of such a block had never been looked
+    at since the translation of 4.6.0. So the decision is made once per BLOCK,
+    not per line.
+    """
+    zeilen = roh.split("\n")
+    im_block = bool(zeilen and zeilen[0].lstrip().startswith(("/*", "<!--")))
+    raus = []
+    for z in zeilen:
+        if not im_block and not z.lstrip().startswith(("#", "//", "/*", "*", "<!--")):
+            # A comment behind code: everything before the # is program, not text.
             t = re.split(r"\s#\s?|\s//\s?", z, 1)
             z = t[1] if len(t) > 1 else ""
-        zeilen.append(z)
-    text = "\n".join(zeilen)
+        raus.append(z)
+    text = "\n".join(raus)
     return CODE.sub(" ", ZITAT.sub(" ", text))
 
 
