@@ -996,6 +996,31 @@ probe("die zweite Seite zeigt die zweite Zehn",
       str([m["uid"] for m in seite2["mails"]][:3]) + " …")
 probe("eine zu kleine Seitengroesse wird auf das Mindestmass gehoben",
       K.liste({"pf": "probe", "ordner": VIELE, "pro_seite": 2})["pro_seite"] == 10)
+print("\n── Viele auf einmal: die Liste gibt ihre Nummern her ──")
+_ohne = K.liste({"pf": "probe", "ordner": VIELE, "pro_seite": 10})
+probe("ohne Nachfrage kommen keine Nummern mit",
+      _ohne.get("alle_uids") is None)
+_mit = K.liste({"pf": "probe", "ordner": VIELE, "pro_seite": 10,
+                "alle_uids": True})
+probe("mit Nachfrage kommen ALLE Nummern mit, nicht nur die Seite",
+      isinstance(_mit.get("alle_uids"), list)
+      and len(_mit["alle_uids"]) == _mit["gesamt"]
+      and len(_mit["mails"]) == 10,
+      "%d Nummern, Seite %d" % (len(_mit.get("alle_uids") or []), len(_mit["mails"])))
+# 🔴 The numbers have to be EXACTLY what turning the pages would show —
+#    otherwise a click selects something other than what stands on screen. The
+#    proof is the union of all pages, not a promise.
+#    (A filter would prove nothing here: the fake server does not narrow, so the
+#    probe would be green without having measured anything.)
+_geblaettert = []
+for _nr in range(1, _mit["seiten"] + 1):
+    _s = K.liste({"pf": "probe", "ordner": VIELE, "pro_seite": 10, "seite": _nr})
+    _geblaettert += [m["uid"] for m in _s["mails"]]
+probe("alles ist genau das, was das Blaettern zeigen wuerde",
+      _mit["alle_uids"] == _geblaettert,
+      "%d Nummern ueber %d Seite(n)" % (len(_geblaettert), _mit["seiten"]))
+
+
 weit = K.liste({"pf": "probe", "ordner": VIELE, "pro_seite": 10, "seite": 99})
 probe("eine Seite hinter dem Ende faellt auf die letzte zurueck", weit["seite"] == 3,
       str(weit["seite"]))
@@ -1698,6 +1723,85 @@ try:
 except Exception:
     seite.kill()
 shutil.rmtree(TMP, ignore_errors=True)
+
+
+# ══ A set of numbers is a LINE, and a line has a limit ════════════════════
+print("\n── Viele auf einmal: der UID-Satz ──")
+# 🔴 An IMAP command is one line and servers cut it off after a few kilobytes.
+#    Measured before this was built: 12.000 mails written out one by one are
+#    **60 KB**. So „mark the whole folder" would not have been slow — it would
+#    have FAILED. Written as ranges the same folder is 7 bytes.
+_B = K.Briefkasten
+probe("aufeinanderfolgende Nummern werden ein Bereich",
+      _B._uid_satz([1, 2, 3, 7, 9, 10]) == "1:3,7,9:10")
+probe("ein ganzer Ordner ist eine kurze Zeile",
+      _B._uid_satz(range(1, 12001)) == "1:12000")
+probe("Randfaelle geben nichts Kaputtes",
+      _B._uid_satz([]) == "" and _B._uid_satz([5]) == "5"
+      and _B._uid_stuecke([]) == [] and _B._uid_stuecke([5]) == [[5]])
+
+# 🔴 And the counter-test to the range: scattered numbers CANNOT be folded
+#    together (search hits spread across a folder). There the chunking has to
+#    take over, or the line would still be too long.
+_verstreut = list(range(1, 36000, 12))                 # 3,000 with gaps
+_stuecke = _B._uid_stuecke(_verstreut)
+probe("verstreute Nummern werden in Stuecke geteilt", len(_stuecke) > 1,
+      "%d Stueck(e)" % len(_stuecke))
+probe("keine Zeile wird zu lang",
+      max(len(_B._uid_satz(x)) for x in _stuecke) <= _B._SATZ_MAX,
+      "laengste %d B" % max(len(_B._uid_satz(x)) for x in _stuecke))
+_alle = [u for x in _stuecke for u in x]
+probe("beim Teilen geht keine Nummer verloren", sorted(_alle) == _verstreut)
+probe("und keine kommt doppelt vor", len(_alle) == len(set(_alle)))
+
+print("\n── Viele auf einmal: was wirklich zum Server geht ──")
+serverV, kastenV = mit_falschem_server(faehig=("MOVE",))
+_vor = len(serverV.befehle)
+_n = kastenV.flagge("INBOX", _verstreut, "\\Seen", True)
+_stores = [b for b in serverV.befehle[_vor:] if " STORE " in b]
+probe("alle 3.000 gelten als gesetzt", _n == len(_verstreut), "n=%d" % _n)
+probe("es geht in mehreren Befehlen hinaus", len(_stores) == len(_stuecke),
+      "%d STORE-Befehle" % len(_stores))
+probe("und keiner ist zu lang",
+      max(len(b) for b in _stores) < 1100,
+      "laengster %d B" % max(len(b) for b in _stores))
+
+# A gapless folder, on the other hand, is ONE command — the point of ranges.
+_vor = len(serverV.befehle)
+kastenV.flagge("INBOX", list(range(1, 12001)), "\\Seen", True)
+_stores = [b for b in serverV.befehle[_vor:] if " STORE " in b]
+probe("ein lueckenloser Ordner braucht genau einen Befehl", len(_stores) == 1,
+      "%d Zeichen" % len(_stores[0]))
+probe("und der Befehl traegt den Bereich, nicht die Aufzaehlung",
+      "1:12000" in _stores[0])
+
+print("\n── Viele auf einmal: die Seite rechnet mit Schluesseln ──")
+# 🔴 The selection must not be built from the rows on screen — everything not
+#    loaded would fall away. Both surfaces have to read from `S.gewaehlt`.
+for _datei in ("post_klient.html", "post_mobil.html"):
+    _text = io.open(_os.path.join(_HIER, _datei), encoding="utf-8").read()
+    _posten = _text.split("function posten(uids){", 1)[1].split("\n}", 1)[0]
+    probe("%s: die Aktion liest die Auswahl aus den Schluesseln" % _datei,
+          "S.gewaehlt" in _posten and "gewaehlteMails()" not in _posten)
+    probe("%s: es gibt „alle auswaehlen\u201c ueber die Seite hinaus" % _datei,
+          "alleImOrdner" in _text and "alle_uids:true" in _text)
+    probe("%s: ein Stapel geht in Stuecken hinaus" % _datei,
+          "STAPEL_STUECK" in _text and "slice(i, i + STAPEL_STUECK)" in _text)
+# 🔑 On the phone it is ONE button in two steps — a fourth would have had to
+#    squeeze into a 320 px bar that already holds three. The wide page has room,
+#    so there the offer stands as a button of its own.
+_mob = io.open(_os.path.join(_HIER, "post_mobil.html"), encoding="utf-8").read()
+probe("Telefon: derselbe Knopf geht in die zweite Stufe",
+      "return alleImOrdner();" in _mob and 'id="alle_ordner"' not in _mob)
+_breit = io.open(_os.path.join(_HIER, "post_klient.html"), encoding="utf-8").read()
+probe("breite Seite: das Angebot steht als eigener Knopf daneben",
+      'id="alle_ordner"' in _breit and 'id="auswahl_weg"' in _breit)
+probe("und die Auswahlleiste darf umbrechen",
+      "flex-wrap:wrap" in _breit.split('id="wahltasten"')[1][:120],
+      "sonst steht der Text halb ausserhalb")
+probe("Blaettern wirft die Auswahl nicht mehr weg",
+      "S.gewaehlt.clear();\n  await ladeListe(true);" not in
+      io.open(_os.path.join(_HIER, "post_klient.html"), encoding="utf-8").read())
 
 print("\n%s  %d Proben, %d Fehlschlaege"
       % ("ALLES GRUEN" if not fehler else "ROT", proben, len(fehler)))

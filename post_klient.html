@@ -630,7 +630,11 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
         <input type="checkbox" id="alle_haken" onchange="alleWaehlen(this.checked)"
                style="width:1.05rem;height:1.05rem;accent-color:var(--akzent)"
                data-t-titel="k.alle_waehlen">
-        <div id="wahltasten" style="display:none;gap:.4rem" >
+        <!-- 🔴 `flex-wrap` belongs HERE, not only on `.werkzeug`: the outer
+             bar wrapped, the inner one did not, and the „clear selection"
+             button stood half outside the column. Seen in the PICTURE, not in
+             the numbers — every probe was green. -->
+        <div id="wahltasten" style="display:none;gap:.4rem;flex-wrap:wrap" >
           <button class="blank" onclick="stapel('gelesen',true)" data-t-titel="k.gelesen">📖</button>
           <button class="blank" onclick="stapel('gelesen',false)" data-t-titel="k.ungelesen">✉️</button>
           <button class="blank" onclick="stapel('markiert',true)" data-t-titel="k.markieren">⭐</button>
@@ -638,6 +642,10 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
                   style="width:auto;max-width:10rem"></select>
           <button class="blank gefahr" onclick="stapelLoeschen()" data-t-titel="k.loeschen">🗑️</button>
           <span class="kleiner leise" id="wahlzahl"></span>
+          <button class="blank kleiner" id="alle_ordner" hidden
+                  onclick="alleImOrdner()"></button>
+          <button class="blank kleiner leise" id="auswahl_weg" hidden
+                  onclick="auswahlWeg()" data-t="k.auswahl_weg"></button>
         </div>
         <div id="siebtasten" style="display:flex;gap:.4rem;align-items:center">
           <select id="sieb" onchange="siebSetzen(this.value)">
@@ -1228,21 +1236,48 @@ function gewaehlteMails(){
 }
 /* What an action really works on. Given numbers (one open mail, a keyboard
    shortcut) it asks the row for the folder; given nothing it takes the
-   selection, which carries its folders with it. */
+   selection, which carries its folders with it.
+
+   🔴 And it reads the selection from the KEYS, not from the rows on screen.
+   Built from `S.mails` it could only ever act on the page in front of it — a
+   tick on page 1 was silently dropped the moment page 2 was open, and „select
+   everything in this folder" would have acted on the visible fifty. The key
+   already carries folder AND number; nothing else is needed. */
 function posten(uids){
   if(uids && uids.length)
     return uids.map(u => ({ordner: ordnerVon(u), uid: u}));
-  return gewaehlteMails().map(m => ({ordner: m.ordner || S.ordner, uid: m.uid}));
+  return [...S.gewaehlt].map(k => {
+    const i = k.indexOf("\u0000");
+    return {ordner: k.slice(0, i), uid: parseInt(k.slice(i + 1), 10)};
+  }).filter(p => p.ordner && p.uid);
 }
 /* Grouped by folder. In a normal folder that is exactly one group and exactly
-   one request — the same behaviour as before. */
+   one request — the same behaviour as before.
+
+   🔴 Now that a selection reaches across pages, a group can hold THOUSANDS
+   of numbers. One request over all of them would run for minutes, and a
+   browser that loses patience halfway leaves a state nobody knows. So every
+   group is cut into pieces as well: each request stays short, and between two
+   pieces you can see how far it has got. */
+const STAPEL_STUECK = 500;
 function nachOrdnern(liste){
   const karte = new Map();
   for(const p of liste){
     if(!karte.has(p.ordner)) karte.set(p.ordner, []);
     karte.get(p.ordner).push(p.uid);
   }
-  return [...karte.entries()];
+  const raus = [];
+  for(const [ordner, uids] of karte)
+    for(let i = 0; i < uids.length; i += STAPEL_STUECK)
+      raus.push([ordner, uids.slice(i, i + STAPEL_STUECK)]);
+  return raus;
+}
+/* Progress shown only when there is a lot of it — for twenty mails it would
+   be noise. `melde` is the same line that carries the result. */
+function stapelFortschritt(getan, gesamt){
+  if(gesamt > STAPEL_STUECK)
+    melde(txt("k.stapel_laeuft", {n:getan.toLocaleString(LANG),
+                                  g:gesamt.toLocaleString(LANG)}), true);
 }
 async function ordnerNeu(){
   const name = prompt(txt("k.ordner_name"));
@@ -1434,8 +1469,11 @@ function spanneMalen(){
   $("#weiter").disabled = S.seite >= (S.seiten || 1);
 }
 async function blaettern(d){
+  /* 🔑 The selection survives turning the page. It used to be tied to the
+     page, which made more than one page at a time impossible. Changing the
+     FOLDER, the search or the filter still clears it — there „chosen" means
+     something else. */
   S.seite = Math.max(1, Math.min(S.seiten || 1, S.seite + d));
-  S.gewaehlt.clear();
   await ladeListe(true);
 }
 
@@ -1464,13 +1502,50 @@ function alleWaehlen(an){
   if(an) S.mails.forEach(m => S.gewaehlt.add(wahlSchluessel(m)));
   listeMalen();
 }
+/* Everything the current view holds — not only the page.
+   🔑 After a search, or with a filter on, „all" means every HIT and not the
+   whole folder: the server returns the numbers of the very list the page is
+   cut out of. One question, one answer. */
+async function alleImOrdner(){
+  if(S.neu){        // the „New" overview is already loaded in full
+    S.mails.forEach(m => S.gewaehlt.add(wahlSchluessel(m)));
+    return listeMalen();
+  }
+  const knopf = $("#alle_ordner");
+  if(knopf) knopf.disabled = true;
+  const r = await sende("klient_liste", {ordner:S.ordner, seite:S.seite,
+      sieb:S.sieb, suche:S.suche, feld:S.feld, sortierung:S.sortierung,
+      richtung:S.richtung, pro_seite:S.pro, alle_uids:true});
+  if(knopf) knopf.disabled = false;
+  if(!r || !r.ok || !r.alle_uids) return melde(txt("k.ging_nicht"), false);
+  for(const u of r.alle_uids) S.gewaehlt.add(S.ordner + "\u0000" + u);
+  listeMalen();
+}
+function auswahlWeg(){ S.gewaehlt.clear(); listeMalen(); }
 function wahlLeisteMalen(){
   const n = S.gewaehlt.size;
   werkzeugMalen();
-  $("#wahlzahl").textContent = n ? txt("k.gewaehlt", {n:n}) : "";
-  $("#alle_haken").checked = n > 0 && n === S.mails.length;
-  $("#alle_haken").indeterminate = n > 0 && n < S.mails.length;
+  $("#wahlzahl").textContent = n
+    ? txt("k.gewaehlt", {n:n.toLocaleString(LANG)}) : "";
+  /* 🔴 The box means the PAGE, not the selection: across pages more can be
+     chosen than stand here, and then „n === rows" would never be true and the
+     box would stay indeterminate for ever. So it asks whether every row on
+     THIS page is chosen. */
+  const aufSeite = S.mails.filter(m => S.gewaehlt.has(wahlSchluessel(m))).length;
+  $("#alle_haken").checked = aufSeite > 0 && aufSeite === S.mails.length;
+  $("#alle_haken").indeterminate = n > 0 && aufSeite < S.mails.length;
   document.body.classList.toggle("wahlmodus", n > 0);
+
+  // „Select all N" appears only once the page is fully ticked and there is
+  // more than that — before, it would be an offer without an occasion.
+  const knopf = $("#alle_ordner"), weg = $("#auswahl_weg");
+  const gesamt = S.neu ? S.mails.length : (S.gesamt || 0);
+  const mehr = aufSeite > 0 && aufSeite === S.mails.length && n < gesamt;
+  if(knopf){
+    knopf.hidden = !mehr;
+    knopf.textContent = txt("k.alle_im_ordner", {n:gesamt.toLocaleString(LANG)});
+  }
+  if(weg) weg.hidden = !(n > S.mails.length);
 }
 
 /* ── Acting ────────────────────────────────────────────────────────────────── */
@@ -1482,10 +1557,11 @@ function wahlLeisteMalen(){
 async function stapel(was, an, uids){
   const liste = posten(uids);
   if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
-  let gut = true;
+  let gut = true, fertig = 0;
   for(const [ordner, teil] of nachOrdnern(liste)){
     const r = await sende("klient_flaggen", {ordner:ordner, uids:teil, was:was, an:an});
     if(!r.ok){ gut = false; melde(r.text || txt("k.ging_nicht"), false); continue; }
+    fertig += teil.length; stapelFortschritt(fertig, liste.length);
     if(was === "gelesen"){
       const o = S.ordner_liste.find(x => x.name === ordner);
       if(o) o.ungelesen = Math.max(0, (o.ungelesen || 0) + (an ? -teil.length : teil.length));
@@ -1494,9 +1570,13 @@ async function stapel(was, an, uids){
   if(!gut) return;
   uids = liste.map(p => p.uid);
   /* Do not refetch the whole list for a flag: the server has confirmed it, and a
-     list that jumps after every click is a list you stop clicking in. */
-  S.mails.forEach(m => { if(uids.includes(m.uid)) m[was] = an; });
-  if(S.offen && uids.includes(S.offen.uid)) S.offen[was] = an;
+     list that jumps after every click is a list you stop clicking in.
+     🔴 By KEY, not by number: the same number exists in every folder, and
+     `includes` over thousands inside a loop over the rows is one search too
+     many anyway. */
+  const bet = new Set(liste.map(p => p.ordner + "\u0000" + p.uid));
+  S.mails.forEach(m => { if(bet.has(wahlSchluessel(m))) m[was] = an; });
+  if(S.offen && bet.has(wahlSchluessel(S.offen))) S.offen[was] = an;
   listeMalen();
   if(was === "gelesen") ordnerMalen();
   if(S.offen && uids.includes(S.offen.uid)) leseKopfMalen();
@@ -1515,7 +1595,8 @@ async function verschiebeListe(ziel, liste){
   for(const [ordner, teil] of nachOrdnern(liste)){
     if(ordner === ziel){ continue; }        // already there — nothing to do
     const r = await sende("klient_verschieben", {ordner:ordner, uids:teil, ziel:ziel});
-    if(r.ok){ zahl += teil.length; letzte = r.text || letzte; }
+    if(r.ok){ zahl += teil.length; letzte = r.text || letzte;
+              stapelFortschritt(zahl, liste.length); }
     else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
   }
   if(gut) melde(letzte, true);
@@ -1531,11 +1612,12 @@ async function stapelLoeschen(uids, endgueltig){
   const frage = uids.length === 1 ? txt("k.loeschen_sicher_eine")
                                   : txt("k.loeschen_sicher", {n:uids.length});
   if(S.einst.sicherheitsfrage && !confirm(frage)) return;
-  let gut = true, letzte = "";
+  let gut = true, letzte = "", fertig = 0;
   for(const [ordner, teil] of nachOrdnern(liste)){
     const r = await sende("klient_loeschen", {ordner:ordner, uids:teil,
                                               endgueltig:!!endgueltig});
-    if(r.ok) letzte = r.text || letzte;
+    if(r.ok){ letzte = r.text || letzte;
+              fertig += teil.length; stapelFortschritt(fertig, liste.length); }
     else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
   }
   if(gut){ melde(letzte, true); await nachTat(uids, liste); }

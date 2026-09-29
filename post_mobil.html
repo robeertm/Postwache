@@ -466,7 +466,13 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   <div class="kopf" id="wahlkopf" hidden>
     <button class="blank" onclick="wahlAus()" aria-label="OK">✕</button>
     <h1 id="wahlzahl"></h1>
-    <button class="blank" onclick="alleWaehlen()" data-t="k.alle_waehlen"></button>
+    <!-- 🔑 ONE button, two steps. A fourth button would have had to squeeze
+         into a 320 px bar that already holds three — and that is exactly how a
+         text ended up half outside the column on the wide page. The first press
+         selects what is loaded; once that is all selected and the folder holds
+         more, the same button takes the whole folder, and says so. -->
+    <button class="blank" id="alle_waehlen" onclick="alleWaehlen()"
+            data-t="k.alle_waehlen"></button>
   </div>
   <div class="rumpf" id="rollen">
     <!-- A gesture nobody knows about does not exist. Shown once, then gone. -->
@@ -1130,9 +1136,31 @@ function wahlUm(i){
   wahlMalen(); listeMalen();
 }
 function alleWaehlen(){
-  const schon = S.gewaehlt.size === S.mails.length && S.mails.length > 0;
+  const geladen = S.mails.length;
+  const alleGeladen = geladen > 0 && S.mails.every(m => S.gewaehlt.has(wahlSchluessel(m)));
+  const gesamt = S.neu ? geladen : (S.gesamt || 0);
+  // Step two: everything loaded is chosen and the folder holds more.
+  if(alleGeladen && S.gewaehlt.size < gesamt) return alleImOrdner();
+  const schon = S.gewaehlt.size === geladen && geladen > 0;
   S.gewaehlt.clear();
   if(!schon) S.mails.forEach(m => S.gewaehlt.add(wahlSchluessel(m)));
+  wahlMalen(); listeMalen();
+}
+/* Everything the view holds — including what has not been loaded yet.
+   🔑 With a filter on, „all" means every HIT: the server returns the numbers of
+   the very list the page is cut out of. */
+async function alleImOrdner(){
+  if(S.neu){
+    S.mails.forEach(m => S.gewaehlt.add(wahlSchluessel(m)));
+    return (wahlMalen(), listeMalen());
+  }
+  /* 🔴 WORD FOR WORD the request that fetches the list — otherwise „all"
+     means something other than what is on screen. This page does not search
+     through the server (`suche:""`), so no search may ride along here. */
+  const r = await sende("klient_liste", {ordner:S.ordner, seite:1,
+      sieb:S.sieb, suche:"", feld:"alle", pro_seite:S.pro, alle_uids:true});
+  if(!r || !r.ok || !r.alle_uids) return melde(txt("k.ging_nicht"), false);
+  for(const u of r.alle_uids) S.gewaehlt.add(S.ordner + "\u0000" + u);
   wahlMalen(); listeMalen();
 }
 /* 🔴 A UID is unique inside ITS FOLDER and nowhere else. Keyed by number alone,
@@ -1145,17 +1173,35 @@ function wahlSchluessel(m){
 function gewaehlteMails(){
   return S.mails.filter(m => S.gewaehlt.has(wahlSchluessel(m)));
 }
+/* 🔴 From the KEYS, not from the loaded rows: after „select all" thousands
+   stand in the selection and only the loaded ones are on screen. Filtered
+   through `S.mails` the action would have caught exactly those and left the
+   rest quietly lying. The key carries folder AND number. */
 function posten(uids){
   if(uids && uids.length)
     return uids.map(u => ({ordner: ordnerVon(u), uid: u}));
-  return gewaehlteMails().map(m => ({ordner: m.ordner || S.ordner, uid: m.uid}));
+  return [...S.gewaehlt].map(k => {
+    const i = k.indexOf("\u0000");
+    return {ordner: k.slice(0, i), uid: parseInt(k.slice(i + 1), 10)};
+  }).filter(p => p.ordner && p.uid);
 }
 function wahlMalen(){
   const n = S.gewaehlt.size;
   document.body.classList.toggle("wahlmodus", S.wahl);
   $("#listenkopf").hidden = S.wahl;
   $("#wahlkopf").hidden = !S.wahl;
-  $("#wahlzahl").textContent = n ? txt("k.gewaehlt", {n:n}) : txt("k.auswaehlen");
+  $("#wahlzahl").textContent = n
+    ? txt("k.gewaehlt", {n:n.toLocaleString(LANG)}) : txt("k.auswaehlen");
+  // The one button says which step comes next.
+  const knopf = $("#alle_waehlen");
+  if(knopf){
+    const geladenGewaehlt = S.mails.length > 0
+      && S.mails.every(m => S.gewaehlt.has(wahlSchluessel(m)));
+    const gesamt = S.neu ? S.mails.length : (S.gesamt || 0);
+    knopf.textContent = (geladenGewaehlt && n < gesamt)
+      ? txt("k.alle_im_ordner", {n:gesamt.toLocaleString(LANG)})
+      : txt("k.alle_waehlen");
+  }
   $("#wahlfuss").innerHTML = [
     ["📖", "k.gelesen", "stapel('gelesen',true)", ""],
     ["✉️", "k.ungelesen", "stapel('gelesen',false)", ""],
@@ -1509,13 +1555,22 @@ async function bilderLaden(){
    by folder before anything is sent. In a folder that is one group and one
    request, exactly as before; in „New" the chosen mails can live in six folders
    and one `S.ordner` would have hit the wrong mail in five of them. */
+const STAPEL_STUECK = 500;
 function nachOrdnern(liste){
   const karte = new Map();
   for(const p of liste){
     if(!karte.has(p.ordner)) karte.set(p.ordner, []);
     karte.get(p.ordner).push(p.uid);
   }
-  return [...karte.entries()];
+  /* 🔴 Now that „select all" also means what is not loaded, a group can hold
+     thousands of numbers. One request over all of them would run for minutes —
+     on a phone all the more, where the connection changes. So: short
+     requests. */
+  const raus = [];
+  for(const [ordner, uids] of karte)
+    for(let i = 0; i < uids.length; i += STAPEL_STUECK)
+      raus.push([ordner, uids.slice(i, i + STAPEL_STUECK)]);
+  return raus;
 }
 async function stapel(was, an, uids){
   const liste = posten(uids);
