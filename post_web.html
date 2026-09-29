@@ -64,8 +64,7 @@
   --licht3:rgba(224,164,88,.09);
 }
 /* ── Day mode ───────────────────────────────────────────────────────────────
-   der Besitzer, 28.09.2026: „muss noch einen tag modus bekommen, soll aber den stiel
-   von ups farben beibehalten nur in hell, find ich total klasse die farbwahl."
+   The day mode keeps the style of the night, only on paper.
 
    🔑 So NOTHING is swapped for another family. The brown-black night becomes warm
    PAPER, the gold stays gold, and the three lights over the page stay in their
@@ -736,8 +735,8 @@ function zeichneKopf(){
   const steht = L.notaus_datei || L.schalter === "off";
   document.body.classList.toggle("steht", steht);
   const lauf = L.lauf || {};
-  /* 🔑 der Besitzer, 2026-09-12: „kann nirgends sehen wann und wie oft die läuft.“
-     (I cannot see anywhere when and how often it runs.) There used to be only an
+  /* 🔑 Nowhere could anybody see WHEN and HOW OFTEN the watchman runs.
+     There used to be only an
      absolute timestamp here — nobody can read from that whether the watchman is
      still ticking. Now: how long ago, at what interval, how often today — and a
      warning when the last run is too long ago. The interval is MEASURED (median
@@ -1246,8 +1245,8 @@ function bauRegeln(){
 }
 
 /* ── Statistics ─────────────────────────────────────────────
-   der Besitzer, 2026-09-12: „bau mal in die postwache eine kleine statistik ein,
-   wieviel mails pro tag kommen, zu welcher zeit wer am haeufigsten schreibt“.
+   A small statistic: how many mails arrive per day, at what time, and who
+   writes most often.
    The numbers are computed on the REAL headers in the mailbox (Date/From), not on
    what the Postwache has seen since it was set up — otherwise there would be
    nothing to look at for weeks. */

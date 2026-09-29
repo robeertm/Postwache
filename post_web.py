@@ -74,9 +74,9 @@ except Exception:                    # and the watchman page must not fail becau
 # The client is its own page: it needs the whole window, and the watchman page is
 # a dashboard with a maximum width. One file each, one job each.
 KLIENT_SEITE = "post_klient.html"
-# 🔴 And the phone gets its OWN page, not the wide one squeezed. Der Besitzer,
-# 2026-09-28: „achte darauf das du je nach bildschirmgröße viel platz hast, baue
-# auch eine extraversion für mobile geräte." A phone is a different device: one
+# 🔴 And the phone gets its OWN page, not the wide one squeezed — a page that
+# uses the room each screen size has, in a version of its own for mobile
+# devices. A phone is a different device: one
 # thing at a time, thumbs instead of a mouse, a bar at the bottom because the top
 # of a six-inch screen is out of reach.
 KLIENT_MOBIL = "post_mobil.html"
@@ -372,8 +372,8 @@ def ablage_kurz() -> dict:
 def auftraege_zeigen() -> dict:
     """What the Postwache has lying in the workshop — with state and age.
 
-    Der Besitzer, 2026-09-27: he wants to be able to follow 100 % of what happens in the
-    Postwache. That is exactly what this card is for. 🔴 It appears ONLY when a
+    The requirement: follow 100 % of what happens in the Postwache. That is
+    exactly what this card is for. 🔴 It appears ONLY when a
     workshop is configured — for any other user of the Postwache it would be an
     empty card about a thing they do not have.
     """
@@ -505,11 +505,9 @@ def auffangorte(pf) -> list:
 def nachziehen(adresse: str, ziel: str) -> dict:
     """Send the post that is ALREADY there after its new target.
 
-    🔑 Without this a freshly set rule has no effect for him. He said on
-    2026-09-12: „postwache erstellt zwar ordner aber die mails aus dem posteingang
-    verschiebt es dann aber nicht automatisch dorthin.“ (the Postwache does create
-    folders but then does not move the mails from the inbox there automatically)
-    That is exactly how it was: `Seal-82` and `Autogruppe` were created and empty,
+    🔑 Without this a freshly set rule has no effect: the Postwache does create
+    the folder, but it does not move the mail that is already in the inbox
+    there. That is exactly how it was: `Seal-82` and `Autogruppe` were created and empty,
     while their 4 and 9 mails lay in the inbox. The watchman only reads NEW post
     (`UID last+1:*`) — what is already there it never sees again.
 
@@ -1404,9 +1402,8 @@ def ds_zugang_speichern(d: dict) -> dict:
 def ds_aus_umgebung() -> str:
     """Set the DocuSort access from the environment, at start-up.
 
-    Der Besitzer, 29.09.2026: „wer beide programme installiert hat bekommt die
-    verbindung zwischen beiden sofort gesetzt … die kunden sollen nichts machen
-    muessen das ist ganz wichtig!!"
+    🔑 The rule: whoever installs both programs finds the connection between
+    them already made — nobody has to set anything up by hand.
 
     When both programs are installed together, one `.env` holds the pairing
     word and both sides read it: DocuSort creates the account with it, and this
@@ -1736,7 +1733,7 @@ def dokumente_geben(d: dict) -> dict:
 
 # ── HTTP ───────────────────────────────────────────────────
 # ── Restructuring: reorder the whole mailbox (4.0.0) ─────────────────
-# der Besitzer, 2026-09-27: rebuild the Postwache so that he can then run it.
+# The Postwache is rebuilt here so that it can then be run.
 #
 # 🔴 The import stands inside the function, not in the file header: `umbau`
 #    imports `postwache` — at the top that would be a cycle.
@@ -1840,8 +1837,8 @@ def umbau_start(d: dict) -> dict:
 
 
 # ── Migration: from one provider to another (4.4.0) ─────────────────
-# der Besitzer, 2026-09-27 — you name two providers, then you can run them in parallel
-# or say: transfer mail from provider A to provider B and sort it on the way; once
+# Two providers are named, then they can be run in parallel
+# or: transfer mail from provider A to provider B and sort it on the way; once
 # the migration is done you can delete everything at A or set up a permanent
 # redirection.
 #

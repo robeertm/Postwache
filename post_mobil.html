@@ -77,8 +77,8 @@
   --schrift:100%;
 }
 /* ── Day mode ───────────────────────────────────────────────────────────────
-   der Besitzer, 28.09.2026: „soll aber den stiel von ups farben beibehalten nur in
-   hell, find ich total klasse die farbwahl." The night becomes PAPER — same
+   The day mode keeps the style of the night, only on paper. The night
+   becomes PAPER — same
    brown, same gold, same three lights. Only the signals go darker: #34d399 on
    white is a colour nobody can read. */
 html[data-hell]{
@@ -684,9 +684,8 @@ const S = {
   mails:[], uid:0, offen:null, ordner_liste:[], rollen:{}, einst:{}, faehig:{},
   oberflaeche:[], postfaecher:[], brief:null, seiten:1, gesamt:0, laeuft:false,
   version:"", blick:"liste",
-  /* 🔑 „New" is where a session starts, not the inbox. Der Besitzer, 29.09.2026:
-     „immer wenn man sich neu verbindet und das postfach sich anzeigen läßt soll
-     standart immer ‚Neu‘ angezeigt werden, aktuell zeigts auf den posteingang."
+  /* 🔑 „New" is where a session starts, not the inbox — every fresh
+     connection opens there instead of on the inbox.
      The reason sits in the watchman itself: it moves new mail OUT of the inbox
      into a dozen folders, so somebody who lands in the inbox is looking at the
      one place that does NOT show what has arrived. The choice lasts for the
@@ -1182,9 +1181,8 @@ function zielAuf(uids){
   blick("ziel");
 }
 /* ── A whole folder on its way ─────────────────────────────────────────────
-   der Besitzer, 28.09.2026: „man muss auch ganze ordner am besten per drag and drop
-   verschieben können mit mailinhalt, postwache soll das dann auch mitbekommen
-   wegen lernen und so."
+   A whole folder travels by drag and drop, mail and all, and the watchman
+   has to notice it for the sake of what it has learned.
    🔑 On a phone nothing is dragged across a desk — it is picked up with a long
    press and put down in the SAME sheet that mail is moved with. One list of
    folders, two kinds of traveller. */

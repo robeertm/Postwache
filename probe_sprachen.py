@@ -249,18 +249,17 @@ for datei in ("post_web.py", "postwache.py", "klient.py"):
         print("        " + x)
 
 # ── 5. The COMMENTS are English ───────────────────────────────
-# der Besitzer, 2026-09-27: „alle kommentierungen im gesamten postwache code sind
-# deutsch, alle auf englisch umstellen!“
+# Every comment in the Postwache is English.
 #
 # 🔑 A translated product whose source is commented in one language only reads
 #    for its owner. The identifiers stay German on purpose (`ziel_fuer`,
 #    `ablage_lernen`) — they are the vocabulary of this program, and renaming them
 #    would be a different change with a different risk.
 #
-# 🔴 QUOTATIONS STAY. What der Besitzer said is evidence, not commentary: a quote
-#    translated into English is no longer his sentence, and the reason a bolt
-#    exists would lose its source. So everything inside „…“ or „…" is removed
-#    before the check — and only what remains has to be English.
+# 🔴 Whatever stands inside „…“ or „…" is taken out before the check: quoted
+#    terms are names, not prose, and translating them would change what they
+#    name. Only what remains has to be English. What does NOT belong in a
+#    published file at all is somebody's verbatim words — see section 6.
 DEUTSCHE_WORTE = re.compile(
     r"\b(der|die|das|und|nicht|nichts|ist|eine|einen|einem|einer|wird|wer|dann|"
     r"kein|keine|keinen|mit|von|auf|f\u00fcr|fuer|sich|dass|man|schon|noch|aber|oder|"
@@ -462,6 +461,70 @@ probe("README und CHANGELOG sind englisch und ohne Zitate", not _befunde,
 for _b in _befunde:
     print("        " + _b)
 
+
+# ── 6. Nobody's verbatim words in a PUBLISHED file ────────────
+#
+# 🔴 29.09.2026. The rule „no verbatim quote of a person" was guarded for README
+#    and CHANGELOG — and 37 quotations sat in the published SOURCE the whole
+#    time, with a name and a date in front of them. The raster knew the two
+#    documents, not the shape of the thing it was looking for.
+#
+# 🔑 Here the criterion cannot be a name: this bench is published itself, so it
+#    must not carry one. It is the LANGUAGE instead. Every comment in the
+#    Postwache is English (section 5) — so GERMAN PROSE inside quotation marks
+#    is, by construction, somebody's own sentence being repeated. A quoted TERM
+#    („ungelesen", „Neu") is not prose: it is decided by DENSITY, three German
+#    function words close together, the same measure section 5 uses.
+# \U0001f534 No minimum length: with one the pattern walked PAST the real
+#    closing mark of a short term and swallowed the English sentence
+#    behind it — three wrong findings. The length is not the criterion,
+#    the density is.
+_ZITIERT = _re.compile(u"\u201e([^\u201e]{1,400}?)[\u201c\u201d\"]", _re.S)
+# Reviewed, once, and therefore allowed: the product's own slogan, and two mail
+# SUBJECTS quoted as examples. A subject is data the program handles, not
+# somebody's speech — and no rule can tell those two apart, so the decision is
+# written down here instead of being guessed every run.
+_EIGENE_WORTE = (u"Hier geht die Post ab",
+                 u"Mafia Wars jetzt auch auf Deutsch",
+                 u"Please rejoin Test4Theory")
+
+
+def veroeffentlichte_dateien():
+    """The publication list — read from the file that HAS it, not copied."""
+    try:
+        roh = open(os.path.join(HIER, "veroeffentlichen.py"), encoding="utf-8").read()
+    except OSError:
+        return []                      # not the owner's machine: nothing to check
+    liste = roh.split("MITNEHMEN = [", 1)[1].split("\n]", 1)[0]
+    namen = _re.findall(r'"([^"]+)"', liste)
+    return [n for n in namen if n.endswith((".py", ".html"))]
+
+
+def pruefe_quellen():
+    fehler = []
+    for rel in veroeffentlichte_dateien():
+        pfad = os.path.join(HIER, rel)
+        try:
+            roh = open(pfad, encoding="utf-8").read()
+        except OSError:
+            continue
+        for m in _ZITIERT.finditer(roh):
+            inhalt = m.group(1).replace("\n", " ")
+            if any(e in inhalt for e in _EIGENE_WORTE):
+                continue
+            if len(_DEUTSCHE_WOERTER.findall(inhalt)) >= 3:
+                zeile = roh[:m.start()].count("\n") + 1
+                fehler.append("%s:%d woertliche Rede in einer veroeffentlichten "
+                              "Datei (\u201e%s\u2026)" % (rel, zeile, inhalt[:70]))
+    return fehler
+
+
+print("\n\u2500\u2500 Woertliche Rede in veroeffentlichten Quellen \u2500\u2500")
+_quellen = pruefe_quellen()
+probe("keine veroeffentlichte Datei gibt jemanden woertlich wieder",
+      not _quellen, "%d Befund(e)" % len(_quellen))
+for _b in _quellen[:8]:
+    print("        " + _b)
 
 print("\n%s  %d Fehlschlaege" % ("ALLES GRUEN" if not fehler else "ROT", len(fehler)))
 sys.exit(1 if fehler else 0)

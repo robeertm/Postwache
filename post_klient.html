@@ -72,8 +72,8 @@
   --schrift:100%;
 }
 /* ── Day mode ───────────────────────────────────────────────────────────────
-   der Besitzer, 28.09.2026: „soll aber den stiel von ups farben beibehalten nur in
-   hell, find ich total klasse die farbwahl." So the night is not exchanged for
+   The day mode keeps the style of the night, only on paper. So the night is
+   not exchanged for
    another family — it becomes PAPER: the same brown, the same gold, the same
    three lights over the page. Only the signal colours go darker, because
    #34d399 on white is a colour nobody can read. */
@@ -843,9 +843,8 @@ const S = {
   mails:[], uid:0, offen:null, gewaehlt:new Set(),
   ordner_liste:[], rollen:{}, einst:{}, faehig:{}, postfaecher:[],
   zu:new Set(),            // collapsed folder branches
-  /* 🔑 „New" is where a session starts, not the inbox. Der Besitzer, 29.09.2026:
-     „immer wenn man sich neu verbindet und das postfach sich anzeigen läßt soll
-     standart immer ‚Neu‘ angezeigt werden, aktuell zeigts auf den posteingang."
+  /* 🔑 „New" is where a session starts, not the inbox — every fresh
+     connection opens there instead of on the inbox.
      The reason sits in the watchman itself: it moves new mail OUT of the inbox
      into a dozen folders, so somebody who lands in the inbox is looking at the
      one place that does NOT show what has arrived. The choice lasts for the
@@ -1369,7 +1368,7 @@ function listeMalen(){
 
    🔴 Where there is none — a mail that is only an attachment, or a folder whose
    excerpts were not asked for — the row says what else is worth knowing instead
-   of leaving a gap. And „To der Besitzer Marlow" under every row of the INBOX is not
+   of leaving a gap. And „To Rosa Marlow" under every row of the INBOX is not
    it: of course it is to me. In the sent folder the recipient is the opposite,
    the only interesting name. */
 /* „INBOX" is the protocol's word — in this one place it gets the reader's. */
@@ -1548,9 +1547,8 @@ async function wieWache(uid, adresse){
   if(r.ok) await nachTat([uid]);
 }
 /* ── Carrying things with the mouse ────────────────────────────────────────
-   der Besitzer, 28.09.2026: „man muss auch ganze ordner am besten per drag and drop
-   verschieben können mit mailinhalt, postwache soll das dann auch mitbekommen
-   wegen lernen und so."
+   A whole folder travels by drag and drop, mail and all, and the watchman
+   has to notice it for the sake of what it has learned.
 
    🔑 Two different things travel to the same targets: a handful of MAILS and a
    whole FOLDER. So one variable says what is in the air, and every target asks
@@ -1588,9 +1586,8 @@ function ziehEnde(){
   $$(".ziel").forEach(el => el.classList.remove("ziel"));
 }
 /* ── The column travels with you ───────────────────────────────────────────
-   der Besitzer, 28.09.2026: „wenn ein ordner von ganz unten nach oben gezogen wird,
-   muss die liste mit nach oben wandern, sonst kommt man an ordner eventuell
-   nicht ran wenn die liste sehr lang ist."
+   When a folder is dragged from the very bottom to the top, the list has to
+   travel with it — on a long list the target would otherwise be out of reach.
 
    🔴 And it needs a TIMER, not a scroll step per event: `dragover` only fires
    while the pointer MOVES. Held still at the top edge — which is exactly what

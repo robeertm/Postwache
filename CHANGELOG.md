@@ -7,6 +7,23 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.7.1] – 2026-09-29
+
+### Fixed
+
+**No more quoting a person in a published file.** The rule that a public
+document carries no verbatim quotation was guarded for the README and the
+changelog — and the published SOURCE carried 21 of them, with a name and a
+date in front, plus 36 further mentions of the owner's first name. Every one
+of them is gone; the REASON each of them recorded stays, because it explains
+why the code looks the way it does. Nothing about behaviour changed.
+
+🔑 The new guard in `probe_sprachen.py` cannot work from a name — the bench is
+published itself, so it must not carry one. It works from the LANGUAGE
+instead: every comment here is English, so German prose inside quotation marks
+is, by construction, somebody's own sentence being repeated. A quoted term is
+not prose, and the difference is measured by density, not by length.
+
 ## [5.7.0] – 2026-09-29
 
 ### Changed
