@@ -6,10 +6,18 @@
      bar of an iPhone sits UNDER the home indicator and the last button cannot be
      pressed — the kind of thing only a real phone shows you. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 🔴 `apple-mobile-web-app-capable` + `…-status-bar-style: black-translucent`
+     used to stand here, and they were the whole trouble. With them a page put
+     on the home screen is DRAWN from the very top of the screen but MEASURED
+     as though it began below the status bar. Measured on iOS 18.7: screen 912,
+     `innerHeight` 844 — 68 px, exactly the status bar, and they pile up at the
+     BOTTOM, underneath the tab bar, where nothing can go.
+     DocuSort never carried them and never had the gap. Its head is the pattern
+     here: `viewport-fit=cover` for the safe areas, `theme-color` for the bar
+     the system now paints itself — which is why the colour has to follow the
+     light, in the script below and in `lichtAnwenden()`. -->
 <meta name="theme-color" content="#12100c">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Postwache">
 <title>Postwache</title>
 <script>
@@ -37,7 +45,17 @@
     wahl = "";
     try{ wahl = localStorage.getItem("pw_licht") || ""; }catch(e){}
   }
-  if(wahl === "hell") document.documentElement.setAttribute("data-hell", "1");
+  if(wahl === "hell"){
+    document.documentElement.setAttribute("data-hell", "1");
+    /* 🔴 And the colour of the bar the system paints, BEFORE the first paint.
+       `lichtAnwenden()` further down keeps it in step afterwards, but it runs
+       only once the page is alive — and while `black-translucent` was set this
+       never showed, because the page drew its own ground under the status bar.
+       Now the system draws it, and a day-mode start would flash a black bar
+       over a paper page. The value is the day ground `--grund`. */
+    var marke = document.querySelector('meta[name="theme-color"]');
+    if(marke) marke.setAttribute("content", "#f5efe3");
+  }
 })();
 </script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
