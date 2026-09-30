@@ -7,6 +7,117 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.9.2] - 2026-09-30
+
+### Removed
+
+**`--tiefer` from 5.9.0 is gone.** It tried to hand back the 68 px that a
+home-screen app loses under its tab bar, by measuring `100lvh - 100svh`. It was
+derived from measurements, it was green on the bench, and on a real phone it
+moved nothing — twice. A safety net nobody has ever seen catch anything is not
+a safety net, and the comment claiming it covered the leftover case was a claim
+with no measurement behind it. The custom property, the `html[data-app]` rule,
+the three fixed elements that used it and the `navigator.standalone` flag are
+all removed.
+
+What remains is the change that was shown to work: the two Apple meta tags in
+the head are gone (5.9.1), and `theme-color` follows the light setting before
+the first paint.
+
+### Note
+
+iOS keeps the mode a page was installed with. An icon put on the home screen
+while those tags were still present will not pick up the new head — remove the
+icon and add it again.
+
+### Changed
+
+`pruefstaende/probe_handyleiste.py` rewritten, 13 checks: the two tags are gone
+(asked of the DOM, not of the text, because the comment explaining their removal
+still spells their names out), `viewport-fit=cover` stays, the meta colour is
+the night ground, the literal day colour in the head script matches the
+stylesheet and is set before `<style>`, and the geometry — sheet fills the
+window, bar ends on the bottom edge, the home indicator keeps its 34 px, the
+header starts at 56. The counter-test puts both tags back, because otherwise
+section 1 would only be testing absence, and an empty file has that too.
+
+## [5.9.1] - 2026-09-30
+
+### Fixed
+
+**The cure for 5.9.0 was in the document head all along.** Two tags were asking
+for the behaviour that 5.9.0 worked around:
+
+```html
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+```
+
+With them, a page put on the home screen is DRAWN from the very top of the
+screen but MEASURED as though it began below the status bar, which is where the
+68 px gap under the tab bar came from. Without them the system draws the status
+bar itself, the page begins below it, and window and screen agree. Both tags
+are gone; `viewport-fit=cover` stays, because the safe-area insets need it.
+
+`--tiefer` from 5.9.0 stays as a safety net rather than as the cure: an icon
+added to the home screen while those tags were still present keeps the mode it
+was installed with, and that cannot be changed from the page. It measures
+itself and is 0 wherever there is no gap, so on a freshly added icon it does
+nothing.
+
+**`theme-color` now follows the light setting before the first paint.** While
+the page drew its own ground underneath the status bar the colour never
+mattered; now the system draws that bar, and starting in day mode would have
+put a black bar above a paper page. The switch already derived the colour from
+the ground at runtime — only the head script was missing it.
+
+### Changed
+
+`pruefstaende/probe_handyleiste.py` - now 19 checks. It asks the DOM whether
+the two tags are gone rather than searching the text, because the comment
+explaining their removal still spells their names out, and it holds the literal
+day colour in the head script against the `--grund` the stylesheet defines so
+the two cannot drift apart. The phone-page check in `probe_klient.py` used one
+of those tag names as its marker and would have stayed green for exactly that
+reason; it now looks for the tab bar.
+
+## [5.9.0] - 2026-09-30
+
+### Fixed
+
+**A page added to the home screen now uses the whole screen.** On iOS a page
+started from the home screen gets a window that is shorter than the screen it
+is drawn on — measured on a phone running iOS 18.7: screen 912 px,
+`window.innerHeight` 844 px, `safe-area-inset-top` 68 px. The page is still
+drawn from the very top of the screen, so the missing 68 px collect at the
+BOTTOM, below the tab bar, where nothing can be placed.
+
+`100lvh` knows the whole screen (912) while `100svh` knows only the window
+(844), so the window is not really shorter — only the measure that
+`position:fixed` counts against. The difference is the piece that goes missing,
+and it measures itself: on a device without the flaw it comes out 0 and nothing
+moves. The bottom bar now sits on the real edge of the screen and the message
+list is 68 px taller.
+
+Two things this depends on, both measured rather than assumed:
+
+* `matchMedia("(display-mode: standalone)")` answers **false** on iOS even
+  while the page is running as an app, so the obvious CSS query does nothing.
+  The only reliable sign is `navigator.standalone`, and it has to be read in
+  the document head, before the first paint, or the bar visibly drops a moment
+  after the page appears.
+* In Safari the same difference is the browser's own bars (786 - 678 = 108 px).
+  Applying the correction there would push the tab bar behind the toolbar, so
+  it is applied only in the home-screen app.
+
+### Added
+
+`pruefstaende/probe_handyleiste.py` - 14 checks in WebKit covering the geometry
+of the bottom bar, the gate and the floating message, plus a counter-test
+against the previous layout. Headless, `100lvh` and `100svh` are the same
+number, so the bench proves the plumbing and a throwaway page on a real phone
+proved the measurement.
+
 ## [5.8.1] – 2026-09-29
 
 ### Changed
