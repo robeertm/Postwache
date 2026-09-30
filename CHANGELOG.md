@@ -7,6 +7,30 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.10.0] - 2026-09-30
+
+### Changed
+
+**The DocuSort pairing now looks on both ports.** DocuSort moved its default
+web port from 8080 to 9876 with its own 0.67.0, because 8080 is already taken
+on a lot of machines. The Postwache finds DocuSort by asking a handful of
+addresses that follow from how the two are installed, and 8080 was baked into
+that list.
+
+Both ports are asked now, 9876 first: an installation older than DocuSort
+0.67.0 still sits on 8080 and is still found, and when both answer the newer
+one is the one reported, because the order of the list is the order of
+preference.
+
+**And the search runs side by side instead of one after another.** Every
+unreachable address costs four seconds, and asking two ports turned five
+candidates into nine — sequentially the button would have needed half a minute
+to say "nothing found". `map` keeps the order, so the preference above is
+untouched. Measured: nine addresses at one second each, done in 1.01 s.
+
+`docker-compose.both.yml` and `deploy/install-both.sh` follow DocuSort's new
+port.
+
 ## [5.9.2] - 2026-09-30
 
 ### Removed

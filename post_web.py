@@ -31,6 +31,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -1499,6 +1500,11 @@ def _tor_des_wirts() -> str:
     return ""
 
 
+# The ports a DocuSort can be listening on, best first: 9876 since its
+# 0.67.0, 8080 for every installation older than that.
+DS_PORTS = (9876, 8080)
+
+
 def ds_suchen(_d=None) -> dict:
     """Where is DocuSort? Asked from HERE.
 
@@ -1509,22 +1515,31 @@ def ds_suchen(_d=None) -> dict:
     No network is scanned. Only places that are given by how the two are
     installed get asked:
     """
+    # 🔴 DocuSort left port 8080 with its 0.67.0 — on a NAS or a development
+    #    machine that port is usually spoken for already. An installation older
+    #    than that still sits on 8080, so BOTH are asked, the new one first: the
+    #    order of this list is the order of preference further down.
     kandidaten = []
-    if im_container():
-        kandidaten.append("http://docusort:8080")      # same compose network
-    kandidaten.append("https://docusort")              # MagicDNS short name
-    kandidaten.append("http://127.0.0.1:8080")         # side by side, no container
-    if im_container():
-        kandidaten.append("http://host.docker.internal:8080")
-        tor = _tor_des_wirts()
-        if tor:
-            kandidaten.append("http://%s:8080" % tor)
+    for hafen in DS_PORTS:
+        if im_container():
+            kandidaten.append("http://docusort:%d" % hafen)   # same compose network
+        kandidaten.append("http://127.0.0.1:%d" % hafen)      # side by side, no container
+        if im_container():
+            kandidaten.append("http://host.docker.internal:%d" % hafen)
+            tor = _tor_des_wirts()
+            if tor:
+                kandidaten.append("http://%s:%d" % (tor, hafen))
+    kandidaten.insert(1 if im_container() else 0,
+                      "https://docusort")              # MagicDNS short name
 
-    gefunden = []
-    for basis in kandidaten:
-        v = _ist_docusort(basis)
-        if v:
-            gefunden.append({"url": basis, "version": v})
+    # 🔑 Side by side, not one after another. Each unreachable address costs
+    #    four seconds, and asking two ports doubled the list — sequentially the
+    #    button would have taken half a minute to say „nothing found". `map`
+    #    keeps the order, so the preference above still decides.
+    with ThreadPoolExecutor(max_workers=max(1, len(kandidaten))) as topf:
+        antworten = list(topf.map(_ist_docusort, kandidaten))
+    gefunden = [{"url": b, "version": v}
+                for b, v in zip(kandidaten, antworten) if v]
     if not gefunden:
         return {"ok": False, "text": txt("a.ds_nicht_gefunden"),
                 "gesucht": kandidaten}
@@ -1538,7 +1553,7 @@ def _ist_docusort(basis: str) -> str:
     """Its version if a DocuSort answers there, otherwise empty.
 
     🔴 Asked at `/api/version`, which needs no login — and the answer has to
-    LOOK like DocuSort. „Something answered on 8080“ is not the same as „this
+    LOOK like DocuSort. „Something answered on that port“ is not the same as „this
     is DocuSort“.
     """
     ktx = None
