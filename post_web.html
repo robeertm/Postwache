@@ -520,6 +520,8 @@ details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem
       <div id="vorschlaege" style="margin-top:.6rem"></div>
     </div>
 
+    <div class="karte" id="tskarte"></div>
+
     <div class="karte" id="umgebungkarte">
       <h2>⚙️ <span data-t="umgebung.titel"></span></h2>
       <div class="leise klein" data-t="umgebung.hilfe"></div>
@@ -1141,6 +1143,59 @@ function dsTippt(){
     const f = $(w);
     return !!(f && f.value !== "");
   });
+}
+
+/* 🔑 Tailscale from the inside: one field, one button. No sidecar, no compose
+   file, no command line. The card reports what Tailscale ITSELF says — it
+   never claims a success it cannot see. */
+function bauTailscale(){
+  const t = L.tailscale || {};
+  if(!t.moeglich){
+    return `<h2>📱 <span>${txt("ts.titel")}</span></h2>
+      <div class="hinweis">${txt("ts.alt")}</div>`;
+  }
+  if(t.verbunden){
+    return `<h2>📱 <span>${txt("ts.titel")}</span>
+        <span class="chip ok" style="font-size:.7rem">${txt("ts.verbunden")}</span></h2>
+      <div class="hinweis">${txt("ts.adresse")}</div>
+      <div style="margin:.5rem 0"><a href="https://${esc(t.adresse)}" target="_blank"
+         style="font-family:monospace">https://${esc(t.adresse)}</a></div>
+      <div class="hinweis">${txt("ts.handy")}</div>
+      <div class="knopfreihe" style="margin-top:.6rem">
+        <button class="leisetaste" onclick="tu('tailscale_trennen',{})">${txt("ts.trennen")}</button>
+      </div>`;
+  }
+  return `<h2>📱 <span>${txt("ts.titel")}</span></h2>
+    <div class="hinweis">${txt("ts.hilfe")}</div>
+    <ol class="klein" style="margin:.6rem 0 .4rem 1.1rem">
+      <li>${txt("ts.schritt_schluessel")}</li>
+      <li>${txt("ts.schritt_dns")}</li>
+      <li>${txt("ts.schritt_einfuegen")}</li>
+    </ol>
+    <div class="feldpaar">
+      <div style="flex:3 1 22rem"><label for="ts_key">${txt("ts.schluessel")}</label>
+        <input id="ts_key" type="password" placeholder="tskey-auth-…" autocomplete="off"
+               onkeydown="if(event.key==='Enter')tsVerbinden()"></div>
+      <div style="align-self:end">
+        <button class="haupt" onclick="tsVerbinden()">${txt("ts.verbinden")}</button></div>
+    </div>`;
+}
+
+async function tsVerbinden(){
+  const f = $("#ts_key");
+  if(!f || !f.value.trim()) return;
+  await tu("tailscale_verbinden", {authkey: f.value.trim()});
+}
+
+/* 🔴 Same bolt as the DocuSort card: the page redraws itself every few
+   seconds, and a key that was pasted but not yet sent would vanish under the
+   cursor. The person would think the paste failed. */
+function tsTippt(){
+  const k = $("#tskarte");
+  if(!k) return false;
+  if(k.contains(document.activeElement)) return true;
+  const f = $("#ts_key");
+  return !!(f && f.value !== "");
 }
 
 function bauDocuSort(){
@@ -2212,6 +2267,7 @@ async function hole(){
        would otherwise wipe every search away again — the same trap as with the
        setup form on 2026-09-11. */
     if(!dsTippt()) male("#dskarte", [L.docusort], bauDocuSort);
+    if(!tsTippt()) male("#tskarte", [L.tailscale], bauTailscale);
     male("#ablage", [L.ablage], bauAblage);
     if(!heimTippt()) male("#heimatlos", [L.heimatlos, L.ablage?.ordner], bauHeimatlos);
     male("#auftraege", [L.auftraege], bauAuftraege);

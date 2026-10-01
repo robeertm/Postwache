@@ -16,9 +16,37 @@ ENV PYTHONUNBUFFERED=1 \
     POSTWACHE_TAKT=60 \
     TZ=Europe/Berlin
 
+# ── Tailscale, carried in the image ─────────────────────────────────────────
+# 🔑 WHY IN THE IMAGE AND NOT AS A SIDECAR
+# A sidecar means editing a compose file, on a command line, on the machine.
+# In here it means one field and one button on the settings page.
+#
+# 🔑 WHY THIS WORKS WITHOUT PRIVILEGES — measured, not hoped:
+# `tailscaled --tun=userspace-networking` needs neither `NET_ADMIN` nor
+# `/dev/net/tun`. Measured twice in a bare container: as root, and as **uid
+# 10001**, which is what this image steps down to. Both start and report
+# „Logged out." The second measurement is the one that mattered — nothing here
+# runs as root.
+#
+# `TARGETARCH` is set by Docker per architecture; without it an arm64 image
+# would pull the amd64 binaries.
+ARG TARGETARCH
+ARG TAILSCALE_VERSION=1.86.2
+RUN set -eux; \
+    apt-get update && apt-get install -y --no-install-recommends curl ca-certificates; \
+    curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${TARGETARCH}.tgz" \
+      -o /tmp/ts.tgz; \
+    tar xzf /tmp/ts.tgz -C /tmp; \
+    mv /tmp/tailscale_${TAILSCALE_VERSION}_${TARGETARCH}/tailscaled /usr/local/bin/; \
+    mv /tmp/tailscale_${TAILSCALE_VERSION}_${TARGETARCH}/tailscale  /usr/local/bin/; \
+    rm -rf /tmp/ts.tgz /tmp/tailscale_*; \
+    apt-get purge -y curl && apt-get autoremove -y; \
+    rm -rf /var/lib/apt/lists/*; \
+    tailscaled --version
+
 WORKDIR /app
 COPY postwache.py post_web.py post_web.html VERSION ollama_einrichten.py umbau.py \
-     umzug.py klient.py post_klient.html post_mobil.html /app/
+     umzug.py klient.py post_klient.html post_mobil.html tailscale_zugang.py /app/
 # The language files belong to the program, not to the state. Without them the
 # page shows its keys instead of text — and nothing reports that.
 COPY locales /app/locales
