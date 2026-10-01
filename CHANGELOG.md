@@ -7,6 +7,45 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.11.0] - 2026-10-01
+
+### Added
+
+**Tailscale is now a field and a button in the settings.** It was possible
+before, as a second compose file driven by a shell script — which assumes a
+command line, an editor, and somebody who knows which directory they are
+standing in. Settings → *On your phone, from anywhere* asks for one key and
+then shows the address:
+
+```
+https://postwache.<your-tailnet>.ts.net
+```
+
+Open it on the phone, add it to the home screen, and it looks like an app.
+Nothing is published to the internet and no port is forwarded.
+
+This works because `tailscaled --tun=userspace-networking` needs neither
+`NET_ADMIN` nor `/dev/net/tun` — measured in a bare container twice: as root,
+and as the unprivileged user this image steps down to. The second measurement
+was the one that mattered, because nothing here runs as root.
+
+Three details decide whether it keeps working:
+
+* the login lives in the mounted state directory. Inside the image it would be
+  gone at the next `docker compose pull`, leaving a dead machine in your tailnet.
+* it resumes by itself after a restart. With hourly updates, anything else would
+  mean pressing the button every hour.
+* the page is offered on the port the Postwache **actually** listens on, not on
+  a default — that mix-up puts a valid certificate in front of nothing.
+
+The Keys page has two buttons, and only the upper one works here: *Generate auth
+key…* under **Auth keys**. *Generate access token…* is a key for the Tailscale
+API and cannot log a machine in. The two differ at the front, so a key of the
+wrong kind is turned away before anything is tried, with the right button named.
+
+The sidecar route is unchanged, and remains the right one when Tailscale should
+also carry other containers.
+
 ## [5.10.0] - 2026-09-30
 
 ### Changed

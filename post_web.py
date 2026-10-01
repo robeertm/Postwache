@@ -321,6 +321,9 @@ def lage():
         # fetches itself every 30 s. Searching goes through /api/dokumente.
         "dokumente": lade(os.path.join(OUT, "dokumente.json"), {}),
         "docusort": ds_kurz(),
+        # 🔑 Always answerable, even when this image carries no Tailscale —
+        #    the card then says so instead of the page breaking.
+        "tailscale": ts_kurz(),
         "ki": ki_kurz(),
         "vorschlaege": (vorschlaege_lesen().get("liste") or [])[:40],
         "konfig": konfig_kurz(),
@@ -2059,7 +2062,33 @@ def _klient_wie_wache(d: dict) -> dict:
     return erg
 
 
+def ts_kurz() -> dict:
+    """What the settings card needs. Never raises — a broken status must not
+    take the whole page with it."""
+    try:
+        import tailscale_zugang as tsz
+        return tsz.lage(BASE)
+    except Exception as e:
+        return {"moeglich": False, "laeuft": False, "verbunden": False,
+                "adresse": "", "grund": str(e)[:200]}
+
+
+def ts_verbinden(d: dict) -> dict:
+    import tailscale_zugang as tsz
+    # 🔴 PORT: the one this process really listens on, not a default. Pointing
+    #    Tailscale at the wrong one gives a valid certificate in front of
+    #    nothing — the failure then looks like Tailscale and is not.
+    return tsz.verbinden(BASE, str(d.get("authkey") or ""), PORT)
+
+
+def ts_trennen(d: dict) -> dict:
+    import tailscale_zugang as tsz
+    return tsz.trennen(BASE)
+
+
 AKTIONEN = {
+    "tailscale_verbinden": ts_verbinden,
+    "tailscale_trennen": ts_trennen,
     "zugang": lambda d: zugang_speichern(d),
     "pruefen": lambda d: pruefen(str(d.get("adresse") or (W.zugang().get("adresse") if W else "")),
                                  str(d.get("passwort") or (W.zugang().get("passwort") if W else "")),
@@ -2529,6 +2558,14 @@ def main():
     if takt > 0:
         takt_faden(takt)
     print("Postwache-Seite auf :%d" % PORT, flush=True)
+    # 🔑 An existing Tailscale login carries on by itself. Never fatal: anybody
+    #    who does not use it notices nothing at all.
+    try:
+        import threading as _th
+        import tailscale_zugang as tsz
+        _th.Thread(target=tsz.beim_start, args=(BASE, PORT), daemon=True).start()
+    except Exception:
+        pass
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 
 
