@@ -38,6 +38,11 @@ services:
       - DOCUSORT_LOG_LEVEL=INFO
       # The shared pairing secret. DocuSort creates the account with it.
       - DOCUSORT_POSTWACHE_PASSWORD=${PAIRING_SECRET:?put PAIRING_SECRET=... in .env — `openssl rand -base64 24` makes a good one}
+    extra_hosts:
+      # So a model already running on the host is findable. See the long note in
+      # DocuSort's own docker-compose.yml: on Linux this name does not exist
+      # unless it is mapped, and Linux is where this gets installed.
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./docusort/inbox:/data/inbox
       - ./docusort/library:/data/library
@@ -57,13 +62,16 @@ services:
       - POSTWACHE_DS_URL=http://docusort:9876
       - POSTWACHE_DS_BENUTZER=Postwache
       - POSTWACHE_DS_PASSWORT=${PAIRING_SECRET:?put PAIRING_SECRET=... in .env — `openssl rand -base64 24` makes a good one}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./postwache/data:/data
     depends_on:
       - docusort
 
-  # Keeps both up to date. See the note in docker-compose.yml for what the
-  # Docker socket costs you; nightly at 04:00, and only these two containers.
+  # Keeps everything here up to date. See the note in docker-compose.yml for
+  # what the Docker socket costs you; once an hour, on the hour, and only the
+  # containers named below.
   watchtower:
     image: ghcr.io/nicholas-fedor/watchtower:latest
     container_name: docusort-postwache-watchtower
@@ -75,6 +83,90 @@ services:
     command:
       - --cleanup
       - --schedule
-      - ${WATCHTOWER_SCHEDULE:-0 0 4 * * *}
+      - ${WATCHTOWER_SCHEDULE:-0 0 * * * *}
       - docusort
       - postwache
+      # And the shared model, when the `ki` profile is on. Named even when it is
+      # off: a name that matches nothing is skipped, whereas a container nobody
+      # named is never updated — and that is the one of the two you do not notice.
+      - ollama
+
+  # ── ONE local model for BOTH of them (optional) ─────────────────────────
+  # 🔑 WHY THIS BELONGS IN THIS FILE AND NOT TWICE
+  # Both programs can have their thinking done locally — DocuSort sorts the
+  # documents, the Postwache judges the mail — and then nothing about either
+  # leaves the machine. Two separate installations would mean two Ollamas, two
+  # copies of the same multi-gigabyte model and twice the memory, for a machine
+  # that can only think about one thing at a time anyway. So: one, shared.
+  #
+  #     docker compose -f docker-compose.both.yml --profile ki up -d
+  #     docker compose -f docker-compose.both.yml exec ollama \
+  #         ollama pull qwen2.5:3b-instruct
+  #
+  # Then on either settings page, the search finds it at `http://ollama:11434`
+  # by itself — a service name from this file, resolved inside the Docker
+  # network. Nothing to type, no port on the host, nothing on your LAN.
+  #
+  # 🔴 THE TWO PROGRAMS WANT THE ADDRESS WRITTEN DIFFERENTLY, and if you ever
+  #    fill a field by hand this is where it goes wrong:
+  #      Postwache  http://ollama:11434       (it appends /v1/chat/completions)
+  #      DocuSort   http://ollama:11434/v1    (it appends /chat/completions)
+  #    Both pages get it right on their own when you let them search.
+  #
+  # 🔑 WHICH MODEL — measured on a Synology (AMD Ryzen V1500B, four cores, no
+  #    graphics card), which is the kind of machine this lands on:
+  #      one mail             qwen2.5:3b-instruct  about 15 s
+  #      one bank statement   qwen2.5:3b-instruct  144 s      ← start here
+  #      the same statement   qwen2.5:7b-instruct  360 s (six minutes)
+  #    What costs the time is not the answer but reading the question: a document
+  #    is long, and that part grows with its length. A mail is short either way.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    profiles: ["ki"]
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      # 🔴 NEVER UNLOAD. Ollama forgets a model after five idle minutes and loads
+      # it again on the next question — 30 s for a 7B, measured. With two
+      # programs asking at different times that would otherwise be paid over and
+      # over. Held in memory it costs the size of the model and nothing else.
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_MAX_LOADED_MODELS=1
+      # 🔑 TWO SLOTS — and the measurement that goes with them, because the
+      # obvious conclusion is the wrong one.
+      #
+      # With one slot Ollama works strictly in turn: its own log shows
+      # `slot id 0 | task 0`. A DocuSort document occupies the model for 465 s on
+      # the machine below, so a question from the Postwache would simply queue
+      # behind it. Two slots let it start at once — each slot gets the FULL
+      # context window, not half of it (measured: `slot load_model: id 0 |
+      # n_ctx = 8192` and the same for id 1).
+      #
+      # 🔴 IT STILL DOES NOT MAKE THE SHORT QUESTION FAST. Measured, both at
+      # once: DocuSort's document 401 s, and the Postwache's question ran into
+      # its 90 s limit. The slots are logical; the four cores are not. Prompt
+      # reading saturates them, and the second request crawls.
+      #
+      # 🔑 WHY THAT IS ACCEPTABLE AND NOT PAPERED OVER. The Postwache asks for
+      # judgement at most ONCE A DAY, and only for rule suggestions on mails it
+      # could not place. `ki_regeln_vorschlagen` never raises: it logs that the
+      # aid was unreachable, returns nothing, and the finding still goes into the
+      # history. The comment on that function says why — a judgement aid must not
+      # cost the mail run. Raising its 90 s to sit out a 465 s classification
+      # would break exactly that. So on a day when the two collide, one
+      # suggestion is skipped and comes back on the next run. Nothing is lost,
+      # and the log says so.
+      - OLLAMA_NUM_PARALLEL=2
+      # The window: DocuSort's real prompt carries every category and
+      # subcategory and measures 2050 tokens, plus the answer. At the default
+      # 4096 that is half the window, and a window that is too small truncates
+      # quietly instead of failing.
+      - OLLAMA_CONTEXT_LENGTH=8192
+    volumes:
+      - ./ollama:/root/.ollama
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"

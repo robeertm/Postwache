@@ -7,6 +7,104 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.13.0] - 2026-10-02
+
+### Fixed
+
+**The search for a local model found nothing on Linux — which is where this gets
+installed.** `ollama_suchen()` asks `host.docker.internal` whenever the Postwache
+runs in a container, the common case being a model on the machine the container
+sits on. Docker Desktop (Mac, Windows) invents that name. Plain Docker on a NAS,
+a Pi or a VPS does not, unless the compose file maps it. The shipped compose file
+did not. Measured inside a real container on a Synology:
+
+```
+http://<the host's LAN address>:11434   HTTP 200
+http://host.docker.internal:11434       URLError [Errno -2] Name or service not known
+http://172.17.0.1:11434                 HTTP 200   <- the same host, as the gateway
+```
+
+So the card reported "nothing found" about a model sitting right next to it. The
+compose files now carry `extra_hosts: host.docker.internal:host-gateway`.
+
+### Added
+
+**A local model in the box next door — one command.** Until now "use a local
+model" assumed you already had an Ollama somewhere and knew its address. The
+compose file now carries an optional one:
+
+```
+docker compose --profile ki up -d
+docker compose exec ollama ollama pull qwen2.5:3b-instruct
+```
+
+The search then finds it at `http://ollama:11434` by itself — a service name from
+the same file, resolved inside the Docker network. No port on the host, nothing
+on your LAN, nothing to type. It stays **off** until you name it: a two-gigabyte
+download is not something to hand somebody who only wanted their mailbox sorted.
+
+`docker-compose.both.yml` gets **one** shared Ollama for DocuSort and the
+Postwache. Two separate ones would be two copies of the same model and twice the
+memory, on a machine that can only think about one thing at a time anyway.
+
+### Changed
+
+**Updates once an hour instead of once a night.** The bundled Watchtower ran
+nightly at 04:00 while DocuSort has long shipped hourly, so a house running both
+had two rhythms. The local model is named in the watched list too — a container
+nobody names is never updated, and nothing reports that.
+
+### Measured
+
+On the Synology this lands on (AMD Ryzen V1500B, four cores, no graphics card):
+
+| | one mail (95 tokens) | one bank statement (1699 tokens) |
+|---|---|---|
+| `qwen2.5:3b-instruct` | 15 s | 144 s |
+| `qwen2.5:7b-instruct` | 22 s warm, 55 s cold | 360 s |
+
+What costs the time is reading the question, not writing the answer, and that
+grows with the length of the document. A mail is short; a document is not.
+
+**A shared Ollama: the slots are logical, the cores are not.** Run
+`docker-compose.both.yml` and you have one model and two askers. With one slot
+Ollama works strictly in turn (`slot id 0 | task 0` in its own log), so the
+second question queues completely. There are now **two** slots there, and each
+gets the full context window rather than half of it (`slot load_model: id 0 |
+n_ctx = 8192`, and the same for id 1).
+
+That does **not** make the short question fast. Measured, both at once:
+DocuSort's document 401 s, and the Postwache's question ran into its 90 s limit.
+
+It stays that way on purpose. The Postwache asks for judgement at most **once a
+day**, and only for rule suggestions on mails it could not place.
+`ki_regeln_vorschlagen` never raises: it logs that the aid was unreachable,
+returns nothing, and the finding still goes into the history. The comment on that
+function says why — a judgement aid must not cost the mail run. Raising its 90 s
+to sit out a 465 s classification would break exactly that. On a day when the two
+collide, one suggestion is skipped and comes back on the next run.
+
+**Which model — and why not the faster one.** The same electricity bill,
+classified on the program's real path:
+
+| | time | category |
+|---|---|---|
+| `qwen2.5:3b-instruct` | 186 s | `Haus` (Home) |
+| `qwen2.5:7b-instruct` | 465 s | `Rechnungen` (Invoices) |
+
+The smaller one is two and a half times faster and files the document in the
+wrong drawer. A document in the wrong drawer is a document you have to find
+again — which is why the shared file names the 7b, and the single-program file
+names the 3b as a starting point, where only mail has to be judged.
+
+### Bench
+
+`probe_lokales_modell.py`, **26 probes**. It reads the compose files as YAML
+rather than grepping them — an `extra_hosts` inside a comment maps no name — and
+pulls the candidate list out of the function with `ast` rather than out of the
+file, because the address also appears in an explaining comment and a comment
+asks nobody. Counter-test with five holes restored: **6 red, return 1**.
+
 ## [5.12.0] - 2026-10-02
 
 ### Fixed
