@@ -57,6 +57,7 @@ COPY locales /app/locales
 RUN useradd --create-home --uid 10001 postwache \
  && mkdir -p /data && chown -R postwache:postwache /data /app
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY gesundheit.py /usr/local/bin/gesundheit.py
 
 # 🔴 NO `USER` here on purpose. The entrypoint starts as root, hands /data to
 # the service user and then steps down with setpriv — that is the only way a
@@ -64,10 +65,17 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # by hand. Nothing after that line runs as root.
 VOLUME ["/data"]
 EXPOSE 8110
-# 🔴 401 counts as healthy. With the page lock switched on (5.0.0) `/api/lage`
-# answers „please sign in" — which is the server working exactly as configured. A
-# check that reads that as a failure restarts a perfectly healthy container.
+# 🔑 The check asks `/api/gesundheit` — a door of its own that is not behind
+# the page lock and does no work. The old check asked `/api/lage`, which reads
+# state and (since 5.11.0) starts a Tailscale subprocess: measured 120–320 ms
+# against 3 ms for the page, inside a 5 s limit every 60 s. It also sat behind
+# the lock, which is why it had to count 401 as healthy — a special case that
+# only existed because the wrong door was used.
+# 🔴 A FILE, not a one-liner. The previous version wrote `\n` inside a
+# double-quoted shell string; `sh -c` does not turn that into a newline, so
+# Python got a backslash and an n and died with a SyntaxError on every single
+# run since 3.0.0. See gesundheit.py for the whole story.
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s \
-  CMD python3 -c "import urllib.request,urllib.error,sys\ntry:\n sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8110/api/lage',timeout=4).status==200 else 1)\nexcept urllib.error.HTTPError as e:\n sys.exit(0 if e.code==401 else 1)"
+  CMD ["python3", "/usr/local/bin/gesundheit.py"]
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python3", "/app/post_web.py"]

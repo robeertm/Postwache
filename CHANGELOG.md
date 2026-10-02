@@ -7,6 +7,46 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.11.1] - 2026-10-02
+
+### Fixed
+
+**The container health check never worked.** Docker reported
+`Up 6 hours (unhealthy)` and printed a Python SyntaxError next to it. The
+HEALTHCHECK in the Dockerfile was a one-liner that wrote `\n` INSIDE a
+double-quoted shell string. `sh -c` does not turn that into a newline: Python
+received a backslash and an n and died before it looked at anything. The
+failing streak was 392 — the check had failed on every single run since 3.0.0,
+for six months, on every container that ever ran this image.
+
+A `try:` block cannot live on one line, so the one-liner needed newlines it
+could not have. The check is now a **file** (`gesundheit.py`), which can be
+compiled, imported and run — and a bench and the pre-delivery gate now do
+exactly that.
+
+**It also knocks on a door of its own.** `/api/gesundheit` sits in front of
+every lock check and does no work. The old check asked `/api/lage`, which
+reads state and, since 5.11.0, starts a Tailscale subprocess: measured
+120–320 ms against 3 ms for the page, inside a 5 second limit every 60
+seconds. It was also behind the page lock, which is why the old check had to
+count 401 as healthy — a special case that only existed because the wrong door
+was used.
+
+The port is asked, not assumed: `gesundheit.py` reads `POSTWACHE_WEB_PORT`,
+the same environment variable `post_web.py` reads.
+
+**A second, worse fault turned up while fixing it.** `post_web.py` used a bare
+`VERSION` in two places — and there is no such name in the module. One of them
+is `_ist_docusort()`, the check that asks „is that really a DocuSort over
+there?". Its `NameError` ran into `except Exception: return ""` and was
+swallowed, so the function had **always** answered „not a DocuSort" and the
+automatic search could never find anything.
+
+The coupling bench had not caught it because it replaces that function with a
+stand-in to test the SEARCH — which left the function itself untested by
+anything. It now has probes of its own, against a fake DocuSort on a real
+socket.
+
 ## [5.11.0] - 2026-10-01
 
 ### Added

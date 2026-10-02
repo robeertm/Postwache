@@ -1568,7 +1568,7 @@ def _ist_docusort(basis: str) -> str:
         ktx.verify_mode = ssl.CERT_NONE
     try:
         req = urllib.request.Request(basis.rstrip("/") + "/api/version",
-                                     headers={"User-Agent": "Postwache/%s" % VERSION})
+                                     headers={"User-Agent": "Postwache/%s" % _version()})
         with urllib.request.urlopen(req, timeout=4, context=ktx) as a:
             d = json.loads(a.read(4000).decode("utf-8", "replace"))
         v = str(d.get("current") or "")
@@ -2282,6 +2282,22 @@ class Handler(BaseHTTPRequestHandler):
         abfrage = urllib.parse.parse_qs(self.path.partition("?")[2])
         if pfad.startswith("/api/klient/"):
             return self._klient_datei(pfad, abfrage)
+        # 🔴 THE HEALTH CHECK GETS ITS OWN DOOR, and it is the FIRST one.
+        #
+        # It used to ask `/api/lage`. Two things are wrong with that. `lage()`
+        # does real work — it reads the state, and since 5.11.0 it also asks
+        # Tailscale, which means a subprocess. Measured on a Synology: `/api/lage`
+        # 120–320 ms against 3 ms for the page, and that was BEFORE a Tailscale
+        # login exists. Docker runs this every 60 s with a 5 s limit; a daemon
+        # that is slow to answer would mark a perfectly healthy container as
+        # broken. And `/api/lage` sits behind the page lock, which is why the
+        # old check had to treat 401 as healthy — a special case that only
+        # existed because the wrong door was used.
+        #
+        # This one answers the only question a health check may ask: is the
+        # server there? No state, no subprocess, no lock.
+        if pfad.rstrip("/") == "/api/gesundheit":
+            return self._sende(200, {"ok": True, "fassung": _version()})
         if self.path.startswith("/api/lage"):
             if self._gesperrt():
                 return self._sende(401, {"fehler": txt("k.bitte_anmelden"),
