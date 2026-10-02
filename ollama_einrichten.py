@@ -260,6 +260,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Set up a local model for the Postwache.")
     p.add_argument("--postwache", required=True, help="e.g. http://postwache.local:8110")
     p.add_argument("--modell", default="", help="model to pull (default: %s)" % STANDARD_MODELL)
+    p.add_argument("--zettel", default="",
+                   help="setup note from the Postwache's settings page")
     p.add_argument("--unsicher", action="store_true",
                    help="accept a self-signed certificate on the Postwache")
     a = p.parse_args()
@@ -277,6 +279,23 @@ def main() -> int:
         ende("Cannot reach %s (%s).\nIs the Postwache running, and is this "
              "machine on the same network?" % (origin, e))
     gut("Postwache %s answers." % (lage.get("version") or "?"))
+
+    # ── 1b. 🔴 IS THE NOTE STILL GOOD? ASK NOW, NOT AFTER THE DOWNLOAD ──
+    # With the page lock on, this script has no session; it carries a setup
+    # note from the settings page instead. A note that has expired is only
+    # noticed when the setting is saved — which is AFTER a model of several
+    # gigabytes has been pulled. Everything done, nothing saved. So it is
+    # checked here, with a request that costs nothing.
+    if a.zettel:
+        try:
+            probe = senden(origin + "/api/ki_suchen", {"zettel": a.zettel},
+                           20.0, a.unsicher)
+        except Exception as e:
+            ende("Could not check the setup note: %s" % e)
+        if probe.get("gesperrt"):
+            ende("The setup note is not valid any more.\nOpen the Postwache's "
+                 "settings, fetch a fresh one and start this again.")
+        gut("Setup note accepted.")
 
     # ── 2. Is it on THIS machine? ──────────────────────────────
     meine = eigene_adresse(host, port)
@@ -374,19 +393,28 @@ def main() -> int:
     schritt("Telling the Postwache")
     try:
         antwort = senden(origin + "/api/ki",
-                         {"anbieter": "ollama", "url": ziel_url, "modell": modell},
+                         {"anbieter": "ollama", "url": ziel_url, "modell": modell,
+                          "zettel": a.zettel},
                          30.0, a.unsicher)
     except Exception as e:
         ende("Could not save the setting: %s" % e)
     if not antwort.get("ok"):
-        ende("The Postwache refused the setting: %s" % (antwort.get("text") or "?"))
+        print("\n%sThe Postwache refused the setting: %s%s"
+              % (ROT, antwort.get("text") or "?", AUS))
+        print("\n  The model is pulled and ready — only the setting did not land.")
+        print("  Open the Postwache, Settings -> judgement aid, and enter:")
+        print("     Provider : Ollama")
+        print("     Address  : %s" % ziel_url)
+        print("     Model    : %s" % modell)
+        return 1
     gut("Provider set to Ollama, %s, model %s." % (ziel_url, modell))
 
     # ── 7. 🔴 And now we ask the POSTWACHE, not ourselves ────────────
     schritt("Asking the Postwache whether it actually works")
     info("The first answer loads the model into memory — this can take a minute.")
     try:
-        probe = senden(origin + "/api/ki_pruefen", {}, WARTEN_PRUEFUNG, a.unsicher)
+        probe = senden(origin + "/api/ki_pruefen", {"zettel": a.zettel},
+                       WARTEN_PRUEFUNG, a.unsicher)
     except Exception as e:
         ende("The Postwache could not be asked: %s\nThe setting is saved; open "
              "the page and press „check“ there." % e)

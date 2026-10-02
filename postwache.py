@@ -46,6 +46,7 @@ import json
 import os
 import quopri
 import re
+import secrets
 import socket
 import subprocess
 import sys
@@ -115,6 +116,7 @@ ZUGANG = "zugang.json"       # 0600, up to 2.x: ONE mailbox. Gets migrated.
 POSTFAECHER = "postfaecher.json"  # 0600: since 3.0.0 the list of all mailboxes
 KONFIG = "konfig.json"       # Umgebung: Seite, Home Assistant, Werkstatt
 KI = "ki.json"               # 0600: provider for the judgement aid
+ZETTEL = "einricht_zettel.json"   # 0600: one-time note for the Ollama helper
 EINST = "einstellungen.json"
 LAUF = "lauf.json"
 KOEPFE = "koepfe.json"       # what the watchman kept from every mail
@@ -3379,6 +3381,59 @@ KI_STANDARD_URL = {
     "openai": "https://api.openai.com",
     "anthropic": "https://api.anthropic.com",
 }
+
+
+# ── The setup note (5.12.0) ─────────────────────────────────────────────
+# 🔴 WHY THIS EXISTS
+# With the page lock on, a POST had to become impossible without a session —
+# until 5.11.1 anybody who could reach the port could change the mailbox
+# credentials. But the one-click Ollama helper runs on ANOTHER machine and has
+# no session; it writes the address and the model when it is done.
+#
+# So it carries a note instead: the settings page asks for one, the helper gets
+# it on its command line, and only `ki`, `ki_pruefen` and `ki_suchen` accept it.
+# Not `zugang`, not `umbau` — a note that opens everything would be a password
+# with a shorter life, not a smaller key.
+#
+# 🔑 Stored as SHA-256 only. A stolen state file does not yield a usable note.
+ZETTEL_FRIST = 4 * 60 * 60        # seconds. Pulling a model takes its time.
+ZETTEL_AKTIONEN = ("ki", "ki_pruefen", "ki_suchen")
+
+
+def _zettel_lesen() -> list:
+    d = load(ZETTEL, None)
+    jetzt = time.time()
+    return [z for z in (d if isinstance(d, list) else [])
+            if isinstance(z, dict) and float(z.get("bis") or 0) > jetzt]
+
+
+def zettel_neu() -> str:
+    """A fresh note. The caller gets the plain text exactly once — afterwards
+    only its fingerprint is here."""
+    wert = secrets.token_urlsafe(24)
+    offen = _zettel_lesen()[-4:]          # a handful at most
+    offen.append({"fingerabdruck": hashlib.sha256(wert.encode()).hexdigest(),
+                  "bis": time.time() + ZETTEL_FRIST})
+    save(ZETTEL, offen, 0o600)
+    return wert
+
+
+def zettel_gueltig(wert: str) -> bool:
+    """🔑 Compared in constant time — a note is a secret like any other."""
+    w = (wert or "").strip()
+    if not w:
+        return False
+    f = hashlib.sha256(w.encode()).hexdigest()
+    return any(secrets.compare_digest(f, str(z.get("fingerabdruck") or ""))
+               for z in _zettel_lesen())
+
+
+def werkstatt_da() -> bool:
+    """Is there a workshop at all? Without one the provider must not even be
+    OFFERED — until 5.12.0 every installation in the world could pick it and
+    then read that a directory nobody has ever heard of is missing."""
+    p = konfig().get("werkstatt") or ""
+    return bool(p) and os.path.isdir(p)
 
 
 def ki_konfig() -> dict:

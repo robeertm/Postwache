@@ -2132,13 +2132,33 @@ function bauKILokal(){
     <div id="ki_funde"></div>
     <div class="leise klein" style="margin-top:.9rem">${txt("ki.lokal.einrichten_hilfe")}</div>
     <div class="knopfreihe" style="margin-top:.4rem">
-      <a class="leisetaste" href="/api/installer?os=mac" download>⬇ macOS</a>
-      <a class="leisetaste" href="/api/installer?os=windows" download>⬇ Windows</a>
-      <a class="leisetaste" href="/api/installer?os=linux" download>⬇ Linux</a>
+      <button class="leisetaste" onclick="einrichterHolen('mac')">⬇ macOS</button>
+      <button class="leisetaste" onclick="einrichterHolen('windows')">⬇ Windows</button>
+      <button class="leisetaste" onclick="einrichterHolen('linux')">⬇ Linux</button>
     </div>
     <div class="leise klein" style="margin-top:.5rem">${txt("ki.lokal.hinweise")}</div>
     <div class="leise klein" style="margin-top:.4rem">⚠ ${txt("ki.lokal.warnung")}</div>
   </div>`;
+}
+
+/* The launcher runs on ANOTHER machine and has no session. With the page lock
+   on it therefore carries a setup note, which this fetches first — good for a
+   few hours and good for three settings, never for the mailbox. Without the
+   lock there is no note and nothing changes. */
+async function einrichterHolen(system){
+  let zettel = "";
+  try{
+    const a = await sende("zettel", {});
+    if(a && a.ok && a.zettel) zettel = a.zettel;
+  }catch(e){ }
+  const url = "/api/installer?os=" + encodeURIComponent(system)
+            + (zettel ? "&zettel=" + encodeURIComponent(zettel) : "");
+  /* 🔴 A plain link cannot carry a value fetched a moment ago, so the download
+     is started by hand — with `download`, so the browser saves instead of
+     showing a .bat as text. */
+  const a = document.createElement("a");
+  a.href = url; a.download = "";
+  document.body.appendChild(a); a.click(); a.remove();
 }
 
 /* 🔴 The findings are NOT kept in L — otherwise the signature check would draw

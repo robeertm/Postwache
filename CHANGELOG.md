@@ -7,6 +7,41 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.12.0] - 2026-10-02
+
+### Fixed
+
+**The page lock protected reading, not writing.** `_gesperrt()` was asked in
+`do_GET` and nowhere else. Measured on a throwaway instance with the lock
+switched on: `GET /api/lage` answered 401, and `POST /api/ki` answered „saved"
+— and really changed the file. 38 actions were reachable without a session,
+among them the mailbox credentials, the Telegram token, the Tailscale login,
+removing a mailbox, and the two that really move mail. A lock in front of the
+page with open writing behind it is worse than no lock: it reads like
+protection.
+
+### Added
+
+**A setup note for the one-click Ollama helper.** That helper runs on another
+machine and has no session, so it now carries a note: the settings page fetches
+one, the launcher gets it on its command line, and it opens exactly three
+actions — `ki`, `ki_pruefen`, `ki_suchen`. Never the mailbox. It lasts four
+hours, is stored as a SHA-256 fingerprint only (0600), and cannot mint itself.
+
+It is checked BEFORE a model is pulled. An expired note would otherwise surface
+only when the setting is saved — after several gigabytes have been downloaded,
+with everything done and nothing stored. And if saving fails anyway, the helper
+prints the address and the model instead of throwing the work away.
+
+### Changed
+
+**The `werkstatt` provider is offered only where a workshop exists.** It hands
+unclear cases to an agent in a directory and sends wake-up calls through
+`docker exec` — neither exists on a normal installation, and neither exists
+inside the container image, which carries no Docker at all. It was still in
+every installation's dropdown, where picking it led to a message about a
+directory nobody has ever heard of.
+
 ## [5.11.1] - 2026-10-02
 
 ### Fixed
