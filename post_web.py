@@ -2081,7 +2081,7 @@ def ts_kurz() -> dict:
         return tsz.lage(BASE)
     except Exception as e:
         return {"moeglich": False, "laeuft": False, "verbunden": False,
-                "adresse": "", "grund": str(e)[:200]}
+                "angeboten": False, "adresse": "", "grund": str(e)[:200]}
 
 
 def ts_verbinden(d: dict) -> dict:
