@@ -10,6 +10,16 @@ services:
       - POSTWACHE_TAKT=60    # seconds between runs; a container has no cron
     volumes:
       - ./data:/data         # mailbox credentials, what it learned, the log
+    # 🔴 WITHOUT THIS LINE THE SEARCH FOR A LOCAL MODEL FINDS NOTHING ON LINUX.
+    # The Postwache looks for an Ollama at `host.docker.internal` when it is
+    # running in a container — the usual case being a model on the machine the
+    # container sits on. On Docker Desktop (Mac, Windows) that name resolves by
+    # itself. On Linux — a NAS, a Pi, a VPS, which is where this actually gets
+    # installed — it does not exist unless it is mapped here. Measured on a
+    # Synology: without the line, `Name or service not known`; with it, the
+    # host answers. One line, and the Ollama card stops coming up empty.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ── Keeps itself up to date ────────────────────────────────────────────
   # Docker never re-pulls a running container: `image: …:latest` is a label,
@@ -21,15 +31,17 @@ services:
   # What that costs, stated plainly:
   #   * it needs the Docker socket, which is effectively root on the host.
   #     Mounted READ-ONLY here, but still a privilege you are granting.
-  #   * it updates on ITS schedule. Nightly at 04:00, not hourly, so a new
-  #     version does not land in the middle of what you are doing.
+  #   * it updates on ITS schedule: once an hour, on the hour. A fix you
+  #     are waiting for should not have to wait until tomorrow night —
+  #     and the same interval is what DocuSort has always shipped, so a
+  #     house running both does not have two different rhythms.
   #   * it watches ONLY the postwache container (named at the end of the
   #     command). If you already run a Watchtower of your own, the two do not
   #     fight — they look at different containers.
   #
   # To switch it off: delete this service, or `docker compose stop watchtower`.
   # To change when it runs, put a cron line in `.env`:
-  #     WATCHTOWER_SCHEDULE=0 30 3 * * *
+  #     WATCHTOWER_SCHEDULE=0 0 4 * * *      # or once a night at 04:00
   watchtower:
     image: ghcr.io/nicholas-fedor/watchtower:latest
     container_name: postwache-watchtower
@@ -41,5 +53,79 @@ services:
     command:
       - --cleanup
       - --schedule
-      - ${WATCHTOWER_SCHEDULE:-0 0 4 * * *}
+      - ${WATCHTOWER_SCHEDULE:-0 0 * * * *}
       - postwache
+      # The local model too, when the `ki` profile is on. Named even
+      # when it is off: a name that matches nothing is skipped, whereas a
+      # container nobody named is never updated — and that is the one of
+      # the two mistakes you do not notice.
+      - postwache-ollama
+
+  # ── A local model, in the box next door (optional) ──────────────────────
+  # 🔑 WHY THIS IS HERE AT ALL
+  # The judgement aid can run on a local model, and then nothing about your mail
+  # leaves the machine — no key, no account, no bill. Until now that assumed you
+  # already had an Ollama somewhere and knew its address. This service is the
+  # short way: one command, and there is one.
+  #
+  #     docker compose --profile ki up -d
+  #
+  # It stays OFF unless you ask for it by name — a 2 GB download and a few
+  # gigabytes of memory are not something to hand somebody who only wanted their
+  # mailbox sorted.
+  #
+  # Afterwards, on the settings page: „Judgement aid" → the search finds it at
+  # `http://ollama:11434` by itself, because that is a service name from THIS
+  # file, resolved inside the Docker network. Nothing to type.
+  #
+  # 🔴 PULL A MODEL FIRST — an Ollama without one answers 404 and the card would
+  #    say „reachable" about something that cannot answer a question:
+  #
+  #     docker compose exec ollama ollama pull qwen2.5:3b-instruct
+  #
+  # 🔑 WHICH MODEL — measured, not guessed, on a Synology with an AMD Ryzen
+  #    V1500B (4 cores, no graphics card), which is the kind of machine this
+  #    lands on. One mail — sender, name, subject, reason, about 95 tokens:
+  #      qwen2.5:3b-instruct   about 15 s        ← start here
+  #      qwen2.5:7b-instruct   about 22 s, and 55 s on the first question after
+  #                            the model had been unloaded
+  #    Both fit inside the 90 s the Postwache waits, so either is fine here.
+  #    The 3b is the safer start: it leaves room for a slower machine than this
+  #    one, and a model that is a shade less clever and answers is worth more
+  #    than a clever one that runs into the limit.
+  #
+  # 🔴 IF YOU SHARE THE MODEL WITH DOCUSORT, TAKE THE 3b. A mail is short; a
+  #    bank statement is not, and what costs the time is reading the question,
+  #    not writing the answer. The same statement took the 3b 144 s and the 7b
+  #    360 s — six minutes — on this machine. See docker-compose.both.yml, which
+  #    runs one Ollama for the two of them.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: postwache-ollama
+    profiles: ["ki"]
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      # 🔴 NEVER UNLOAD. Ollama forgets a model after five idle minutes by
+      # default and loads it again on the next question — 30 s for a 7B on a NAS,
+      # measured. That is not fatal on its own, but it lands on top of every
+      # wait, and it lands exactly when the watchman has been quiet for a while
+      # and then has a decision to make. Held in memory it costs the size of the
+      # model and nothing else.
+      - OLLAMA_KEEP_ALIVE=-1
+      # One model, one question at a time. Two at once on a machine without a
+      # graphics card is slower than one after the other, and twice the memory.
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_NUM_PARALLEL=1
+    volumes:
+      # The models are gigabytes and belong to you, not to the image — without
+      # this they are downloaded again after every `docker compose pull`.
+      - ./ollama:/root/.ollama
+    # No port on the host. The Postwache reaches it by service name inside the
+    # Docker network; publishing it would put an interface that asks for no
+    # password onto your LAN.
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"

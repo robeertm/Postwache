@@ -3532,6 +3532,18 @@ def ollama_suchen(zusatz=()) -> list:
         dazu(k["url"])
     dazu("http://127.0.0.1:%d" % OLLAMA_PORT)
     if os.path.exists("/.dockerenv") or os.environ.get("POSTWACHE_IM_CONTAINER"):
+        # 🔑 The box next door. `docker-compose.yml` carries an optional `ollama`
+        # service; started with `--profile ki` it is reachable under its service
+        # name inside the Docker network. This is the one address that needs
+        # nothing published on the host and no address typed by anybody — so it
+        # is asked before the host.
+        dazu("http://ollama:%d" % OLLAMA_PORT)
+        # 🔴 A model on the machine the container sits on. This name does NOT
+        # exist on Linux by itself — only Docker Desktop invents it. The shipped
+        # compose file maps it with `extra_hosts: host.docker.internal:
+        # host-gateway`; without that line this candidate measurably answers
+        # „Name or service not known" on a NAS, a Pi and a VPS alike, and the
+        # search comes up empty where a model was sitting right there.
         dazu("http://host.docker.internal:%d" % OLLAMA_PORT)
     for a in (zusatz or ()):
         a = str(a or "").strip()
