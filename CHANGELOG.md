@@ -7,6 +7,60 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.13.1] - 2026-10-02
+
+### Fixed
+
+**The Tailscale card never showed the address.** Enter an auth key and Tailscale
+really connects — `Running`, a name, HTTPS 200 with a valid certificate, `serve`
+configured. The card went on showing the input form anyway, and only a page
+reload helped.
+
+`tsVerbinden()` sent the key and **did not clear the field**. The lock that keeps
+a pasted key from being wiped by the redraw has two halves, and both kept holding
+afterwards:
+
+```
+f.value !== ""                       the spent key is still sitting in the field
+k.contains(document.activeElement)   after the click, the BUTTON has the focus
+```
+
+So the card was never redrawn. A lock that hides the very success it exists to
+protect. The neighbouring card has long done it right (`dsSpeichern()` clears the
+password field); this one had been forgotten. Both halves are now released, and
+before the answer is awaited.
+
+Measured rather than read: the bench pulls `tsVerbinden` and `tsTippt` out of the
+page and runs them in **node** against a tiny fake DOM — `tsTippt` true before
+(correct), false after, field empty, focus out of the card, key actually sent.
+Counter-test with the hole restored: red.
+
+**The Tailscale binary baked into the image had gone stale.** `ARG
+TAILSCALE_VERSION` stood at 1.86.2 while stable was 1.102.4 — the admin console
+shows an update arrow on a node whose image is rebuilt every hour, because a
+pinned number does not move just because the image does. The pin stays (a build
+that fetches "the newest" is not reproducible and lets a bad release in quietly),
+but it is now **watched**: the bench asks pkgs.tailscale.com what stable is and
+goes red when the Dockerfile falls behind. With no network it says **NOT
+MEASURED** rather than nothing, and does not hold up a delivery.
+
+**1440 log lines a day in a container.** The guard in `auftraege_pruefen()` asked
+whether a workshop path was *configured* — a string — not whether the workshop was
+*reachable*. In a container there is neither the directory nor `docker`, so every
+tick ended in
+
+```
+[…] Auftragszustand nicht abfragbar: [Errno 2] No such file or directory: 'docker'
+```
+
+At a 60 s tick that is 1440 lines a day in exactly the file where one looks for
+real findings. `werkstatt_da()` asks the right question.
+
+Silence would have been wrong too: tasks still open freeze at their last known
+state. That is now said **once**, in the shape `arbeitsplatz_pruefen()` already
+used — report when the finding CHANGES. Proven on a throwaway instance over three
+runs: `docker` never called, zero per-minute lines, exactly one notice.
+
 ## [5.13.0] - 2026-10-02
 
 ### Fixed

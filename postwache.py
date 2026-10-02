@@ -3847,6 +3847,30 @@ def _werkstatt_zustaende() -> dict:
     return {}
 
 
+WERKSTATT_WEG_STAND = "werkstatt_weg.json"
+
+
+def _werkstatt_weg_melden(liste: list) -> None:
+    """Say ONCE that unfinished tasks can no longer be asked about.
+
+    🔑 Silence would be wrong and a line per minute would be worse. The workshop
+    being absent is a fact of the installation, not a failure — but tasks that
+    are still open freeze at their last known state, and that is worth knowing
+    exactly once. Same shape as `arbeitsplatz_pruefen()`: report when the finding
+    CHANGES, and report again when it is resolved.
+    """
+    offen = [a for a in (liste or [])
+             if a.get("zustand") not in ("done", "cancelled")]
+    alt = load_out(WERKSTATT_WEG_STAND) or {}
+    vorher = int(alt.get("offen") or 0)
+    if offen and not vorher:
+        log("Werkstatt nicht erreichbar: %d Auftrag/Auftraege bleiben auf ihrem "
+            "letzten bekannten Zustand stehen." % len(offen))
+        save_out(WERKSTATT_WEG_STAND, {"offen": len(offen), "gemeldet": time.time()})
+    elif not offen and vorher:
+        save_out(WERKSTATT_WEG_STAND, {"offen": 0, "gemeldet": time.time()})
+
+
 def auftraege_pruefen() -> dict:
     """What became of the wake-up calls? Returns a summary.
 
@@ -3854,7 +3878,16 @@ def auftraege_pruefen() -> dict:
     when the deadline is missed — not every minute.
     """
     liste = auftraege_lesen()
-    if not liste or not konfig().get("werkstatt"):
+    # 🔴 „A PATH IS CONFIGURED" IS NOT „THE WORKSHOP IS THERE".
+    # This guard asked `konfig().get("werkstatt")` — whether a STRING is set.
+    # Move an installation into a container and the old path is still in the
+    # state while the directory is gone and so is `docker`, so
+    # `_werkstatt_zustaende()` ran into its `except` on EVERY tick and wrote
+    # „Auftragszustand nicht abfragbar: No such file or directory: 'docker'".
+    # At a 60 s tick that is 1440 lines a day, in exactly the log where one looks
+    # for real findings. `werkstatt_da()` asks the right question.
+    if not liste or not werkstatt_da():
+        _werkstatt_weg_melden(liste)
         return {"offen": 0, "haengen": 0, "gesamt": len(liste)}
     staende = _werkstatt_zustaende()
     jetzt = datetime.now()
