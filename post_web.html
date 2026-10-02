@@ -1145,6 +1145,11 @@ function dsTippt(){
   });
 }
 
+/* What Tailscale said the last time publishing failed. Kept so the card can
+   show the ORIGINAL words underneath the instruction — a reading can be wrong,
+   and then nobody should lose the real message behind a friendly sentence. */
+let tsFehler = null;
+
 /* 🔑 Tailscale from the inside: one field, one button. No sidecar, no compose
    file, no command line. The card reports what Tailscale ITSELF says — it
    never claims a success it cannot see. */
@@ -1154,7 +1159,40 @@ function bauTailscale(){
     return `<h2>📱 <span>${txt("ts.titel")}</span></h2>
       <div class="hinweis">${txt("ts.alt")}</div>`;
   }
-  if(t.verbunden){
+  /* 🔴 JOINED IS NOT REACHABLE — the fault a stranger ran into on 02.10.2026.
+     `tailscale up` had succeeded, `tailscale serve` had not, and this card
+     read nothing but „connected": it showed a green badge and a clickable
+     address with nobody listening behind it. On his phone that came back as
+     ERR_NAME_NOT_RESOLVED, which looks like a fault of the phone. One cause for
+     both: MagicDNS and HTTPS Certificates were off in his tailnet. */
+  if(t.verbunden && !t.angeboten){
+    const roh = tsFehler && tsFehler.roh
+      ? `<div class="hinweis" style="margin-top:.6rem">${txt("ts.sagt")}</div>
+         <pre class="klein" style="white-space:pre-wrap;word-break:break-all;margin:.2rem 0 0">${esc(tsFehler.roh)}</pre>`
+      : "";
+    /* 🔑 ONLY a failure that really was the HTTPS feature sends the reader to
+       the DNS page. Any other one gets the general sentence and its original
+       text — otherwise the card sends everybody there, even where that page has
+       long been right, and the real reason goes unread. With no error object
+       (after a restart) the HTTPS reading is the default: it is by far the most
+       common cause. */
+    const anders = tsFehler && tsFehler.schluessel === "ts.fehler_serve";
+    const satz = anders ? txt("ts.fehler_serve") : txt("ts.fehler_https");
+    const dnslink = anders ? "" :
+      `<div style="margin:.5rem 0"><a href="https://login.tailscale.com/admin/dns"
+         target="_blank" style="font-family:monospace">login.tailscale.com/admin/dns</a></div>`;
+    return `<h2>📱 <span>${txt("ts.titel")}</span>
+        <span class="chip warnung" style="font-size:.7rem">${txt("ts.nicht_angeboten")}</span></h2>
+      <div class="hinweis">${txt("ts.nicht_angeboten_hinweis")}</div>
+      <div class="hinweis" style="margin-top:.6rem">${satz}</div>
+      ${dnslink}
+      ${roh}
+      <div class="knopfreihe" style="margin-top:.6rem">
+        <button class="leisetaste" onclick="hole()">${txt("ts.erneut")}</button>
+        <button class="leisetaste" onclick="tu('tailscale_trennen',{})">${txt("ts.trennen")}</button>
+      </div>`;
+  }
+  if(t.verbunden && t.angeboten){
     return `<h2>📱 <span>${txt("ts.titel")}</span>
         <span class="chip ok" style="font-size:.7rem">${txt("ts.verbunden")}</span></h2>
       <div class="hinweis">${txt("ts.adresse")}</div>
@@ -1201,7 +1239,15 @@ async function tsVerbinden(){
   if(karte && document.activeElement && karte.contains(document.activeElement)){
     document.activeElement.blur();
   }
-  await tu("tailscale_verbinden", {authkey: schluessel});
+  const a = await tu("tailscale_verbinden", {authkey: schluessel});
+  /* 🔑 The module returns a KEY, not a finished sentence — it does not know
+     which language this page is in. The original text is kept for the card. */
+  if(a && a.ok){ tsFehler = null; }
+  else if(a && a.text_schluessel){
+    tsFehler = {schluessel: a.text_schluessel, roh: a.text || ""};
+    melde(txt(a.text_schluessel), false);
+    male("#tskarte", [L.tailscale], bauTailscale);
+  }
 }
 
 /* 🔴 Same bolt as the DocuSort card: the page redraws itself every few
