@@ -31,7 +31,16 @@ ENV PYTHONUNBUFFERED=1 \
 # `TARGETARCH` is set by Docker per architecture; without it an arm64 image
 # would pull the amd64 binaries.
 ARG TARGETARCH
-ARG TAILSCALE_VERSION=1.86.2
+# 🔴 EINE FESTGENAGELTE FASSUNG BEWEGT SICH NIE VON SELBST.
+# Das Abbild wird stuendlich erneuert, aber dieses Tailscale bleibt auf genau
+# der Nummer, die hier steht — auf dessen Admin-Seite erschien darum ein
+# Update-Pfeil an einem Knoten, dessen Abbild taeglich frisch gebaut wurde.
+# Die Nummer bleibt trotzdem fest, weil ein Bau, der „das Neueste" holt, nicht
+# wiederholbar ist und eine schlechte Veroeffentlichung still einzieht.
+# Stattdessen bewacht `probe_tailscale.py` diese Zeile: er fragt
+# pkgs.tailscale.com nach der stabilen Fassung und wird ROT, wenn hier eine
+# aeltere steht. So faellt das Nachziehen am Tor auf, nicht beim Benutzer.
+ARG TAILSCALE_VERSION=1.102.4
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends curl ca-certificates; \
     curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${TARGETARCH}.tgz" \

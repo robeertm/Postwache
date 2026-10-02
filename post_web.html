@@ -1184,7 +1184,24 @@ function bauTailscale(){
 async function tsVerbinden(){
   const f = $("#ts_key");
   if(!f || !f.value.trim()) return;
-  await tu("tailscale_verbinden", {authkey: f.value.trim()});
+  const schluessel = f.value.trim();
+  /* 🔴 CLEAR AND BLUR BEFORE AWAITING — otherwise the lock below (tsTippt)
+     blocks its own result. BOTH halves have to go:
+       · `f.value !== ""`  — the spent key is still sitting in the field;
+       · `k.contains(document.activeElement)` — after the click the BUTTON in
+         this card has the focus, and that alone keeps the lock held.
+     Measured: with a key entered and Tailscale really connected (`Running`, a
+     name, HTTPS 200 with a valid certificate), the card went on showing the
+     input form, because it was never redrawn again. Only a page reload helped —
+     a lock that hides the very success it exists to protect.
+     The neighbouring card has long done it right: `dsSpeichern()` sets
+     `$("#ds_pass").value = ""`. Here it had been forgotten. */
+  f.value = "";
+  const karte = $("#tskarte");
+  if(karte && document.activeElement && karte.contains(document.activeElement)){
+    document.activeElement.blur();
+  }
+  await tu("tailscale_verbinden", {authkey: schluessel});
 }
 
 /* 🔴 Same bolt as the DocuSort card: the page redraws itself every few
