@@ -897,7 +897,18 @@ def ki_kurz() -> dict:
     ok, grund = W.ki_bereit()
     return {"anbieter": k["anbieter"], "url": k["url"], "modell": k["modell"],
             "schluessel_gesetzt": bool(k["schluessel"]), "bereit": ok, "grund": grund,
-            "anbieter_liste": list(W.KI_ANBIETER)}
+            # 🔴 `werkstatt` is a route of its own: it hands the unclear cases to
+            #    an agent in a directory and sends wake-up calls with
+            #    `docker exec`. Neither exists on a normal installation, and
+            #    NEITHER EXISTS IN THIS IMAGE — there is no docker inside a
+            #    container. Until 5.11.1 the list offered it to everybody, who
+            #    could pick it and then read that a directory they have never
+            #    heard of is missing. It is offered only where it can work —
+            #    and, so a saved setting still shows up in its own menu, where
+            #    it is already chosen.
+            "anbieter_liste": [a for a in W.KI_ANBIETER
+                               if a != "werkstatt" or W.werkstatt_da()
+                               or k["anbieter"] == "werkstatt"]}
 
 
 def ki_speichern(d: dict) -> dict:
@@ -2086,7 +2097,20 @@ def ts_trennen(d: dict) -> dict:
     return tsz.trennen(BASE)
 
 
+def zettel_ausstellen(_d=None) -> dict:
+    """A fresh setup note for the Ollama helper.
+
+    🔴 This action is deliberately NOT in `ZETTEL_AKTIONEN`: with the page
+    locked it needs a session. A note that could mint itself would be no gate.
+    """
+    if W is None:
+        return {"ok": False, "text": txt("a.kein_waechter")}
+    return {"ok": True, "zettel": W.zettel_neu(),
+            "stunden": int(W.ZETTEL_FRIST // 3600)}
+
+
 AKTIONEN = {
+    "zettel": zettel_ausstellen,
     "tailscale_verbinden": ts_verbinden,
     "tailscale_trennen": ts_trennen,
     "zugang": lambda d: zugang_speichern(d),
@@ -2157,14 +2181,23 @@ def _als_zip(name: str, inhalt: str) -> bytes:
     return puffer.getvalue()
 
 
-def installer_bauen(system: str, herkunft: str):
+def installer_bauen(system: str, herkunft: str, zettel: str = ""):
     """(file name, type, content) for the chosen system.
 
     🔴 The launcher tidies up after itself. A downloaded script left lying under
     a random name in /tmp is exactly the kind of throwaway file nobody later
-    remembers the purpose of."""
+    remembers the purpose of.
+
+    🔴 Since 5.12.0 it CAN carry a secret: with the page lock on, writing needs
+    a session, and this script runs on another machine. It gets a setup note
+    instead — good for a few hours and good for three actions, never for the
+    mailbox. Without the lock the note is empty and nothing changes."""
     kurz = herkunft.split("//")[-1].split(":")[0].replace("/", "") or "postwache"
     skript = herkunft + "/api/installer/skript"
+    # 🔑 Quoted, and only characters a note can contain — a launcher is a shell
+    #    script, and a value from a request has no business shaping it.
+    sauber = "".join(c for c in (zettel or "") if c.isalnum() or c in "-_")[:120]
+    zusatz = (' --zettel "%s"' % sauber) if sauber else ""
     if system in ("mac", "macos", "darwin"):
         rumpf = "\n".join([
             "#!/bin/bash",
@@ -2175,7 +2208,8 @@ def installer_bauen(system: str, herkunft: str):
             'ORDNER="$(mktemp -d -t postwache_ollama)"',
             "trap 'rm -rf \"$ORDNER\"' EXIT",
             'curl -fsSL "%s" -o "$ORDNER/ollama_einrichten.py"' % skript,
-            '/usr/bin/env python3 "$ORDNER/ollama_einrichten.py" --postwache "%s"' % herkunft,
+            '/usr/bin/env python3 "$ORDNER/ollama_einrichten.py" --postwache "%s"%s'
+            % (herkunft, zusatz),
             "",
         ])
         return ("postwache-ollama-%s-mac.zip" % kurz, "application/zip",
@@ -2188,7 +2222,8 @@ def installer_bauen(system: str, herkunft: str):
             'ORDNER="$(mktemp -d -t postwache_ollama.XXXXXX)"',
             "trap 'rm -rf \"$ORDNER\"' EXIT",
             'curl -fsSL "%s" -o "$ORDNER/ollama_einrichten.py"' % skript,
-            'python3 "$ORDNER/ollama_einrichten.py" --postwache "%s"' % herkunft,
+            'python3 "$ORDNER/ollama_einrichten.py" --postwache "%s"%s'
+            % (herkunft, zusatz),
             "",
         ])
         return ("postwache-ollama-%s-linux.zip" % kurz, "application/zip",
@@ -2202,7 +2237,7 @@ def installer_bauen(system: str, herkunft: str):
             "set ZIEL=%TEMP%\\postwache_ollama_einrichten.py",
             "powershell -NoProfile -Command \"Invoke-WebRequest '%s' -OutFile '%%ZIEL%%'\"" % skript,
             "if errorlevel 1 (echo Download failed.& pause & exit /b 1)",
-            "python \"%%ZIEL%%\" --postwache \"%s\"" % herkunft,
+            "python \"%%ZIEL%%\" --postwache \"%s\"%s" % (herkunft, zusatz),
             "del \"%ZIEL%\" >nul 2>&1",
             "pause",
             "",
@@ -2418,9 +2453,10 @@ class Handler(BaseHTTPRequestHandler):
     def _installer(self):
         """Deliver the setup helper — as source or as a finished launcher.
 
-        🔴 There is no secret in it (unlike DocuSort's bridge, which passes an
-        access key): the launcher carries only this Postwache's address. Still
-        `no-store` — a cached address would simply be wrong after a move."""
+        🔴 Until 5.11.1 there was no secret in it. Now there can be: with the
+        page lock on the launcher carries a setup note, because it runs on
+        another machine and has no session. `no-store` therefore matters twice —
+        a cached launcher would hold both a stale address and a stale note."""
         pfad, _, abfrage = self.path.partition("?")
         if pfad.rstrip("/") == "/api/installer/skript":
             try:
@@ -2433,7 +2469,8 @@ class Handler(BaseHTTPRequestHandler):
         # Behind a TLS-terminating counterpart the scheme is not http.
         schema = (self.headers.get("X-Forwarded-Proto") or "http").split(",")[0].strip()
         wirt = self.headers.get("Host") or ("127.0.0.1:%d" % PORT)
-        gebaut = installer_bauen(system, "%s://%s" % (schema, wirt))
+        zettel = (urllib.parse.parse_qs(abfrage).get("zettel") or [""])[0]
+        gebaut = installer_bauen(system, "%s://%s" % (schema, wirt), zettel)
         if gebaut is None:
             return self._sende(400, {"fehler": "unbekanntes System: %s" % system})
         name, typ, inhalt = gebaut
@@ -2462,10 +2499,30 @@ class Handler(BaseHTTPRequestHandler):
             d = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
         except Exception:
             d = {}
+        d = d if isinstance(d, dict) else {}
         if name in KLIENT_AKTIONEN:
-            return self._klient_aktion(name, d if isinstance(d, dict) else {})
+            return self._klient_aktion(name, d)
+        # 🔴 THE LOCK HAS TO COVER WRITING, NOT ONLY READING (5.12.0)
+        #
+        # Until 5.11.1 `_gesperrt()` was asked in `do_GET` and nowhere else.
+        # With the page lock ON, `GET /api/lage` answered 401 — and
+        # `POST /api/ki` answered „saved". Measured, not assumed: 38 actions
+        # were reachable without a session, among them `zugang` (the mailbox
+        # credentials), `telegram_zugang`, `tailscale_verbinden`,
+        # `postfach_entfernen`, and `umbau`/`umzug`, which really move mail.
+        # A lock in front of the page with open writing behind it is worse than
+        # no lock: it reads like protection.
+        #
+        # 🔑 The one-click Ollama helper runs on ANOTHER machine and has no
+        #    session. It carries a setup note instead — and that note opens
+        #    exactly three actions, never the mailbox.
+        if self._gesperrt():
+            erlaubt = (W is not None and name in W.ZETTEL_AKTIONEN
+                       and W.zettel_gueltig(str(d.get("zettel") or "")))
+            if not erlaubt:
+                return self._sende(200, {"ok": False, "gesperrt": True,
+                                         "text": txt("k.bitte_anmelden")})
         try:
-            d = d if isinstance(d, dict) else {}
             # 🔑 ONE place chooses the mailbox — before every action. Had every
             # action done it itself, the one that forgets would be exactly the one
             # writing into the wrong folder.
