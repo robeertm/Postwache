@@ -1,0 +1,137 @@
+# Setzt `:latest` auf eine Fassung, die bereits VEROEFFENTLICHT ist — und faehrt
+# sie vorher selbst an. Getrennt vom Bauen, ausdruecklich von Hand ausgeloest.
+#
+# 🔴 WARUM ES DIESEN SCHRITT GIBT (04.10.2026)
+#
+# `docker.yml` setzte `:latest` bei jedem Push nach main. Jede Installation
+# folgt diesem Etikett ueber Watchtower (stuendlich, so liefert es der
+# Installer aus). Bei DocuSort ging auf genau diesem Weg eine Fassung hinaus,
+# die auf bestehenden Daten nicht startete: verteilt um 20:36, eine Stunde
+# still — und ohne Eingriff nicht zurueckgekommen, weil Watchtower abstuerzende
+# Container ueberspringt.
+#
+# Geprueft worden war vorher nur der ARBEITSSTAND als Prozess
+# (`pruefstaende/vor_auslieferung.py`). Das veroeffentlichte Abbild hatte
+# niemand angefasst. Darum tut es dieser Schritt, hier, am echten Artefakt:
+#
+#   1. Push nach main   ->  `:<version>` und `:edge`. `:latest` bewegt sich NICHT.
+#   2. dieser Schritt   ->  Rauchprobe am VEROEFFENTLICHTEN Abbild:
+#                           a) Neuinstallation auf leerem /data
+#                           b) AUFSTIEG: die vorige Fassung laeuft, schreibt
+#                              ihr /data, dann kommt dieses Abbild darueber
+#   3. erst dann        ->  `:latest` wandert, Watchtower verteilt
+#
+# 🔑 Es wird NICHT neu gebaut: `imagetools create` haengt das vorhandene
+# Manifest an ein zweites Etikett. Was hier angefahren wurde, ist Byte fuer
+# Byte das, was Installationen bekommen.
+name: Promote to latest
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Die Version, die :latest werden soll, z. B. 5.14.0"
+        required: true
+        type: string
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # Tiefe 0, weil die Vorgaengerin aus den Git-Tags kommt.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Repository name in lower case
+        id: repo
+        run: echo "slug=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Die Fassung muss es wirklich geben
+        run: |
+          set -euo pipefail
+          IMG="ghcr.io/${{ steps.repo.outputs.slug }}:${{ inputs.version }}"
+          echo "pruefe $IMG"
+          docker buildx imagetools inspect "$IMG" > /dev/null
+          echo "vorhanden."
+
+      # 🔴 DIE VERSION WIRD AUS DEM ABBILD GELESEN, NICHT AUS DEM ARBEITSSTAND.
+      # Bei DocuSort nahm der erste Aufstiegs-Test als Vorgaengerin dieselbe
+      # Version wie den Pruefling. Ergebnis: 44 gruen fuer ein nachweislich
+      # kaputtes Abbild — der „Aufstieg" war ein Nichts, die Daten stammten vom
+      # neuen Code. Die Vorgaengerin muss STRENG AELTER sein.
+      - name: Vorgaengerin bestimmen
+        id: vor
+        run: |
+          set -euo pipefail
+          SLUG="ghcr.io/${{ steps.repo.outputs.slug }}"
+          NEU="${{ inputs.version }}"
+          NEU_IM_ABBILD="$(docker run --rm --entrypoint cat "$SLUG:$NEU" /app/VERSION | tr -d '[:space:]')"
+          echo "Abbild $NEU sagt von sich: $NEU_IM_ABBILD"
+          if [ "$NEU_IM_ABBILD" != "$NEU" ]; then
+            echo "::error::Das Abbild :$NEU traegt die Version $NEU_IM_ABBILD. Kein Aufstiegstest moeglich."
+            exit 1
+          fi
+          kandidat=""
+          for t in $(git tag --list 'v*' | sed 's/^v//' | sort -V); do
+            if [ "$t" = "$NEU" ]; then continue; fi
+            # streng aelter?
+            kleiner="$(printf '%s\n%s\n' "$t" "$NEU" | sort -V | head -1)"
+            if [ "$kleiner" = "$t" ]; then
+              if docker buildx imagetools inspect "$SLUG:$t" >/dev/null 2>&1; then
+                kandidat="$t"
+              fi
+            fi
+          done
+          if [ -z "$kandidat" ]; then
+            echo "::warning::Keine aeltere veroeffentlichte Fassung gefunden — der Aufstieg wird uebersprungen."
+            echo "alt=" >> "$GITHUB_OUTPUT"
+          else
+            ALT_IM_ABBILD="$(docker run --rm --entrypoint cat "$SLUG:$kandidat" /app/VERSION | tr -d '[:space:]')"
+            echo "Vorgaengerin: $kandidat (Abbild sagt: $ALT_IM_ABBILD)"
+            if [ "$ALT_IM_ABBILD" = "$NEU" ]; then
+              echo "::error::Das Abbild :$kandidat traegt dieselbe Version wie der Pruefling. Das ist kein Aufstieg."
+              exit 1
+            fi
+            echo "alt=$kandidat" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rauchprobe — a) Neuinstallation auf leerem /data
+        run: |
+          set -euo pipefail
+          IMG="ghcr.io/${{ steps.repo.outputs.slug }}:${{ inputs.version }}"
+          ./.github/rauchprobe.sh "$IMG" "$PWD/probe-neu" pw-neu 18110
+
+      - name: Rauchprobe — b) AUFSTIEG von der vorigen Fassung
+        if: steps.vor.outputs.alt != ''
+        run: |
+          set -euo pipefail
+          SLUG="ghcr.io/${{ steps.repo.outputs.slug }}"
+          ALT="${{ steps.vor.outputs.alt }}"
+          NEU="${{ inputs.version }}"
+          mkdir -p "$PWD/probe-auf"
+          echo "── die vorige Fassung laeuft und schreibt ihr /data — benutzt: $ALT ──"
+          ./.github/rauchprobe.sh "$SLUG:$ALT" "$PWD/probe-auf" pw-alt 18111
+          echo "── jetzt das neue Abbild auf GENAU DIESEM /data ──"
+          ./.github/rauchprobe.sh "$SLUG:$NEU" "$PWD/probe-auf" pw-auf 18112
+
+      - name: :latest auf diese Fassung setzen
+        run: |
+          set -euo pipefail
+          SLUG="ghcr.io/${{ steps.repo.outputs.slug }}"
+          docker buildx imagetools create -t "$SLUG:latest" "$SLUG:${{ inputs.version }}"
+          echo "::notice::latest zeigt jetzt auf ${{ inputs.version }}"
+
+      - name: Nachlesen, worauf :latest zeigt
+        run: |
+          docker buildx imagetools inspect "ghcr.io/${{ steps.repo.outputs.slug }}:latest" | head -20
