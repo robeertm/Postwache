@@ -40,7 +40,7 @@ ARG TARGETARCH
 # Stattdessen bewacht `probe_tailscale.py` diese Zeile: er fragt
 # pkgs.tailscale.com nach der stabilen Fassung und wird ROT, wenn hier eine
 # aeltere steht. So faellt das Nachziehen am Tor auf, nicht beim Benutzer.
-ARG TAILSCALE_VERSION=1.102.4
+ARG TAILSCALE_VERSION=1.102.5
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends curl ca-certificates; \
     curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${TARGETARCH}.tgz" \

@@ -7,6 +7,50 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.15.0] - 2026-10-06
+
+### Fixed
+
+🗑️ **Ten ticks, one deleted mail.** It was reported that the line at the bottom
+always speaks of one mail, however many were ticked. It spoke the truth: the
+button on the open letter and the keyboard always took that single mail and
+overlooked the selection beside it. Dragging with the mouse had the right rule
+all along — if the row belongs to the selection, the whole selection applies;
+if it lies outside, it applies alone and the selection stays untouched. That
+rule now stands in one place and is used by every way in: delete, move,
+archive, mark as read, in both views.
+
+And the singular: *"1 moved to the bin"* is not a sentence. Deleting and moving
+now have their own form for one, in all five languages.
+
+🔑 **A new test bench measures what goes over the wire** (`probe_auswahl.py`):
+both pages are loaded in a real browser, `sende()` is intercepted and the
+buttons are pressed. With a counter-test against the old behaviour, where
+exactly one mail goes.
+
+### Added
+
+🔑 **A way back when the access word is forgotten.** Setting a new word asks
+for the old one — so whoever forgets it cannot reach their own mailbox any
+more. The door now carries *"Forgotten the access word?"*, and behind it the
+same scheme DocuSort uses:
+
+* The one-time word is rolled, put down once and stored nowhere — only its
+  hash goes into the state file.
+* **Asking for one changes nothing.** The existing word stays valid until
+  somebody really uses the code, so a stranger pressing the button locks
+  nobody out.
+* Two ways: a mail to the mailbox itself (the channel that demonstrably
+  belongs to the owner) and, if that fails, a file with mode 0600 in the state
+  folder — which anybody reaches through the file manager of their NAS.
+* Valid 15 minutes, exactly once, five wrong tries burn the code, and a new
+  one no sooner than every two minutes.
+* After getting in, a new word is demanded at once — and the old one is not
+  asked for, because that is precisely what was forgotten.
+
+🔴 The one-time word does **not** become the account word. Otherwise it would
+no longer be valid once, but until the next change.
+
 ## [5.14.0] - 2026-10-02
 
 ### Fixed

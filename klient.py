@@ -37,9 +37,11 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import select
 import smtplib
 import socket
+import string
 import sys
 import threading
 import time
@@ -381,20 +383,230 @@ def wort_setzen(neu: str, alt: str = "") -> dict:
     neu = str(neu or "")
     if len(neu) < 8:
         return {"ok": False, "text": txt("k.wort_kurz")}
-    if wort_gesetzt():
+    # 🔴 Whoever came in with a one-time word cannot name the old one — that
+    #    is exactly what was forgotten. Otherwise they would be logged in and
+    #    caught all the same: the very dead end a DocuSort user stood in.
+    if wort_gesetzt() and not muss_wechseln():
         pruef = wort_pruefen(alt, "")
         if not pruef.get("ok"):
             return {"ok": False, "text": txt("k.wort_alt_falsch")}
     salz = os.urandom(16)
+    # 🔑 The file is written from scratch, so `muss_wechseln` is gone
+    #    afterwards — the obligation ends with the word that lifted it.
     _save(KLIENT_STAND, {
         "salz": salz.hex(), "hash": _haschen(neu, salz, RUNDEN).hex(),
         "runden": RUNDEN, "gesetzt": datetime.now().astimezone().isoformat(timespec="seconds"),
     }, 0o600)
+    _not_schreiben({})
+    _not_datei_weg()
     with _SCHLOSS:
         _SITZUNGEN.clear()          # a new word ends every old session
     if W is not None:
         W.chronik("klient_wort", text="Zugangswort gesetzt")
     return {"ok": True, "text": txt("k.wort_gesetzt")}
+
+
+
+# ── Getting back in when the word no longer works ────────────────────────
+# 🔴 WHY THIS EXISTS (06.10.2026)
+#
+# The same hole as in DocuSort, one door further along: `wort_setzen` asks for
+# the old word, and whoever has forgotten it cannot reach their own mailbox any
+# more. The mail sits at the provider and is gone all the same. A lock that
+# shuts out ONLY the rightful owner protects nobody.
+#
+# 🔑 THE SCHEME IS DOCUSORT'S, piece by piece:
+#   * The word is rolled, put down once and stored nowhere — only its hash
+#     goes into the state file.
+#   * ASKING FOR ONE CHANGES NOTHING. Whoever presses the button locks nobody
+#     out; the existing word stays valid until somebody really uses the code.
+#   * Two ways, and the second is the more important one: a mail to the
+#     mailbox itself (the channel that demonstrably belongs to the owner) and,
+#     if that fails, a file in the state folder — which anybody running
+#     Postwache reaches through the file manager of their NAS.
+#   * Valid 15 minutes, exactly once, at most five wrong tries, and a new one
+#     no sooner than every two minutes.
+#   * After getting in, a new word is demanded AT ONCE — and the old one is
+#     not asked for, because that is precisely what was forgotten.
+NOT_STAND = "klient_notzugang.json"            # Hash + Frist, 0600
+NOT_DATEI = "zugangswort-zuruecksetzen.txt"    # the second way
+NOT_GUELTIG_S = 15 * 60
+NOT_SPERRE_S = 120
+NOT_MAX = 5
+# No characters that get mixed up while being typed over (0/O, 1/l/I) — the
+# same alphabet as in DocuSort's `notzugang.py`.
+NOT_ALPHABET = "".join(c for c in (string.ascii_letters + string.digits)
+                       if c not in "0O1lI")
+
+
+def _not_lesen() -> dict:
+    d = _load(NOT_STAND, None)
+    return d if isinstance(d, dict) else {}
+
+
+def _not_schreiben(d) -> None:
+    _save(NOT_STAND, d or {}, 0o600)
+
+
+def _not_ordner() -> str:
+    if W is not None:
+        return os.path.dirname(W.state_pfad(NOT_STAND))
+    return os.path.join(BASE, "state")
+
+
+def _not_datei_weg() -> None:
+    try:
+        os.remove(os.path.join(_not_ordner(), NOT_DATEI))
+    except OSError:
+        pass
+
+
+def _not_datei_legen(wort: str, bis: float) -> str:
+    """Put the one-time word into the state folder — the second way.
+
+    🔴 Not a weakening: the mailbox credentials live in that same folder.
+    Whoever can read this file could read everything anyway.
+    """
+    ordner = _not_ordner()
+    os.makedirs(ordner, exist_ok=True)
+    ziel = os.path.join(ordner, NOT_DATEI)
+    text = (
+        "Postwache \u2014 Einmalwort\n"
+        "==========================\n\n"
+        "  Zugangswort:  %s\n\n"
+        "Gueltig bis %s, genau einmal benutzbar.\n"
+        "Nach dem Anmelden fragt die Postwache sofort nach einem neuen Wort,\n"
+        "und diese Datei verschwindet von selbst.\n\n"
+        "Hat das niemand angefordert? Dann loesche die Datei einfach \u2014\n"
+        "es wurde nichts geaendert, das bisherige Wort gilt weiter.\n"
+        % (wort, datetime.fromtimestamp(bis).strftime("%d.%m.%Y %H:%M")))
+    fd = os.open(ziel, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return ziel
+
+
+def _not_mailen(wort: str) -> str:
+    """Send the one-time word to the mailbox itself.
+
+    🔑 The channel that demonstrably belongs to the owner: their own address.
+    Whoever is locked out of this page still reaches their mail — on the
+    phone, on the provider's website, in any other program.
+
+    Returns the address it went to, or "".
+    """
+    if W is None:
+        return ""
+    for f in (W.postfaecher() or []):
+        pf_id = str(f.get("id") or "")
+        s = smtp_zugang(pf_id)
+        adresse = str(f.get("adresse") or "")
+        if not s or not s.get("server") or not adresse:
+            continue
+        try:
+            nachricht = EmailMessage()
+            nachricht["From"] = adresse
+            nachricht["To"] = adresse
+            nachricht["Subject"] = "Postwache \u2014 Einmalwort"
+            nachricht.set_content(
+                "Jemand hat an der Postwache ein Einmalwort angefordert.\n\n"
+                "  Zugangswort:  %s\n\n"
+                "Gueltig 15 Minuten, genau einmal benutzbar. Nach dem Anmelden "
+                "fragt die Postwache sofort nach einem neuen Wort.\n\n"
+                "Warst du das nicht? Dann ignoriere diese Mail \u2014 es wurde "
+                "nichts geaendert, dein bisheriges Wort gilt weiter." % wort)
+            verbindung = _smtp_verbinden(s)
+            try:
+                verbindung.send_message(nachricht)
+            finally:
+                try:
+                    verbindung.quit()
+                except Exception:
+                    pass
+            return adresse
+        except Exception as e:                       # noqa: BLE001
+            log("Einmalwort per Mail gescheitert: %s" % str(e)[:140])
+    return ""
+
+
+def notwort_anfordern() -> dict:
+    """Roll a one-time word, put it where the owner finds it — change NOTHING."""
+    if not wort_gesetzt():
+        return {"ok": False, "text": txt("k.kein_wort"), "kein_wort": True}
+    jetzt = time.time()
+    alt = _not_lesen()
+    if alt and jetzt - float(alt.get("erzeugt") or 0) < NOT_SPERRE_S:
+        warte = int(NOT_SPERRE_S - (jetzt - float(alt["erzeugt"])))
+        return {"ok": False, "text": txt("k.not_zu_frueh", s=warte), "warte": warte}
+    wort = "".join(secrets.choice(NOT_ALPHABET) for _ in range(10))
+    bis = jetzt + NOT_GUELTIG_S
+    salz = os.urandom(16)
+    _not_schreiben({"salz": salz.hex(), "hash": _haschen(wort, salz, RUNDEN).hex(),
+                    "runden": RUNDEN, "erzeugt": jetzt, "ablauf": bis,
+                    "versuche": 0})
+    adresse = _not_mailen(wort)
+    if adresse:
+        _not_datei_weg()
+        if W is not None:
+            W.chronik("klient_notwort", text="Einmalwort per Mail")
+        return {"ok": True, "weg": "mail", "adresse": adresse,
+                "gueltig_min": NOT_GUELTIG_S // 60,
+                "text": txt("k.not_per_mail", a=adresse)}
+    try:
+        ort = _not_datei_legen(wort, bis)
+    except OSError as e:
+        _not_schreiben({})
+        return {"ok": False, "text": txt("k.not_fehler", fehler=str(e)[:160])}
+    if W is not None:
+        W.chronik("klient_notwort", text="Einmalwort als Datei")
+    return {"ok": True, "weg": "datei", "datei": ort, "dateiname": NOT_DATEI,
+            "gueltig_min": NOT_GUELTIG_S // 60,
+            "text": txt("k.not_per_datei", d=NOT_DATEI)}
+
+
+def notwort_einloesen(wort: str) -> bool:
+    """Does this word match the current one-time word? Then spend it — once.
+
+    🔴 The page's access word is NOT touched here, and that is deliberate: a
+    one-time word that becomes the new permanent one is no longer valid once,
+    but until the next change. The dead end (in, forced to change, old word
+    forgotten) is solved on the other side: `wort_setzen` does not ask for the
+    old word while `muss_wechseln` stands.
+    """
+    stand = _not_lesen()
+    if not stand or not stand.get("hash"):
+        return False
+    if time.time() > float(stand.get("ablauf") or 0):
+        _not_schreiben({})
+        _not_datei_weg()
+        return False
+    try:
+        salz = bytes.fromhex(str(stand.get("salz") or ""))
+        soll = bytes.fromhex(str(stand.get("hash") or ""))
+        runden = int(stand.get("runden") or RUNDEN)
+    except ValueError:
+        return False
+    if not hmac.compare_digest(_haschen(str(wort or ""), salz, runden), soll):
+        stand["versuche"] = int(stand.get("versuche") or 0) + 1
+        if stand["versuche"] >= NOT_MAX:
+            _not_schreiben({})
+            _not_datei_weg()
+        else:
+            _not_schreiben(stand)
+        return False
+    _not_schreiben({})                       # exactly once
+    _not_datei_weg()
+    s = zugang_stand()
+    s["muss_wechseln"] = True
+    _save(KLIENT_STAND, s, 0o600)
+    if W is not None:
+        W.chronik("klient_notwort", text="Einmalwort eingeloest")
+    return True
+
+
+def muss_wechseln() -> bool:
+    """Did somebody come in with a one-time word and still owe a new one?"""
+    return bool(zugang_stand().get("muss_wechseln"))
 
 
 def _bremse(adresse: str) -> int:
@@ -437,6 +649,14 @@ def wort_pruefen(wort: str, adresse: str) -> dict:
     except ValueError:
         return {"ok": False, "text": txt("k.wort_falsch")}
     if not hmac.compare_digest(_haschen(str(wort or ""), salz, runden), soll):
+        # 🔑 The second key: a one-time word somebody asked for. Only after
+        #    the real word did not match — otherwise a stale code could push
+        #    the valid word aside.
+        if notwort_einloesen(wort):
+            if adresse:
+                with _SCHLOSS:
+                    _VERSUCHE.pop(adresse, None)
+            return {"ok": True, "text": txt("k.angemeldet"), "wechseln": True}
         if adresse:
             _fehlversuch(adresse)
         warte = _bremse(adresse) if adresse else 0
@@ -505,7 +725,10 @@ def lage_schloss(marke: str) -> dict:
     """What the page may know before anyone is logged in: whether a word exists at
     all, and nothing else."""
     return {"wort": wort_gesetzt(), "an": sitzung_gueltig(marke),
-            "sperre_seite": bool(einstellungen()["sperre_seite"])}
+            "sperre_seite": bool(einstellungen()["sperre_seite"]),
+            # 🔑 So the page can offer the way back at all — and afterwards
+            #    knows that a new word is due now.
+            "wechseln": muss_wechseln()}
 
 
 # ── Folder names: modified UTF-7 ─────────────────────────────────────────
@@ -2977,7 +3200,12 @@ def loeschen(d: dict) -> dict:
     if not endgueltig:
         erg = tu(pf_id, lambda k: k.verschieben_viele(ordner, uids, korb))
         if erg.get("ok"):
-            erg["text"] = txt("k.in_korb", n=erg["n"], o=utf7_dekodieren(korb))
+            # 🔑 One mail is not „1 mails". The message is meant to read as a
+            #    sentence, and for that the one needs its own form — the same
+            #    rule as the confirmation question before deleting.
+            erg["text"] = (txt("k.in_korb_eine", o=utf7_dekodieren(korb))
+                           if erg["n"] == 1 else
+                           txt("k.in_korb", n=erg["n"], o=utf7_dekodieren(korb)))
         return erg
 
     def arbeit(k):
@@ -2988,7 +3216,9 @@ def loeschen(d: dict) -> dict:
     n = tu(pf_id, arbeit)
     if W is not None and n:
         W.chronik("klient_geloescht", n=n, text="%d endgültig" % n)
-    return {"ok": bool(n), "n": n, "text": txt("k.geloescht", n=n)}
+    return {"ok": bool(n), "n": n,
+            "text": txt("k.geloescht_eine") if n == 1
+            else txt("k.geloescht", n=n)}
 
 
 def _wache_abgleichen(pf_id: str) -> dict:

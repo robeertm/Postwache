@@ -459,6 +459,13 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
       <input id="tor_wort" type="password" autocomplete="current-password"
              data-t-platzhalter="k.wort" onkeydown="if(event.key==='Enter')anmelden()">
       <button class="haupt" onclick="anmelden()" data-t="k.anmelden"></button>
+      <!-- 🔴 The way back. Without it the word is the only door, and whoever
+           forgets it cannot reach their own mailbox any more. Pressing this
+           changes NOTHING: it puts down a one-time word, and the existing one
+           stays valid until somebody uses it. -->
+      <button class="blank kleiner leise" id="tor_vergessen"
+              style="width:100%;margin-top:.5rem" onclick="wortVergessen()"
+              data-t="k.wort_vergessen"></button>
     </div>
     <div class="kleiner leise" style="margin-top:1rem" id="tor_fuss"></div>
   </div>
@@ -801,9 +808,16 @@ function blick(was){
 function torZeigen(schloss){
   $("#tor").classList.add("auf");
   const kein = !schloss.wort;
-  $("#tor_neu").hidden = !kein;
-  $("#tor_an").hidden = kein;
-  $("#tor_text").textContent = kein ? txt("k.tor_kein_wort") : txt("k.tor_text");
+  /* 🔑 THREE STATES, not two: no word yet · log in · came in with a one-time
+     word and must now set a new one. The third looks like the first (same
+     form) but says something else. */
+  const neues = kein || !!schloss.wechseln;
+  $("#tor_neu").hidden = !neues;
+  $("#tor_an").hidden = neues;
+  const vergessen = $("#tor_vergessen");
+  if(vergessen) vergessen.hidden = neues;
+  $("#tor_text").textContent = schloss.wechseln ? txt("k.not_jetzt_neu")
+                               : kein ? txt("k.tor_kein_wort") : txt("k.tor_text");
   $("#tor_fuss").textContent = kein ? txt("k.tor_fuss_neu") : txt("k.tor_fuss");
   setTimeout(() => (kein ? $("#tor_wort1") : $("#tor_wort")).focus(), 80);
 }
@@ -816,12 +830,24 @@ async function wortSetzen(){
   melde(r.text, r.ok);
   if(r.ok){ $("#tor_wort1").value = $("#tor_wort2").value = ""; torZeigen({wort:true}); }
 }
+async function wortVergessen(){
+  const r = await sende("klient_wort_vergessen", {});
+  melde(r.text, r.ok);
+  /* The way it arrived stays on screen — a message that fades after three
+     seconds is not enough here. */
+  $("#tor_fuss").textContent = r.text || "";
+}
 async function anmelden(){
   const wort = $("#tor_wort").value;
   if(!wort) return;
   const r = await sende("klient_anmelden", {wort:wort});
   if(!r.ok) return melde(r.text, false);
   $("#tor_wort").value = "";
+  /* 🔴 Came in with a one-time word: do NOT carry on, ask for a new word at
+     once. Otherwise the reader would stand logged in and face the same door
+     again next time. */
+  if(r.wechseln){ torZeigen({wort:true, an:false, wechseln:true});
+                  return melde(txt("k.not_jetzt_neu"), true); }
   torWeg();
   await allesLaden();
 }
@@ -1188,6 +1214,14 @@ async function alleImOrdner(){
 function wahlSchluessel(m){
   return (m.ordner || S.ordner) + "\u0000" + m.uid;
 }
+/* 🔴 ONE RULE FOR EVERY WAY (06.10.2026) — the same as in the wide view. If
+   the row belongs to the selection, the whole selection applies; if it lies
+   outside, it applies alone. Before this the buttons on the open letter always
+   took that single mail, and after ten ticks deleting reported one. */
+function wahlOder(uid, ordner){
+  const m = {ordner: ordner || ordnerVon(uid) || S.ordner, uid: uid};
+  return S.gewaehlt.has(wahlSchluessel(m)) ? posten().map(p => p.uid) : [uid];
+}
 function gewaehlteMails(){
   return S.mails.filter(m => S.gewaehlt.has(wahlSchluessel(m)));
 }
@@ -1533,10 +1567,10 @@ function mailMalen(){
        aria-label="${esc(txt("k.weiterleiten"))}">➦</button>`,
     `<button onclick="stapel('markiert',${!m.markiert},[${m.uid}])"
        aria-label="${esc(txt("k.markieren"))}">${m.markiert ? "★" : "☆"}</button>`,
-    `<button onclick="stapel('gelesen',${!m.gelesen},[${m.uid}])"
+    `<button onclick="stapel('gelesen',${!m.gelesen},wahlOder(${m.uid}))"
        aria-label="${esc(txt(m.gelesen ? "k.ungelesen" : "k.gelesen"))}"
        >${m.gelesen ? "✉️" : "📖"}</button>`,
-    `<button class="gefahr" onclick="stapelLoeschen([${m.uid}])"
+    `<button class="gefahr" onclick="stapelLoeschen(wahlOder(${m.uid}))"
        aria-label="${esc(txt("k.loeschen"))}">🗑️</button>`,
     `<button onclick="mehrTaten()" aria-label="${esc(txt("k.mehr"))}">⋯</button>`,
   ].join("");
