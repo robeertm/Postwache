@@ -48,8 +48,8 @@ def zeilen(pfad, saetze):
 
 
 # ── the invented world, twice ────────────────────────────────
-# 🔑 Steht seit 05.10.2026 in `welten.py` — `demo_imap.py` braucht denselben
-#    Korpus, und zwei Korpora waeren zwei verschiedene Haushalte.
+# 🔑 Lives in `welten.py` since 05.10.2026 — `demo_imap.py` needs the same
+#    corpus, and two corpora would be two different households.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from welten import WELTEN                                      # noqa: E402
 
@@ -78,7 +78,7 @@ _ZAHL = {a: c for a, _n, _k, _o, c in ABSENDER}
 
 
 def grund_fuer(klasse, name, adresse):
-    """Genau der Satz, den `einordnen()` in dieser Sprache schreiben wuerde."""
+    """Exactly the sentence `einordnen()` would write in this language."""
     lokal = adresse.split("@")[0]
     if klasse == "frist":
         return t("w.grund.frist_zahl")

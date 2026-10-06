@@ -1990,7 +1990,13 @@ def umzug_umleitung(d: dict) -> dict:
 # reachable to get through the door at all. The list is the statement: whoever
 # adds an action and forgets to enter it here has it open to anyone who reaches
 # the page.
-KLIENT_OFFEN = ("klient_lage", "klient_anmelden", "klient_wort")
+# 🔑 `klient_wort_vergessen` stands open on purpose: whoever presses it is
+#    locked out at that very moment. NOTHING is changed by it — the one-time
+#    word is only put down, and the existing word stays valid until somebody
+#    uses it. Plus a two-minute brake, otherwise the button would be a way to
+#    send somebody any number of mails.
+KLIENT_OFFEN = ("klient_lage", "klient_anmelden", "klient_wort",
+                "klient_wort_vergessen")
 
 KLIENT_AKTIONEN = {
     "klient_lage": lambda d, marke: _klient_lage(d, marke),
@@ -1998,6 +2004,7 @@ KLIENT_AKTIONEN = {
     "klient_abmelden": None,          # the same, it clears it
     "klient_wort": lambda d, marke: KL.wort_setzen(str(d.get("neu") or ""),
                                                    str(d.get("alt") or "")),
+    "klient_wort_vergessen": lambda d, marke: KL.notwort_anfordern(),
     "klient_einstellung": lambda d, marke: KL.einstellung_setzen(d.get("werte") or d),
     "klient_ordner": lambda d, marke: {"ok": True, "ordner": KL.tu(
         _pf(d), lambda k: k.baum(bool(d.get("frisch"))))},
