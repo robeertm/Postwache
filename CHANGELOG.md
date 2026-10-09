@@ -7,6 +7,34 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.16.0] - 2026-10-09
+
+### Fixed
+
+🔑 **The open mail keeps its row in the list.** New mail appears under “New”,
+clicking a line shows the letter — and after a while the line vanished from the
+list while the letter was still open beside it. The row you were working on was
+gone: no tick box, no drag, no delete key, nothing left to aim at.
+
+Nothing was broken on its own. Three correct things met: the “New” view lists
+what is *unread*, an open mail is flagged read after N seconds, and the
+background round refetches that view on every tick.
+
+A row now goes when the **reader** is done with it, not when the server changes
+its mind: when the focus moves (another mail, another folder, another view) or
+when the mail has been handled (deleted, moved). It returns to *its* place,
+anchored on the row above it rather than jumping to the top, and it is drawn as
+read — holding a row is not the same as lying about it.
+
+The latch carries the view it was set in (New / folder / filter / search), so a
+read mail can never be pushed into a search result it does not match. Both
+directions are measured in `probe_offene_mail.py` (new, 44 checks, both the
+wide and the phone layout), including the counter-test with the latch removed.
+
+### Changed
+
+- The Tailscale binary carried in the image moves from 1.102.5 to **1.104.1**.
+
 ## [5.15.0] - 2026-10-06
 
 ### Fixed
