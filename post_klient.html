@@ -1351,9 +1351,10 @@ async function ladeListe(frisch){
   }catch(e){ return; }
   if(!a || a.ok === false){ melde((a && a.text) || txt("k.ging_nicht"), false); return; }
   S.mails = a.mails || [];
+  haftungAnwenden();
   if(S.neu){
     S.seite = 1; S.seiten = 1; S.sortiert = true;
-    S.gesamt = a.mails ? a.mails.length : 0;
+    S.gesamt = S.mails.length;
     S.neu_gesamt = a.gesamt || 0;
     S.neu_gekuerzt = !!a.gekuerzt;
     S.neu_ordner = a.ordner || 0;
@@ -1381,6 +1382,47 @@ function ordnerZahlAktualisieren(gesamt, ungelesen, ordner){
   if(typeof gesamt === "number") o.gesamt = gesamt;
   if(typeof ungelesen === "number") o.ungelesen = ungelesen;
   ordnerMalen();
+}
+
+/* 🔴 THE OPEN MAIL KEEPS ITS ROW (09.10.2026)
+
+   The „New" view lists what is UNREAD, and the background round refetches it.
+   A mail that is open gets flagged read a few seconds later — so the next
+   round dropped it out of the list while the reading pane still showed it.
+   The reader lost the row they were working on: no tick box, no drag, no
+   delete key, nothing left to aim at. Measured in a browser: one round, and
+   the row was gone from the list while the letter stood open beside it.
+
+   🔑 The row goes when the READER is done with it, not when the server
+   changes its mind: when the FOCUS moves (another mail, another folder,
+   another view) or when the mail has been HANDLED (deleted, moved). Every one
+   of those either opens another mail or sets `S.uid = 0`, so ONE condition
+   answers it — the same place, for every way out. */
+function haftungBlick(){
+  /* 🔴 WHICH LIST it was pinned in. Without this the row would be pushed into
+     a SEARCH RESULT it does not match, or into another folder — a held row in
+     the wrong list is worse than a lost one. */
+  return [S.neu ? "neu" : "", S.ordner || "", S.sieb || "", S.suche || ""].join("\u0000");
+}
+function haftungMerken(){
+  S.haftung = null;
+  if(!S.uid) return;
+  const i = S.mails.findIndex(m => m.uid === S.uid);
+  if(i < 0) return;              // opened from somewhere else — no row to hold
+  S.haftung = {schluessel: wahlSchluessel(S.mails[i]), uid: S.uid,
+               zeile: S.mails[i], i: i, blick: haftungBlick(),
+               vor: i > 0 ? wahlSchluessel(S.mails[i - 1]) : ""};
+}
+function haftungAnwenden(){
+  const h = S.haftung;
+  if(!h || !S.uid || h.uid !== S.uid) return;            // the focus has moved
+  if(h.blick !== haftungBlick()) return;                 // another list entirely
+  if(S.mails.some(m => wahlSchluessel(m) === h.schluessel)) return;  // still there
+  /* Back into ITS place, not on top: a row that jumps is a row you misclick.
+     The neighbour above is the anchor; if it is gone too, the old position. */
+  let i = h.vor ? S.mails.findIndex(m => wahlSchluessel(m) === h.vor) + 1 : 0;
+  if(h.vor && !i) i = h.i;
+  S.mails.splice(Math.max(0, Math.min(i, S.mails.length)), 0, h.zeile);
 }
 
 function listeMalen(){
@@ -1891,6 +1933,7 @@ async function mailOeffnen(uid, ordner){
   clearTimeout(S.lesemarke);
   S.uid = uid;
   S.uid_ordner = ordner || ordnerVon(uid);
+  haftungMerken();
   listeMalen();
   blick("lese");
   $("#lese").innerHTML = `<div class="leer"><div><span class="laedt"></span></div></div>`;
