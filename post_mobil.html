@@ -288,6 +288,15 @@ body.wahlmodus .fuss{display:none}
   background:var(--rand);
   left:calc(.95rem + (var(--tief) - 1) * 1.1rem + .6rem)}
 .ozweig + .ozweig{margin-top:.5rem}
+/* 🔑 What can be done with a folder, IN VIEW. Until 5.17 it hung on a long press
+   only — a gesture nobody knows about does not exist, and the folder could not
+   be given a subfolder at all. A thumb-sized ⋯ at the end of every own folder. */
+.o .otat{flex:0 0 auto;min-width:44px;min-height:44px;margin:-.7rem -.55rem -.7rem 0;
+  display:grid;place-items:center;font-size:1.15rem;color:var(--leise);
+  border:0;background:transparent;border-radius:.6rem}
+.o .otat:active{background:var(--film2, rgba(255,255,255,.12))}
+.o.oneu{color:var(--akzent)}
+.o.oneu .ic{font-size:1.1rem}
 .o.neuzeile{background:rgba(224,164,88,.09);border-bottom-color:rgba(224,164,88,.3)}
 /* ── Folders that are alive ────────────────────────────────────────────────
    A folder icon answers to a finger: it ducks while being pressed. And a folder
@@ -970,7 +979,10 @@ function ordnerMalen(){
       ${falt}<span class="ic ${o.ungelesen ? "atmet" : ""}">${o.icon || "📁"}</span>
       <span class="nm">${esc(ordnerName(o))}</span>
       ${o.ungelesen ? `<span class="u">${o.ungelesen}</span>`
-                    : `<span class="n">${o.gesamt || ""}</span>`}</div>`;
+                    : `<span class="n">${o.gesamt || ""}</span>`}
+      ${o.rolle ? "" : `<button class="otat" aria-label="${esc(txt("k.ordner_taten"))}"
+        ontouchstart="event.stopPropagation()"
+        onclick="event.stopPropagation();ordnerTatAuf('${escJs(o.name)}')">⋯</button>`}</div>`;
   };
   const offen = neuZahl();
   const teile = [`<div class="o neuzeile ${S.neu ? "an" : ""}" role="button" tabindex="0"
@@ -991,6 +1003,11 @@ function ordnerMalen(){
     }
     if(zweig.length) teile.push(`<div class="ozweig">${zweig.join("")}</div>`);
   }
+  /* A whole row for a new folder, where the eye already is — the ＋ in the head
+     alone was too small to be found. */
+  teile.push(`<div class="o oneu" role="button" tabindex="0" onclick="ordnerNeu('')">
+    <span class="ofalt"></span><span class="ic">＋</span>
+    <span class="nm">${esc(txt("k.ordner_neu"))}</span></div>`);
   $("#ordnerliste").innerHTML = teile.join("");
   /* 🔑 ONE button, and the STATE decides which of the two things it offers: as
      long as anything is open it closes everything, and only when everything is
@@ -1393,13 +1410,15 @@ function ordnerTatAuf(name){
   blick("ordnertat");
 }
 function ordnerTatZu(){ tatOrdner = ""; blick("ordner"); }
+/* 🔑 A NEW key since 5.18: the old hint spoke only of the long press and was
+   dismissed for good. Whoever had dismissed it would never learn about the ⋯. */
 function ordnerHinweisWeg(){
   $("#ordnerhinweis").hidden = true;
-  try{ localStorage.setItem("pw_ordnerzieh", "1"); }catch(e){ /* then it comes again */ }
+  try{ localStorage.setItem("pw_ordnertat", "1"); }catch(e){ /* then it comes again */ }
 }
 function ordnerHinweisZeigen(){
   let gesehen = "1";
-  try{ gesehen = localStorage.getItem("pw_ordnerzieh") || ""; }catch(e){ gesehen = "1"; }
+  try{ gesehen = localStorage.getItem("pw_ordnertat") || ""; }catch(e){ gesehen = "1"; }
   if(!gesehen && ("ontouchstart" in window)) $("#ordnerhinweis").hidden = false;
 }
 function zielZu(){ blick(S.offen && S.blick === "ziel" && !S.wahl ? "mail" : "liste"); }
@@ -1422,7 +1441,14 @@ function zielMalen(){
            role="button" tabindex="0" onclick="zielNehmen('${escJs(o.name)}')">
         <span class="ic">${o.icon || "📁"}</span>
         <span class="nm">${esc(ordnerName(o))}</span></div>` : "";
-  const teile = [S.ordner_liste.filter(o => o.rolle).map(o => zeile(o, 0)).join("")];
+  const teile = [];
+  /* 🔑 Mail can go into a folder that does not exist yet — made in the same
+     step. Only for MAIL: a folder on its way has its own „to the top". */
+  if(!zielOrdner)
+    teile.push(`<div class="o oneu" role="button" tabindex="0" onclick="zielNeu()">
+      <span class="ic">＋</span><span class="nm"
+        >${esc(txt("k.in_neuen_ordner").replace(/^＋\s*/, ""))}</span></div>`);
+  teile.push(S.ordner_liste.filter(o => o.rolle).map(o => zeile(o, 0)).join(""));
   if(rest.length){
     teile.push(`<div class="gruppentitel">${esc(txt("k.eigene_ordner"))}</div>`);
     /* Only a FOLDER can go „to the top" — mail has no such place. */
@@ -1433,6 +1459,17 @@ function zielMalen(){
     teile.push(rest.map(o => zeile(o, o.tiefe - grund)).join(""));
   }
   $("#zielliste").innerHTML = teile.join("");
+}
+/* Make a folder and move the waiting mail into it — one step for the reader. */
+async function zielNeu(){
+  const liste = zielFuer;
+  if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
+  const name = prompt(txt("k.ordner_name"));
+  if(!name || !name.trim()) return;
+  const r = await sende("klient_ordner_neu", {name:name.trim(), eltern:""});
+  if(!r.ok || !r.name) return melde(r.text || txt("k.ging_nicht"), false);
+  blick("liste");
+  await verschiebeListe(r.name, liste);
 }
 async function zielNehmen(name){
   if(zielOrdner){
@@ -1647,7 +1684,9 @@ function mailMalen(){
        >${m.gelesen ? "✉️" : "📖"}</button>`,
     `<button class="gefahr" onclick="stapelLoeschen(wahlOder(${m.uid}))"
        aria-label="${esc(txt("k.loeschen"))}">🗑️</button>`,
-    `<button onclick="mehrTaten()" aria-label="${esc(txt("k.mehr"))}">⋯</button>`,
+    /* 🔑 Moving was hidden behind „⋯" — and „more" said nothing about what was
+       behind it. It is the one thing there, so it carries its own sign. */
+    `<button onclick="mehrTaten()" aria-label="${esc(txt("k.verschieben_nach"))}">📁</button>`,
   ].join("");
 }
 function briefHoehe(){
@@ -1743,7 +1782,9 @@ async function verschiebeListe(ziel, liste){
 function angebotSammler(liste){
   const bekannt = new Map();
   for(const m of S.mails) bekannt.set(wahlSchluessel(m), m.adresse || "");
-  if(S.offen) bekannt.set(wahlSchluessel(S.offen), S.offen.adresse || "");
+  /* The open mail only ADDS what the list lacks — an open mail without an
+     address must not blank out the one its row already knows. */
+  if(S.offen && S.offen.adresse) bekannt.set(wahlSchluessel(S.offen), S.offen.adresse);
   let vollstaendig = true, ergebnis = null;
   return {
     adressen(ordner, teil){

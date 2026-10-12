@@ -241,18 +241,26 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
   .o .ic,.o .ic.atmet{transition:none;animation:none}
   .o:hover .ic,.o.ziel .ic,.o:active .ic,.o.an .ic{transform:none}
 }
-/* The ✕ stays out of the way until the pointer is on the row — and it is a
-   target of its own, so it never swallows the click that opens the folder. */
-.ordnerweg{opacity:0;padding:0 .15rem;min-width:1.1rem;font-size:.78rem;
-  color:var(--leiser);border:0;background:transparent;transition:opacity .12s}
-.o:hover .ordnerweg,.ordnerweg:focus-visible{opacity:1}
-.ordnerweg:hover{color:var(--kritisch);background:transparent}
-/* The ＋ for a subfolder behaves like the ✕ beside it: out of the way until the
-   pointer is on the row, and a target of its own. */
-.ordnerplus{opacity:0;padding:0 .15rem;min-width:1.1rem;font-size:.86rem;
-  color:var(--leiser);border:0;background:transparent;transition:opacity .12s}
-.o:hover .ordnerplus,.ordnerplus:focus-visible{opacity:1}
-.ordnerplus:hover{color:var(--akzent);background:transparent}
+/* 🔴 The ＋ and the ✕ used to sit IN the row, invisible but still taking their
+   room — every own folder's count stood two buttons to the left of the special
+   folders' counts, and long names were cut short for buttons nobody saw. Now
+   they float OVER the count on the right and take no room at all: at rest every
+   count stands flush right, on hover the buttons take the count's place. Each is
+   a target of its own, so it never swallows the click that opens the folder. */
+.otat{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);
+  display:flex;gap:.1rem;opacity:0;pointer-events:none;transition:opacity .12s}
+.o:hover .otat,.o:focus-within .otat{opacity:1;pointer-events:auto}
+.o.eigen:hover > .n,.o.eigen:hover > .u,
+.o.eigen:focus-within > .n,.o.eigen:focus-within > .u{visibility:hidden}
+.otat button{padding:.1rem .3rem;min-width:1.45rem;font-size:.82rem;line-height:1;
+  color:var(--leiser);border:0;border-radius:.4rem;background:transparent}
+.otat .ordnerplus:hover{color:var(--akzent);background:var(--film2)}
+.otat .ordnerweg:hover{color:var(--kritisch);background:var(--film2)}
+/* A touch screen has no hover: there the buttons simply stay in view. */
+@media (hover:none){
+  .otat{position:static;transform:none;opacity:1;pointer-events:auto}
+  .o.eigen:hover > .n,.o.eigen:hover > .u{visibility:visible}
+}
 .ogruppe.ziel{color:var(--akzent)}
 body.zieht .z,body.zieht .o{cursor:grabbing}
 .o.an{background:rgba(224,164,88,.15);border-color:rgba(224,164,88,.35)}
@@ -1123,7 +1131,7 @@ function ordnerMalen(){
     /* 🔑 Draggable, and at the same time a target: a folder can be carried
        somewhere else, and mail can be carried INTO it. A special folder is a
        position, not a drawer — it does not travel, but post may land in it. */
-    return `<div class="o ${tief > 0 ? "unter" : ""} ${kinder ? "eltern" : ""}
+    return `<div class="o ${o.rolle ? "" : "eigen"} ${tief > 0 ? "unter" : ""} ${kinder ? "eltern" : ""}
         ${(!S.neu && o.name === S.ordner) ? "an" : ""}" tabindex="0"
         style="--tief:${tief}"
         ${o.rolle ? "" : 'draggable="true"'}
@@ -1139,14 +1147,15 @@ function ordnerMalen(){
       <span class="nm">${esc(ordnerName(o))}</span>
       ${o.ungelesen ? `<span class="u">${o.ungelesen}</span>`
                     : `<span class="n">${o.gesamt || ""}</span>`}
-      ${o.rolle ? "" : `<button class="blank ordnerplus" tabindex="-1"
-        onclick="ordnerNeu(event,'${escJs(o.name)}')"
-        title="${esc(txt("k.unterordner_neu"))}"
-        aria-label="${esc(txt("k.unterordner_neu"))}">＋</button>`}
-      ${o.rolle ? "" : `<button class="blank ordnerweg" tabindex="-1"
-        onclick="ordnerFort(event,'${escJs(o.name)}')"
-        title="${esc(txt("k.ordner_loeschen"))}"
-        aria-label="${esc(txt("k.ordner_loeschen"))}">✕</button>`}
+      ${o.rolle ? "" : `<span class="otat">
+        <button class="blank ordnerplus" tabindex="-1"
+          onclick="ordnerNeu(event,'${escJs(o.name)}')"
+          title="${esc(txt("k.unterordner_neu"))}"
+          aria-label="${esc(txt("k.unterordner_neu"))}">＋</button>
+        <button class="blank ordnerweg" tabindex="-1"
+          onclick="ordnerFort(event,'${escJs(o.name)}')"
+          title="${esc(txt("k.ordner_loeschen"))}"
+          aria-label="${esc(txt("k.ordner_loeschen"))}">✕</button></span>`}
     </div>`;
   };
   const offen = neuZahl();
@@ -1198,10 +1207,25 @@ function ordnerMalen(){
   </div>`);
   $("#ordner").innerHTML = teile.join("");
   const ziel = $("#stapel_ziel");
-  ziel.innerHTML = `<option value="">${esc(txt("k.verschieben_nach"))}</option>` +
-    liste.filter(o => o.waehlbar).map(o =>
+  ziel.innerHTML = zielOptionen();
+}
+/* The targets for moving mail — ONE list for the selection bar and the open
+   mail, so the two can never offer different folders. 🔑 The first real choice
+   is a NEW folder: filing often starts exactly there, and having to leave the
+   mail, make the folder and come back is the step that was missing. */
+function zielOptionen(kurz){
+  /* `kurz`: in the bar of the open mail the list stands among icon buttons, so
+     it shows a 📁 there — the words are in its title and its label. */
+  return `<option value="">${kurz ? "📁" : esc(txt("k.verschieben_nach"))}</option>` +
+    `<option value="${NEUER_ORDNER}">${esc(txt("k.in_neuen_ordner"))}</option>` +
+    S.ordner_liste.filter(o => o.waehlbar).map(o =>
       `<option value="${esc(o.name)}">${"·".repeat(o.tiefe)} ${esc(o.zeige)}</option>`).join("");
 }
+/* 🔴 A value no IMAP folder can carry: „%" is a wildcard of the protocol and
+   not allowed in a mailbox name. (A NUL would be safer still — but the HTML
+   parser turns it into U+FFFD inside an attribute, and the choice would never
+   match again.) */
+const NEUER_ORDNER = "%neu%";
 /* 🔴 „INBOX" is a word from the protocol, not a name a person gave a folder.
    Every other folder is called what the server calls it — that IS the truth, and
    a German mailbox really does have „Gesendet". Only this one is translated. */
@@ -1707,7 +1731,19 @@ async function stapel(was, an, uids){
 async function stapelVerschieben(ziel, uids){
   if(!ziel) return;
   $("#stapel_ziel").value = "";
+  if(ziel === NEUER_ORDNER) return inNeuenOrdner(posten(uids));
   return verschiebeListe(ziel, posten(uids));
+}
+/* Make a folder and move the mail into it — one step for the reader. The folder
+   is created at the top of the own folders; a name with „/" makes a subfolder
+   path, exactly as with „New folder". */
+async function inNeuenOrdner(liste){
+  if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
+  const name = prompt(txt("k.ordner_name"));
+  if(!name || !name.trim()) return;
+  const r = await sende("klient_ordner_neu", {name:name.trim(), eltern:""});
+  if(!r.ok || !r.name) return melde(r.text || txt("k.ging_nicht"), false);
+  return verschiebeListe(r.name, liste);
 }
 /* 🔑 The same road for the toolbar and for a dragged row: one function that gets
    a LIST of (folder, number) — where that list came from is the caller's
@@ -1744,7 +1780,9 @@ async function verschiebeListe(ziel, liste){
 function angebotSammler(liste){
   const bekannt = new Map();
   for(const m of S.mails) bekannt.set(wahlSchluessel(m), m.adresse || "");
-  if(S.offen) bekannt.set(wahlSchluessel(S.offen), S.offen.adresse || "");
+  /* The open mail only ADDS what the list lacks — an open mail without an
+     address must not blank out the one its row already knows. */
+  if(S.offen && S.offen.adresse) bekannt.set(wahlSchluessel(S.offen), S.offen.adresse);
   let vollstaendig = true, ergebnis = null;
   return {
     adressen(ordner, teil){
@@ -2122,6 +2160,13 @@ function leseKopfMalen(){
       title="${esc(txt("k.markieren"))}">${m.markiert ? "★" : "☆"}</button>`);
   t.push(`<button class="blank" onclick="stapel('gelesen',${!m.gelesen},wahlOder(${m.uid}))"
       title="${esc(txt(m.gelesen ? "k.ungelesen" : "k.gelesen"))}">${m.gelesen ? "✉️" : "📖"}</button>`);
+  /* 🔑 Moving the OPEN mail used to need a tick first, or a drag across the
+     page. The same list as the selection bar, right where the mail is read. */
+  t.push(`<select class="lesziel" aria-label="${esc(txt("k.verschieben_nach"))}"
+      title="${esc(txt("k.verschieben_nach"))}"
+      onchange="const z=this.value;this.value='';stapelVerschieben(z,wahlOder(${m.uid}))"
+      style="width:2.9rem;min-width:0;font-size:.9rem;padding:.3rem 1rem .3rem .35rem;background-position:right .3rem center"
+      >${zielOptionen(true)}</select>`);
   const archiv = S.rollen.archiv;
   if(archiv && archiv !== offenOrdner())
     t.push(`<button class="blank" onclick="stapelVerschieben('${escJs(archiv)}',wahlOder(${m.uid}))"

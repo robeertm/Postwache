@@ -7,6 +7,35 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.18.0] - 2026-10-12
+
+### Changed
+
+🔑 **The folder list is tidy again.** The ＋ and ✕ added in 5.17.0 were hidden
+until the pointer reached a row — but they still took their room, so every own
+folder's count stood two buttons further left than the special folders' counts,
+and long names were cut short. They now float over the count and take no room
+at all: at rest every count stands flush right, on hover the buttons take the
+count's place. On a touch screen without a pointer they simply stay in view.
+
+### Added
+
+- **Move the open mail directly.** The bar of an open mail has a 📁 list
+  “Move to …” — the same list as the one for ticked mails.
+- **Move into a new folder.** Both lists, and the phone's “Move to” sheet, start
+  with **“＋ Into a new folder …”**: type a name, the folder is created and the
+  mail goes in — followed by the “always here?” offer from 5.17.0.
+- **Phone: folder actions in view.** Every own folder carries a thumb-sized
+  **⋯** (new subfolder, move elsewhere, delete) — until now this hung on a long
+  press only. A whole **“＋ New folder”** row ends the list, the hint explains
+  the ⋯ (and shows again even if the old hint had been dismissed), and the mail
+  bar shows 📁 instead of a silent “⋯”.
+
+### Fixed
+
+- An open mail without a known address no longer hides the “always here?” offer
+  for a mail whose row knows its sender.
+
 ## [5.17.0] - 2026-10-12
 
 ### Added
