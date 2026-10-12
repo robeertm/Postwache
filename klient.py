@@ -82,6 +82,8 @@ AUSZUG_BYTES = 900                  # how much of a body a list excerpt costs
 AUSZUG_ZEICHEN = 180                # and how much of it a row shows
 NEU_GRENZE = 200                    # rows in the „New" overview at most
 NEU_KOEPFE = 500                    # and header records fetched for it at most
+SUCHE_DECKEL = 5000                 # hits dated and ordered across all folders at most
+SUCHE_HALTEN = 120                  # seconds one cross-folder hit list serves paging
 
 # Special folders are recognised by their FLAG, not by their name — a mailbox in
 # French calls its bin „Corbeille", and a name-based guess misses every mailbox
@@ -1029,24 +1031,7 @@ class Briefkasten(W.Postfach if W is not None else object):
         it can say so instead of quietly showing something else.
         """
         self.waehle(ordner)
-        kriterien = []
-        if sieb == "ungelesen":
-            kriterien.append(b"UNSEEN")
-        elif sieb == "markiert":
-            kriterien.append(b"FLAGGED")
-        elif sieb == "unbeantwortet":
-            kriterien.append(b"UNANSWERED")
-        elif sieb == "anhang":
-            # There is no IMAP criterion for „has an attachment". What there is:
-            # the mail's own Content-Type. Everything with a real attachment is
-            # `multipart/mixed`, so this finds it — plus the occasional newsletter
-            # that is built that way without one. Named honestly on the page.
-            kriterien.append(b'OR HEADER Content-Type "multipart/mixed"'
-                             b' HEADER Content-Type "multipart/related"')
-        if suche:
-            kriterien.append(self._such_bytes(feld, suche))
-        if not kriterien:
-            kriterien = [b"ALL"]
+        kriterien = self._kriterien(sieb, suche, feld)
         umgekehrt = richtung != "auf"
         schluessel = {"datum": b"DATE", "von": b"FROM", "betreff": b"SUBJECT",
                       "groesse": b"SIZE"}.get(sortierung, b"DATE")
@@ -1064,6 +1049,28 @@ class Briefkasten(W.Postfach if W is not None else object):
         # Without SORT only the date can be ordered honestly, and only as UID
         # order. Everything else would be a claim.
         return alle, sortierung == "datum"
+
+    def _kriterien(self, sieb: str, suche: str, feld: str) -> list:
+        """The search criteria for a filter and a search word — ONE place, used
+        by the folder list and by the search across all folders alike. Two
+        copies of this would be two answers to „what does the filter mean"."""
+        kriterien = []
+        if sieb == "ungelesen":
+            kriterien.append(b"UNSEEN")
+        elif sieb == "markiert":
+            kriterien.append(b"FLAGGED")
+        elif sieb == "unbeantwortet":
+            kriterien.append(b"UNANSWERED")
+        elif sieb == "anhang":
+            # There is no IMAP criterion for „has an attachment". What there is:
+            # the mail's own Content-Type. Everything with a real attachment is
+            # `multipart/mixed`, so this finds it — plus the occasional newsletter
+            # that is built that way without one. Named honestly on the page.
+            kriterien.append(b'OR HEADER Content-Type "multipart/mixed"'
+                             b' HEADER Content-Type "multipart/related"')
+        if suche:
+            kriterien.append(self._such_bytes(feld, suche))
+        return kriterien or [b"ALL"]
 
     def _suchen(self, kriterien: list) -> list:
         """UID SEARCH with three attempts: with charset, without, and ASCII-only.
@@ -1280,6 +1287,114 @@ class Briefkasten(W.Postfach if W is not None else object):
         return {"mails": treffer[:grenze], "gesamt": gesamt,
                 "gekuerzt": gekuerzt or len(treffer) > grenze,
                 "ordner": len(ordner_liste)}
+
+    # ── Searching the whole mailbox ──────────────────────────────────
+    # 🔴 THE SEARCH THAT ONLY SAW ONE FOLDER (12.10.2026)
+    #
+    # The search asked the folder that happened to be open, and nothing else.
+    # In a mailbox the watchman files, that is the wrong question: new mail does
+    # not stay in the inbox, it goes into its folder — so a search in the inbox
+    # finds the little that is left there, and the reader concludes the mail is
+    # gone. The owner put it as: searching does not work across the whole
+    # mailbox with all its subfolders.
+    #
+    # 🔑 Every folder is asked, the hits are dated, and ONE list comes back in
+    # date order with the folder written next to every row — the same shape the
+    # „New" overview already has, so every action on the page already knows
+    # what to do with it. Bin and spam stay out, as they do for the document
+    # index: a search for a lost letter must not drown in the deleted ones.
+    def eingangszeiten(self, uids: list) -> dict:
+        """{uid: seconds} of the server's arrival date in the selected folder.
+
+        🔑 The one date every folder can be compared by: a UID only means
+        something inside its own folder, and the `Date` header would cost the
+        whole header block of every hit. INTERNALDATE survives a move (COPY and
+        MOVE keep it), so a filed mail keeps its place in the order."""
+        raus = {}
+        for i in range(0, len(uids), 500):
+            teil = ",".join(str(u) for u in uids[i:i + 500])
+            try:
+                typ, daten = self.m.uid("FETCH", teil, "(UID INTERNALDATE)")
+            except Exception as e:
+                log("Eingangszeiten nicht lesbar: %s" % str(e)[:100])
+                continue
+            if typ != "OK":
+                continue
+            for el in daten or []:
+                if isinstance(el, tuple):
+                    el = el[0]
+                if not isinstance(el, bytes):
+                    continue
+                s = el.decode("utf-8", "replace")
+                u = re.search(r"UID\s+(\d+)", s)
+                d = re.search(r'INTERNALDATE\s+"([^"]+)"', s)
+                if u:
+                    raus[int(u.group(1))] = _intern_sekunden(d.group(1) if d else "")
+        return raus
+
+    def treffer_ueberall(self, sieb: str, suche: str, feld: str) -> dict:
+        """Every hit in every folder, newest first, as (seconds, folder, uid).
+
+        Still `EXAMINE`: searching changes nothing. A folder the server refuses
+        is skipped and logged, never the reason for an empty answer."""
+        kriterien = self._kriterien(sieb, suche, feld)
+        funde, gesamt = [], 0
+        for o in self.baum():
+            if not o["waehlbar"] or o["rolle"] in ("papierkorb", "spam"):
+                continue
+            try:
+                self.waehle(o["name"])
+                uids = self._suchen(kriterien)
+            except Exception as e:
+                log("Ordner %s nicht durchsuchbar: %s" % (o["name"], str(e)[:100]))
+                continue
+            if uids:
+                gesamt += len(uids)
+                funde.append((o, sorted(uids, reverse=True)))
+        # 🔴 A word like „und" hits half the mailbox. Above the ceiling every
+        # folder gets the SAME share, newest first — otherwise the first folder
+        # in the tree eats the budget and the rest is silently missing. And the
+        # page is told, so it can say so.
+        anteil = max(min(50, SUCHE_DECKEL), SUCHE_DECKEL // max(1, len(funde)))
+        treffer, orte, gekuerzt = [], {}, False
+        for o, uids in funde:
+            teil = uids[:anteil] if gesamt > SUCHE_DECKEL else uids
+            gekuerzt = gekuerzt or len(teil) < len(uids)
+            try:
+                self.waehle(o["name"])
+                zeiten = self.eingangszeiten(teil)
+            except Exception as e:
+                log("Ordner %s nicht datierbar: %s" % (o["name"], str(e)[:100]))
+                zeiten = {}
+            orte[o["name"]] = {"zeige": o["pfad"], "kurz": o["zeige"],
+                               "rolle": o["rolle"]}
+            treffer.extend((zeiten.get(u, 0), o["name"], u) for u in teil)
+        treffer.sort(key=lambda x: (x[0], x[2]), reverse=True)
+        return {"treffer": treffer, "gesamt": gesamt, "gekuerzt": gekuerzt,
+                "orte": orte, "ordner": len(funde)}
+
+    def koepfe_ueberall(self, posten: list, orte: dict, auszug: bool = False) -> list:
+        """The header records for a page of (seconds, folder, uid) — one round
+        per folder, and back in the order of the page."""
+        nach = {}
+        for _, ordner, uid in posten:
+            nach.setdefault(ordner, []).append(uid)
+        saetze = {}
+        for ordner, uids in nach.items():
+            try:
+                self.waehle(ordner)
+                koepfe = self.koepfe(uids, auszug=auszug)
+            except Exception as e:
+                log("Koepfe aus %s nicht lesbar: %s" % (ordner, str(e)[:100]))
+                continue
+            ort = orte.get(ordner) or {}
+            for uid, satz in koepfe.items():
+                satz["ordner"] = ordner
+                satz["ordner_zeige"] = ort.get("zeige") or ordner
+                satz["ordner_kurz"] = ort.get("kurz") or ordner
+                satz["rolle"] = ort.get("rolle") or ""
+                saetze[(ordner, uid)] = satz
+        return [saetze[(o, u)] for _, o, u in posten if (o, u) in saetze]
 
     def mail(self, ordner: str, uid: int, bilder: bool = False,
              roh_teile: bool = True) -> dict:
@@ -1653,6 +1768,16 @@ def _intern_zeit(s: str) -> str:
             timespec="seconds")
     except Exception:
         return ""
+
+
+def _intern_sekunden(s: str) -> float:
+    """The server's arrival date as seconds — 0 when it cannot be read, so such
+    a mail sorts to the end instead of breaking the order of the others."""
+    try:
+        teile = imaplib.Internaldate2tuple(('INTERNALDATE "%s"' % s).encode())
+        return time.mktime(teile) if teile else 0.0
+    except Exception:
+        return 0.0
 
 
 def _adressen_kurz(felder: list) -> str:
@@ -3018,6 +3143,10 @@ def liste(d: dict) -> dict:
     #    search or with a filter on, „everything" means every HIT, not the whole
     #    folder.
     alle_uids = bool(d.get("alle_uids"))
+    if suche and d.get("ueberall"):
+        return _liste_ueberall(pf_id, ordner, sieb, suche, feld, sortierung,
+                               richtung, pro, seite, alle_uids,
+                               bool(d.get("blaettern")), bool(einst["vorschautext"]))
 
     def arbeit(k):
         uids, echt = k.uids(ordner, sieb, suche, feld, sortierung, richtung)
@@ -3035,6 +3164,47 @@ def liste(d: dict) -> dict:
             # In the order the server gave them — a dictionary has no order and
             # would show the newest mail somewhere in the middle.
             "mails": [koepfe[u] for u in teil if u in koepfe],
+        }
+    return tu(pf_id, arbeit)
+
+
+# The last hit list across all folders, per mailbox. 🔑 It serves only TURNING
+# THE PAGE (and „select all hits"): every new search, and every reload after an
+# action, asks the server again — a held list would still show a mail that was
+# just moved or deleted.
+_SUCH_HALT = {}
+
+
+def _liste_ueberall(pf_id, ordner, sieb, suche, feld, sortierung, richtung, pro,
+                    seite, alle_uids, blaettern, auszug) -> dict:
+    """One page of a search across every folder — the answer has the shape of
+    `liste()`, plus where the hits are."""
+    schluessel = (sieb, suche, feld)
+
+    def arbeit(k):
+        halt = _SUCH_HALT.get(pf_id)
+        if not (blaettern and halt and halt["schluessel"] == schluessel
+                and time.time() - halt["zeit"] < SUCHE_HALTEN):
+            halt = dict(k.treffer_ueberall(sieb, suche, feld),
+                        schluessel=schluessel, zeit=time.time())
+            _SUCH_HALT[pf_id] = halt
+        treffer = halt["treffer"]
+        if richtung == "auf":
+            treffer = treffer[::-1]
+        n = len(treffer)
+        seiten = max(1, (n + pro - 1) // pro)
+        nr = min(seite, seiten)
+        teil = treffer[(nr - 1) * pro:nr * pro]
+        return {
+            "ok": True, "ordner": ordner, "ueberall": True, "gesamt": n,
+            "seite": nr, "seiten": seiten, "pro_seite": pro,
+            # Across folders the only order that means anything is the date.
+            "sortiert": sortierung == "datum",
+            "in_ordnern": halt["ordner"],
+            "treffer_gesamt": halt["gesamt"], "gekuerzt": halt["gekuerzt"],
+            "alle_uids": None,
+            "alle_posten": [[o, u] for _, o, u in treffer] if alle_uids else None,
+            "mails": k.koepfe_ueberall(teil, halt["orte"], auszug=auszug),
         }
     return tu(pf_id, arbeit)
 

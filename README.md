@@ -78,7 +78,7 @@ that will not tell you its hit rate is a claim, not a measurement.
 | 🌍 **Five languages** | German, English, Spanish, French, Italian — one click, and that includes the messages it sends when nobody is looking. |
 | ↩️ **Everything is reversible** | Every move is journalled. One click puts a mail back; one click puts them all back. |
 | 🛑 **Two emergency stops** | A file on disk, and a switch in Home Assistant. Either one alone stops it. |
-| ✉️ **A full mail client** | Folder tree, list, preview pane, search, reply, forward, attachments, drafts, sending. Some thirty settings, from where the preview sits to when a mail counts as read. Every row shows the first words of the letter — fetched in pieces, one request per shape, and still `BODY.PEEK`. |
+| ✉️ **A full mail client** | Folder tree, list, preview pane, search across every folder, reply, forward, attachments, drafts, sending. Some thirty settings, from where the preview sits to when a mail counts as read. Every row shows the first words of the letter — fetched in pieces, one request per shape, and still `BODY.PEEK`. |
 | ✨ **Everything new, in one view** | Above the inbox: every new mail out of every folder at once, each row saying where it is now. The view the watchman makes necessary — it is the one that moved the mail away. |
 | 📬 **One click from the watchman to the mailbox** | The tab row carries a door to `/post` — a real link that works before any script has run. |
 | 📱 **A version of its own for phones** | Not the wide page made narrow: one sheet at a time, a bar at the bottom, finger targets from 44 px, swipe to archive or delete, long-press to choose several and act on them at once. |

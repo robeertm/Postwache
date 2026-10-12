@@ -7,6 +7,28 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.19.0] - 2026-10-12
+
+### Fixed
+
+🔑 **Search finds mail in every folder.** A search only asked the folder that
+was open — and in the “New” view, where every session starts, it did not search
+at all. Since the Postwache files new mail out of the inbox into its folders,
+that was exactly the place the mail was not. A search now asks every folder and
+subfolder (bin and spam excepted), lists the hits by date in one list, and every
+hit names its folder. “This folder only” is one click away.
+
+- **Phone:** tapping a search hit now opens the mail; “load more” continues the
+  hits instead of mixing in the folder's next page; opening a folder ends the
+  search, so the list refreshes itself again.
+
+### Changed
+
+- The search field choice “everywhere” (all fields) is now called **“all
+  fields”**, so it cannot be mistaken for “all folders”.
+- Across folders, hits are sorted by date. Above 5,000 hits every folder
+  contributes its newest share, and the page says so.
+
 ## [5.18.0] - 2026-10-12
 
 ### Changed

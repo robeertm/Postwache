@@ -408,6 +408,8 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   border-bottom:1px solid var(--rand);scrollbar-width:none}
 .suchchips::-webkit-scrollbar{display:none}
 .suchchips button{flex:0 0 auto;font-size:.82rem;padding:.42rem .8rem;min-height:2.3rem}
+.suchchips .trenner{flex:0 0 1px;align-self:stretch;margin:.3rem .15rem;background:var(--rand)}
+.suchmehr{width:100%;min-height:44px}
 .suchchips button.an{background:var(--akzent-fuell);border-color:var(--akzent-fuell);
   color:var(--akzent-tief)}
 
@@ -505,7 +507,7 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
          wears the very mark the list puts on an unread mail. -->
     <button class="blank" onclick="siebUm()" id="siebknopf"
             data-t-titel="k.sieb_ungelesen">●</button>
-    <button class="blank" onclick="blick('suche')" data-t-titel="k.t_suche">🔍</button>
+    <button class="blank" onclick="suchchipsMalen();blick('suche')" data-t-titel="k.t_suche">🔍</button>
   </div>
   <!-- The same bar, in the same place, while several mails are chosen. -->
   <div class="kopf" id="wahlkopf" hidden>
@@ -744,6 +746,7 @@ function escJs(s){ return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'"); }
 
 const S = {
   pf:"", ordner:"INBOX", seite:1, sieb:"", suche:"", feld:"alle", pro:50,
+  ueberall:true,           // a search asks EVERY folder unless told otherwise
   mails:[], uid:0, offen:null, ordner_liste:[], rollen:{}, einst:{}, faehig:{},
   oberflaeche:[], postfaecher:[], brief:null, seiten:1, gesamt:0, laeuft:false,
   version:"", blick:"liste",
@@ -1061,7 +1064,7 @@ async function ordnerWaehlen(name){
      same bar as for the list rows, or the folder would open underneath its own
      move sheet. */
   if(Date.now() < sperreKlick) return;
-  S.neu = false; wahlAus();
+  S.neu = false; wahlAus(); sucheEnde();
   S.ordner = name; S.seite = 1; S.uid = 0; S.offen = null; S.mails = [];
   ordnerMalen();
   blick("liste");
@@ -1070,7 +1073,7 @@ async function ordnerWaehlen(name){
 /* The view the watchman makes necessary: it carries new post into folders, so
    „what came in" is no longer one folder but twelve. Here they are one list. */
 async function neuWaehlen(){
-  S.neu = true; wahlAus();
+  S.neu = true; wahlAus(); sucheEnde();
   S.seite = 1; S.uid = 0; S.offen = null; S.mails = [];
   ordnerMalen();
   blick("liste");
@@ -1110,15 +1113,16 @@ async function ordnerNeu(eltern){
 async function ladeListe(frisch){
   const o = S.ordner_liste.find(x => x.name === S.ordner) || {};
   $("#ordnername").textContent = S.neu ? txt("k.neu")
-                                       : (o.name ? ordnerName(o) : "Postwache");
+                                : S.suche ? "🔍 " + S.suche
+                                : (o.name ? ordnerName(o) : "Postwache");
   $("#siebknopf").style.color = S.sieb ? "var(--akzent)" : "";
   if(frisch) $("#zeilen").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
   let a;
   try{
     a = S.neu
       ? await sende("klient_neu", {})
-      : await sende("klient_liste", {ordner:S.ordner, seite:frisch ? 1 : S.seite,
-          sieb:S.sieb, suche:"", feld:"alle", pro_seite:S.pro});
+      : await sende("klient_liste", listeAnfrage({seite:frisch ? 1 : S.seite,
+          blaettern:!frisch}));
   }catch(e){ return; }
   if(!a || a.ok === false) return melde((a && a.text) || txt("k.ging_nicht"), false);
   S.mails = (frisch || S.neu) ? (a.mails || []) : S.mails.concat(a.mails || []);
@@ -1135,11 +1139,23 @@ async function ladeListe(frisch){
   const u = $("#ungelesen");
   u.hidden = !a.ordner_ungelesen;
   u.textContent = a.ordner_ungelesen || "";
-  if(o.name){ o.gesamt = a.ordner_gesamt; o.ungelesen = a.ordner_ungelesen; }
+  // A search everywhere has no folder counts to give — keep the known ones.
+  if(o.name && typeof a.ordner_gesamt === "number"){
+    o.gesamt = a.ordner_gesamt; o.ungelesen = a.ordner_ungelesen; }
+  S.in_ordnern = a.in_ordnern || 0;
   listeMalen();
   fussMalen();
   if(frisch) $("#rollen").scrollTop = 0;
 }
+/* 🔑 ONE description of what the list asks the server — the list, „load more"
+   and „select all" send the same, or „all" means something other than what is
+   on screen. With a search on, that includes the search and where it looks. */
+function listeAnfrage(mehr){
+  return Object.assign({ordner:S.ordner, seite:1, sieb:S.sieb, suche:S.suche || "",
+    feld:S.suche ? S.feld : "alle", pro_seite:S.pro,
+    ueberall:trefferUeberall()}, mehr || {});
+}
+function trefferUeberall(){ return !S.neu && !!S.suche && S.ueberall; }
 async function mehrLaden(){
   if(S.seite >= S.seiten) return;
   S.seite += 1;
@@ -1163,7 +1179,8 @@ function haftungBlick(){
   /* 🔴 WHICH LIST it was pinned in. Without this the row would be pushed into
      a SEARCH RESULT it does not match, or into another folder — a held row in
      the wrong list is worse than a lost one. */
-  return [S.neu ? "neu" : "", S.ordner || "", S.sieb || "", S.suche || ""].join("\u0000");
+  return [S.neu ? "neu" : "", trefferUeberall() ? "*" : S.ordner || "", S.sieb || "",
+          S.suche || ""].join("\u0000");
 }
 function haftungMerken(){
   S.haftung = null;
@@ -1192,8 +1209,9 @@ function listeMalen(){
       ? `<div class="leerraum"><div><span class="gross">✨</span>
          ${esc(txt("k.nichts_neu"))}</div></div>`
       : `<div class="leerraum"><div>
-      <span class="gross">${S.sieb ? "●" : "📭"}</span>
-      ${esc(txt(S.sieb ? "k.nichts_im_sieb" : "k.ordner_leer"))}</div></div>`;
+      <span class="gross">${S.suche ? "🔍" : S.sieb ? "●" : "📭"}</span>
+      ${esc(txt(S.suche ? "k.nichts_gefunden"
+                : S.sieb ? "k.nichts_im_sieb" : "k.ordner_leer"))}</div></div>`;
     $("#mehrknopf").hidden = true;
     return;
   }
@@ -1221,7 +1239,7 @@ function zeileHtml(m, i){
         >${esc(initialen(m.von, m.adresse))}</span>
       <span class="von">${esc(m.von || m.adresse)}</span>
       <span class="rand"><span class="wann">${esc(wann(m.zeit))}</span>
-        <span class="zeichen">${S.neu && m.ordner_kurz
+        <span class="zeichen">${(S.neu || trefferUeberall()) && m.ordner_kurz
           ? `<span class="ort">📁 ${esc(ordnerKurz(m))}</span>` : ""}${zeichen}</span></span>
       <span class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</span>
       <span class="aus">${esc(dritteZeile(m))}</span>
@@ -1290,10 +1308,14 @@ async function alleImOrdner(){
     return (wahlMalen(), listeMalen());
   }
   /* 🔴 WORD FOR WORD the request that fetches the list — otherwise „all"
-     means something other than what is on screen. This page does not search
-     through the server (`suche:""`), so no search may ride along here. */
-  const r = await sende("klient_liste", {ordner:S.ordner, seite:1,
-      sieb:S.sieb, suche:"", feld:"alle", pro_seite:S.pro, alle_uids:true});
+     means something other than what is on screen. Since 12.10.2026 that
+     includes a search: `listeAnfrage()` is the one description of it. */
+  const r = await sende("klient_liste", listeAnfrage({alle_uids:true, blaettern:true}));
+  /* Across folders the answer is (folder, number) pairs. */
+  if(r && r.ok && r.alle_posten){
+    for(const [o, u] of r.alle_posten) S.gewaehlt.add(o + "\u0000" + u);
+    return (wahlMalen(), listeMalen());
+  }
   if(!r || !r.ok || !r.alle_uids) return melde(txt("k.ging_nicht"), false);
   for(const u of r.alle_uids) S.gewaehlt.add(S.ordner + "\u0000" + u);
   wahlMalen(); listeMalen();
@@ -1911,34 +1933,66 @@ async function listeNachfuellen(){
 }
 
 /* ── Search ────────────────────────────────────────────────────────────── */
+/* 🔴 THE SEARCH THAT ONLY SAW ONE FOLDER (12.10.2026)
+
+   The phone searched the open folder only — and from „New", where every
+   session starts, the folder that happened to be remembered behind it. In a
+   mailbox the watchman files, that is the place the mail is NOT. Three more
+   faults sat on the same road: a tapped hit opened nothing (the rows were
+   drawn without their number), „load more" appended the FOLDER's next page to
+   the hits, and the search word was never cleared, which switched the
+   background refresh off for the rest of the session.
+
+   🔑 Now the search runs through the list's own road (`listeAnfrage()`), asks
+   every folder unless „only here" is chosen, and ends when a folder or „New"
+   is opened. */
 function suchchipsMalen(){
   const felder = [["alle","k.feld_alle"],["von","k.feld_von"],["betreff","k.feld_betreff"],
                   ["an","k.feld_an"],["text","k.feld_text"]];
-  $("#suchchips").innerHTML = felder.map(([v, k]) =>
+  const o = S.ordner_liste.find(x => x.name === S.ordner);
+  const orte = [[true, "🗂 " + txt("k.such_alle_ordner")],
+                [false, "📁 " + (o ? ordnerName(o) : txt("k.such_dieser_ordner"))]];
+  $("#suchchips").innerHTML = orte.map(([v, name]) =>
+    `<button class="${S.ueberall === v ? "an" : ""}" data-ort="${v ? "ueberall" : "hier"}"
+      onclick="S.ueberall=${v};suchchipsMalen();if($('#suche').value)sucheLos()"
+      >${esc(name)}</button>`).join("")
+    + '<span class="trenner" aria-hidden="true"></span>'
+    + felder.map(([v, k]) =>
     `<button class="${S.feld === v ? "an" : ""}" onclick="S.feld='${v}';suchchipsMalen();
       if($('#suche').value)sucheLos()">${esc(txt(k))}</button>`).join("");
 }
+/* Ends a search without loading anything — the caller decides what comes next. */
+function sucheEnde(){
+  S.suche = ""; S.aus_neu = false;
+  const f = $("#suche"); if(f) f.value = "";
+  const t = $("#suchtreffer"); if(t) t.innerHTML = "";
+}
 async function sucheLos(){
   S.suche = $("#suche").value.trim();
-  if(!S.suche) return;
+  if(!S.suche){
+    if(S.aus_neu) return neuWaehlen();
+    return;
+  }
+  if(S.neu){ S.neu = false; S.aus_neu = true; }
+  wahlAus();
+  S.seite = 1; S.uid = 0; S.offen = null; S.mails = [];
+  ordnerMalen();
   $("#suchtreffer").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
-  const a = await sende("klient_liste", {ordner:S.ordner, seite:1, suche:S.suche,
-                                         feld:S.feld, pro_seite:50});
-  if(!a.ok) return melde(a.text || txt("k.ging_nicht"), false);
-  if(!(a.mails || []).length){
+  await ladeListe(true);
+  if(!S.mails.length){
     $("#suchtreffer").innerHTML = `<div class="leerraum"><div>
       <span class="gross">🔍</span>${esc(txt("k.nichts_gefunden"))}</div></div>`;
     return;
   }
-  /* 🔴 The hits go into the list as well — otherwise tapping one opens a mail the
-     list does not know, and the next/previous buttons jump somewhere else. */
-  S.mails = a.mails;
-  S.seite = 1; S.seiten = a.seiten || 1;
-  listeMalen();
+  /* 🔴 The hits are the list's own rows, drawn WITH their number — without it a
+     tap found no mail and opened nothing. */
   $("#suchtreffer").innerHTML =
     `<div class="gruppentitel">${esc(txt("k.spanne", {von:1,
-       bis:Math.min(a.gesamt, a.mails.length), n:a.gesamt}))}</div>`
-    + a.mails.map(m => zeileHtml(m)).join("");
+       bis:Math.min(S.gesamt, S.mails.length), n:S.gesamt})
+       + (trefferUeberall() ? " · " + txt("k.such_in_ordnern", {o:S.in_ordnern || 0}) : ""))}</div>`
+    + S.mails.map((m, i) => zeileHtml(m, i)).join("")
+    + (S.seiten > 1 ? `<button class="blank suchmehr" onclick="blick('liste')"
+         >${esc(txt("k.such_alle_zeigen", {n:S.gesamt}))}</button>` : "");
 }
 </script>
 
