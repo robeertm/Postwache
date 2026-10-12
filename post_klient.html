@@ -247,6 +247,12 @@ label{display:block;font-size:.76rem;color:var(--leise);margin:0 0 .2rem}
   color:var(--leiser);border:0;background:transparent;transition:opacity .12s}
 .o:hover .ordnerweg,.ordnerweg:focus-visible{opacity:1}
 .ordnerweg:hover{color:var(--kritisch);background:transparent}
+/* The ＋ for a subfolder behaves like the ✕ beside it: out of the way until the
+   pointer is on the row, and a target of its own. */
+.ordnerplus{opacity:0;padding:0 .15rem;min-width:1.1rem;font-size:.86rem;
+  color:var(--leiser);border:0;background:transparent;transition:opacity .12s}
+.o:hover .ordnerplus,.ordnerplus:focus-visible{opacity:1}
+.ordnerplus:hover{color:var(--akzent);background:transparent}
 .ogruppe.ziel{color:var(--akzent)}
 body.zieht .z,body.zieht .o{cursor:grabbing}
 .o.an{background:rgba(224,164,88,.15);border-color:rgba(224,164,88,.35)}
@@ -489,6 +495,17 @@ body[data-blick="lese"] .raum[data-vorschau="aus"] .liste{display:none}
 .melde.auf{opacity:1;transform:translateX(-50%) translateY(0)}
 .melde.gut{border-color:#34d39977}
 .melde.schlecht{border-color:#f8717199}
+/* 🔑 The offer after filing by hand. It sits ABOVE the message line, so the two
+   never cover each other, and it stays until it is answered or a while has
+   passed — a question that vanishes after five seconds is a question nobody
+   could answer. */
+.angebot{position:fixed;left:50%;bottom:4.2rem;transform:translateX(-50%);
+  background:var(--karte-voll);border:1px solid var(--akzent);border-radius:.9rem;
+  padding:.6rem .8rem;font-size:.84rem;z-index:51;box-shadow:0 10px 30px var(--schatten);
+  max-width:min(36rem,calc(100vw - 2rem));display:flex;flex-direction:column;gap:.45rem}
+.angebot[hidden]{display:none}
+.angebot .aklein{font-size:.78rem;color:var(--leiser);word-break:break-all}
+.angebot .knoepfe{display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap}
 kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
   background:var(--karte2);border:1px solid var(--rand);border-bottom-width:2px;
   border-radius:.35rem;padding:.08rem .34rem;color:var(--text)}
@@ -757,6 +774,15 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
 </div>
 
 <div class="melde" id="melde"></div>
+<div class="angebot" id="angebot" hidden role="dialog" aria-live="polite">
+  <div id="angebot_frage"></div>
+  <div class="aklein" id="angebot_wer"></div>
+  <div class="aklein" id="angebot_hinweis"></div>
+  <div class="knoepfe">
+    <button class="blank kleiner" onclick="angebotWeg()" id="angebot_nein"></button>
+    <button class="haupt kleiner" onclick="angebotAnnehmen()" id="angebot_ja"></button>
+  </div>
+</div>
 
 <script>
 /*SPRACHE*/
@@ -1113,6 +1139,10 @@ function ordnerMalen(){
       <span class="nm">${esc(ordnerName(o))}</span>
       ${o.ungelesen ? `<span class="u">${o.ungelesen}</span>`
                     : `<span class="n">${o.gesamt || ""}</span>`}
+      ${o.rolle ? "" : `<button class="blank ordnerplus" tabindex="-1"
+        onclick="ordnerNeu(event,'${escJs(o.name)}')"
+        title="${esc(txt("k.unterordner_neu"))}"
+        aria-label="${esc(txt("k.unterordner_neu"))}">＋</button>`}
       ${o.rolle ? "" : `<button class="blank ordnerweg" tabindex="-1"
         onclick="ordnerFort(event,'${escJs(o.name)}')"
         title="${esc(txt("k.ordner_loeschen"))}"
@@ -1164,7 +1194,7 @@ function ordnerMalen(){
     if(zweig.length) teile.push(`<div class="ozweig">${zweig.join("")}</div>`);
   }
   teile.push(`<div style="padding:.7rem .55rem 0">
-    <button class="blank kleiner" onclick="ordnerNeu()">＋ ${esc(txt("k.ordner_neu"))}</button>
+    <button class="blank kleiner" onclick="ordnerNeu(event,'')">＋ ${esc(txt("k.ordner_neu"))}</button>
   </div>`);
   $("#ordner").innerHTML = teile.join("");
   const ziel = $("#stapel_ziel");
@@ -1321,12 +1351,21 @@ function stapelFortschritt(getan, gesamt){
     melde(txt("k.stapel_laeuft", {n:getan.toLocaleString(LANG),
                                   g:gesamt.toLocaleString(LANG)}), true);
 }
-async function ordnerNeu(){
-  const name = prompt(txt("k.ordner_name"));
-  if(!name) return;
-  const r = await sende("klient_ordner_neu", {name:name});
+/* A folder at the top, or — given a parent — a subfolder right inside it. The
+   parent is opened afterwards, so the new folder is SEEN where it was made
+   instead of hiding under a closed branch. */
+async function ordnerNeu(ev, eltern){
+  if(ev) ev.stopPropagation();
+  const o = eltern ? S.ordner_liste.find(x => x.name === eltern) : null;
+  if(eltern && !o) return;
+  const name = prompt(o ? txt("k.unterordner_name", {o:ordnerName(o)})
+                        : txt("k.ordner_name"));
+  if(!name || !name.trim()) return;
+  const r = await sende("klient_ordner_neu", {name:name.trim(), eltern:eltern || ""});
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
-  if(r.ok) await allesLaden(true);
+  if(!r.ok) return;
+  if(eltern) S.zu.delete(eltern);
+  await allesLaden(true);
 }
 async function postfachWechseln(id){
   S.pf = id; S.ordner = ""; S.seite = 1; S.uid = 0; S.offen = null;
@@ -1676,15 +1715,88 @@ async function stapelVerschieben(ziel, uids){
 async function verschiebeListe(ziel, liste){
   if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
   let gut = true, zahl = 0, letzte = "";
+  const angebot = angebotSammler(liste);
   for(const [ordner, teil] of nachOrdnern(liste)){
     if(ordner === ziel){ continue; }        // already there — nothing to do
-    const r = await sende("klient_verschieben", {ordner:ordner, uids:teil, ziel:ziel});
+    const r = await sende("klient_verschieben", {ordner:ordner, uids:teil, ziel:ziel,
+                                                 adressen:angebot.adressen(ordner, teil)});
     if(r.ok){ zahl += teil.length; letzte = r.text || letzte;
-              stapelFortschritt(zahl, liste.length); }
+              stapelFortschritt(zahl, liste.length); angebot.nimm(r.angebot); }
     else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
   }
   if(gut) melde(letzte, true);
   if(zahl) await nachTat(liste.map(p => p.uid), liste);
+  if(gut && zahl) angebot.zeigen();
+}
+/* ── „Always here?" after filing by hand ───────────────────────────────────
+   🔑 Filing a mail by hand is the clearest thing a reader can tell the
+   watchman. So after a move into an own folder the page ASKS whether post from
+   these senders should go there by itself from now on — and names every one of
+   them before anything is set.
+
+   🔴 Asked, never ticked in advance. A box that decided for every row once made
+   305 rules out of what was meant as one move. Nothing happens without the
+   button, and the engine checks the offer again before it sets anything.
+
+   🔴 Only when EVERY moved mail's sender is known. A selection can reach across
+   pages whose rows are not loaded; an offer that named three of five senders
+   would claim something about mail it never looked at. */
+function angebotSammler(liste){
+  const bekannt = new Map();
+  for(const m of S.mails) bekannt.set(wahlSchluessel(m), m.adresse || "");
+  if(S.offen) bekannt.set(wahlSchluessel(S.offen), S.offen.adresse || "");
+  let vollstaendig = true, ergebnis = null;
+  return {
+    adressen(ordner, teil){
+      const raus = [];
+      for(const uid of teil){
+        const a = bekannt.get(ordner + "\u0000" + uid);
+        if(!a){ vollstaendig = false; continue; }
+        if(!raus.includes(a)) raus.push(a);
+      }
+      return vollstaendig ? raus : [];
+    },
+    nimm(a){
+      if(!a || !a.adressen || !a.adressen.length) return;
+      if(!ergebnis) ergebnis = {ziel:a.ziel, zeige:a.zeige, adressen:[]};
+      for(const x of a.adressen) if(!ergebnis.adressen.includes(x)) ergebnis.adressen.push(x);
+    },
+    zeigen(){
+      if(vollstaendig && ergebnis && ergebnis.adressen.length <= 5) angebotZeigen(ergebnis);
+    },
+  };
+}
+let ANGEBOT = null;
+function angebotZeigen(a){
+  ANGEBOT = a;
+  const eine = a.adressen.length === 1;
+  $("#angebot_frage").textContent = eine
+    ? txt("k.angebot_frage_eine", {wer:a.adressen[0], o:a.zeige})
+    : txt("k.angebot_frage", {n:a.adressen.length, o:a.zeige});
+  $("#angebot_wer").textContent = eine ? "" : a.adressen.join(", ");
+  $("#angebot_wer").hidden = eine;
+  $("#angebot_hinweis").textContent = txt("k.angebot_hinweis");
+  $("#angebot_ja").textContent = txt("k.angebot_ja");
+  $("#angebot_nein").textContent = txt("k.angebot_nein");
+  const k = $("#angebot");
+  k.hidden = false;
+  clearTimeout(k._t);
+  k._t = setTimeout(angebotWeg, 25000);
+}
+function angebotWeg(){
+  const k = $("#angebot");
+  clearTimeout(k._t);
+  k.hidden = true;
+  ANGEBOT = null;
+}
+async function angebotAnnehmen(){
+  const a = ANGEBOT;
+  angebotWeg();
+  if(!a) return;
+  melde(txt("k.regel_laeuft"), null, true);
+  const r = await sende("klient_immer_hierhin", {ziel:a.ziel, adressen:a.adressen});
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(r.ok && r.nachgezogen) await allesLaden(false);
 }
 async function stapelLoeschen(uids, endgueltig){
   const liste = posten(uids);
