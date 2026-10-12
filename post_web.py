@@ -1160,8 +1160,9 @@ def einstellung_setzen(d: dict) -> dict:
         e["absender_regeln"] = ar
     schreibe("einstellungen.json", e)
     if nachziehen_an:
-        return {"ok": True,
-                "text": txt("a.gespeichert") + nachziehen(*nachziehen_an)["text"]}
+        mit = nachziehen(*nachziehen_an)
+        return {"ok": True, "text": txt("a.gespeichert") + mit["text"],
+                "nachgezogen": int(mit.get("bewegt") or 0)}
     return {"ok": True, "text": txt("a.gespeichert")}
 
 
@@ -2036,6 +2037,9 @@ KLIENT_AKTIONEN = {
     # Filing by hand into the folder the WATCHMAN would have chosen — its map, one
     # click. Not automatic: it is still the reader who decides.
     "klient_wie_wache": lambda d, marke: _klient_wie_wache(d),
+    # The other direction: the reader filed by hand, and says „always here" —
+    # one sender rule per address, through the same door as every other rule.
+    "klient_immer_hierhin": lambda d, marke: _klient_immer_hierhin(d),
 }
 
 
@@ -2078,6 +2082,50 @@ def _klient_wie_wache(d: dict) -> dict:
     erg["ziel"] = ziel
     erg["zeige"] = urteil.get("zeige") or ziel
     return erg
+
+
+def _klient_immer_hierhin(d: dict) -> dict:
+    """Bind senders to the folder the reader just filed their mail into.
+
+    🔴 The page's list is NOT trusted. The offer is worked out again here, and
+    only what it still contains is set — a page that is an hour old, or a request
+    put together by hand, cannot bind a sender to a special folder or to a folder
+    that is gone.
+
+    🔑 Each rule goes through `einstellung_setzen` — the ONE door every sender rule
+    takes. That is where the retroactive move lives (`nachziehen`: only out of the
+    catch locations, exact address, phishing and the important stay, every move in
+    the journal), so this route cannot forget it.
+    """
+    if W is None or KL is None:
+        return {"ok": False, "text": txt("a.kein_waechter")}
+    pf = _pf(d)
+    ziel = str(d.get("ziel") or "")
+    gewollt = [str(a or "").strip().lower() for a in (d.get("adressen") or [])]
+    angebot = KL.regel_angebot(pf, ziel, gewollt)
+    erlaubt = [a for a in gewollt if a in (angebot.get("adressen") or [])]
+    if not erlaubt:
+        return {"ok": False, "text": txt("k.regel_nicht")}
+    W.pf_waehlen(pf)
+    gesetzt, mit = [], 0
+    for a in erlaubt:
+        r = einstellung_setzen({"absender": {"adresse": a, "ordner": ziel}})
+        if r.get("ok"):
+            gesetzt.append(a)
+            mit += int(r.get("nachgezogen") or 0)
+    if not gesetzt:
+        return {"ok": False, "text": txt("k.regel_nicht")}
+    W.chronik("klient_regel", n=len(gesetzt),
+              text="%s -> %s" % (", ".join(gesetzt), angebot.get("zeige") or ziel))
+    teile = [txt("k.regel_da_eine", o=angebot.get("zeige") or ziel)
+             if len(gesetzt) == 1 else
+             txt("k.regel_da", n=len(gesetzt), o=angebot.get("zeige") or ziel)]
+    if mit:
+        teile.append(txt("k.regel_mit_eine") if mit == 1 else txt("k.regel_mit", n=mit))
+    if not W.einstellungen().get("scharf"):
+        teile.append(txt("a.lernlauf"))
+    return {"ok": True, "text": " ".join(teile), "adressen": gesetzt,
+            "nachgezogen": mit}
 
 
 def ts_kurz() -> dict:

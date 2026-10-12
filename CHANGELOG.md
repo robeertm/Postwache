@@ -7,6 +7,43 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.17.0] - 2026-10-12
+
+### Added
+
+🔑 **Subfolders where you point, and “always here” after filing by hand.**
+Folders could already be created in the mail program, and the watchman knows a
+new folder the moment it exists. Two things were missing.
+
+**A subfolder had no button.** It took a trick nobody could know (typing
+“Parent/Child”). Every own folder now carries a **＋** — on the wide page it
+appears next to the ✕ when the pointer is on the row, on the phone it is a row
+in the sheet that opens on a long press (“New subfolder”). The new name is
+appended to the folder exactly as the server names it, so neither the separator
+nor the encoding is guessed. Special folders get no ＋, nothing is created under
+a folder that is gone, and the same subfolder cannot be made twice.
+
+**Filing by hand taught the watchman nothing** until the next learning run — a
+new folder only received mail through the name bridge. Now, after you move mail
+into an own folder, the page asks: *always file mail from this sender here?*
+Nothing is ticked in advance and nothing happens without the button. The rule
+goes through the same door as every other sender rule, so whatever of that
+sender's mail is still unsorted comes along — only from the inbox and the catch
+folders, matched on the exact address, with important and suspicious mail left
+where it is, and every move written to the journal.
+
+Guard rails:
+
+- at most **five** senders per offer, every one of them named in the question;
+- only when the sender of **every** moved mail is known — a selection can reach
+  across pages that are not loaded, and an offer about three of five senders
+  would claim something about mail it never looked at;
+- never for special folders, the inbox or places the watchman does not learn
+  from (bin, spam, archive, the catch folder), never for your own address,
+  never twice for a rule that already exists;
+- the page is **not trusted**: the engine works the offer out again and sets
+  only what it still contains.
+
 ## [5.16.0] - 2026-10-09
 
 ### Fixed

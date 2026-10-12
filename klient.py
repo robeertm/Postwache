@@ -1559,14 +1559,30 @@ class Briefkasten(W.Postfach if W is not None else object):
         return {"ok": True, "alt": alt, "neu": neu, "mails": mails,
                 "kinder": len(kinder), "trenner": t}
 
-    def ordner_neu(self, pfad: str) -> dict:
+    def ordner_neu(self, pfad: str, eltern: str = "") -> dict:
         """Create a folder — under the inbox, with the server's separator, and the
-        name in modified UTF-7 so an umlaut arrives as an umlaut."""
+        name in modified UTF-7 so an umlaut arrives as an umlaut.
+
+        🔑 With `eltern` it becomes a SUBFOLDER of that folder. `eltern` is the
+        name exactly as the server lists it, so nothing about the separator or
+        the encoding is guessed here — the new part is appended to it.
+        """
         pfad = (pfad or "").strip().strip("/")
         if not pfad:
             return {"ok": False, "text": txt("k.kein_name")}
-        voll = "INBOX" + self.trenner + utf7_kodieren(
-            pfad.replace("/", self.trenner))
+        teil = utf7_kodieren(pfad.replace("/", self.trenner))
+        eltern = (eltern or "").strip()
+        if eltern:
+            alle = self.ordner_liste()
+            # 🔴 Only under a folder that is really there. A typo in the parent
+            #    would otherwise create a whole new branch nobody asked for.
+            if eltern not in alle:
+                return {"ok": False, "text": txt("k.ordner_fort")}
+            voll = eltern + self.trenner + teil
+            if voll in alle:
+                return {"ok": False, "text": txt("k.ordner_name_belegt")}
+        else:
+            voll = "INBOX" + self.trenner + teil
         try:
             self.m.create(self._zitat(voll))
             self.m.subscribe(self._zitat(voll))
@@ -3177,7 +3193,80 @@ def verschieben(d: dict) -> dict:
         # For the way back — the same principle as the watchman's journal: whoever
         # can move must be able to undo it.
         erg["zurueck"] = {"ordner": ziel, "ziel": ordner, "uids": []}
+        angebot = regel_angebot(pf_id, ziel, d.get("adressen") or [])
+        if angebot:
+            erg["angebot"] = angebot
     return erg
+
+
+# How many senders one offer may cover. 🔴 An offer is a rule per sender, and a
+# rule moves post by itself from then on. Five can still be read and checked at a
+# glance; a whole page of senders cannot — that is how one ticked box once turned
+# into 305 rules nobody had meant.
+ANGEBOT_HOECHSTENS = 5
+
+
+def regel_angebot(pf_id: str, ziel: str, adressen) -> dict:
+    """Mail was filed BY HAND into `ziel`. Should post from these senders go there
+    by itself from now on?
+
+    Only an OFFER — nothing is set here. It is made when it can mean something:
+      * the target is an own folder the watchman knows — not a special folder,
+        not a place the watchman never learns from (bin, spam, archive …);
+      * the senders are real addresses, not the owner's own, and not already
+        bound to exactly this folder;
+      * there are at most ANGEBOT_HOECHSTENS of them, so that the offer can name
+        every one of them.
+    Returns {} when there is nothing worth offering. 🔴 Never raises — an offer
+    that fails must not turn a successful move into an error.
+    """
+    if W is None or not ziel:
+        return {}
+    try:
+        sauber = []
+        for a in adressen or []:
+            a = str(a or "").strip().lower()
+            if "@" in a and a not in sauber:
+                sauber.append(a)
+        if not sauber:
+            return {}
+        W.pf_waehlen(pf_id)
+        baum = tu(pf_id, lambda k: k.baum())
+        o = next((x for x in baum if x.get("name") == ziel), None)
+        if o is None or o.get("rolle") or ziel.upper() == "INBOX":
+            return {}
+        trenner = tu(pf_id, lambda k: k.trenner) or "."
+        if ziel.rsplit(trenner, 1)[-1] in W.KEIN_LEHRMEISTER:
+            return {}
+        bekannt = (W.load(W.ABLAGE, {}) or {}).get("ordner") or {}
+        if ziel not in bekannt:
+            # A folder made a moment ago in another program — ask the server once.
+            _wache_abgleichen(pf_id)
+            bekannt = (W.load(W.ABLAGE, {}) or {}).get("ordner") or {}
+            if ziel not in bekannt:
+                return {}
+        regeln = (W.einstellungen().get("absender_regeln") or {})
+        eigene = set()
+        try:
+            import umbau as _U
+            eigene = {str(x).lower() for x in
+                      (_U.eigen_laden().get("eigene_adressen") or [])}
+        except Exception:                                # noqa: BLE001
+            pass
+        zug = _zugang(pf_id) or {}
+        if zug.get("adresse"):
+            eigene.add(str(zug["adresse"]).lower())
+        offen = [a for a in sauber if a not in eigene and regeln.get(a) != ziel]
+        if not offen or len(offen) > ANGEBOT_HOECHSTENS:
+            return {}
+        zeige = utf7_dekodieren(ziel)
+        # „INBOX" is a word from the protocol, not part of a name anybody gave.
+        if zeige.upper().startswith("INBOX" + trenner):
+            zeige = zeige[len("INBOX" + trenner):]
+        return {"ziel": ziel, "zeige": zeige, "adressen": offen}
+    except Exception as e:                               # noqa: BLE001
+        log("Regelangebot nicht moeglich: %s" % str(e)[:140])
+        return {}
 
 
 def loeschen(d: dict) -> dict:
@@ -3239,8 +3328,10 @@ def _wache_abgleichen(pf_id: str) -> dict:
 
 
 def ordner_neu(d: dict) -> dict:
+    """A folder, or — with `eltern` — a subfolder of an existing one."""
     antwort = tu(str(d.get("pf") or ""),
-                 lambda k: k.ordner_neu(str(d.get("name") or "")))
+                 lambda k: k.ordner_neu(str(d.get("name") or ""),
+                                        str(d.get("eltern") or "")))
     if antwort.get("ok"):
         # 🔑 At once, not at the next learning run: an empty folder called
         # „Steuer" can take post from `steuer@…` the minute it exists — but only

@@ -424,6 +424,17 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   box-shadow:0 12px 34px var(--schatten);text-align:center}
 .melde.auf{opacity:1;transform:translateY(0)}
 .melde.gut{border-color:#34d39977} .melde.schlecht{border-color:#f8717199}
+/* 🔑 The offer after filing by hand sits ABOVE the message line, so the two
+   never cover each other, and stays until it is answered. Buttons at full
+   thumb size — this is a question that wants an answer. */
+.angebot{position:fixed;left:.8rem;right:.8rem;
+  bottom:calc(var(--fuss) + var(--unten) + 4.2rem);
+  background:var(--karte-voll);border:1px solid var(--akzent);border-radius:.9rem;
+  padding:.75rem .9rem;font-size:.9rem;z-index:51;display:flex;flex-direction:column;gap:.5rem}
+.angebot[hidden]{display:none}
+.angebot .aklein{font-size:.8rem;color:var(--leise);word-break:break-all}
+.angebot .knoepfe{display:flex;gap:.6rem;justify-content:flex-end}
+.angebot .knoepfe button{min-height:44px;padding:0 1rem}
 .laedt{display:inline-block;width:1rem;height:1rem;border-radius:50%;
   border:2px solid var(--rand2);border-top-color:var(--akzent);
   animation:dreh .7s linear infinite;vertical-align:-.15rem}
@@ -585,6 +596,9 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
     <h1 id="ordnertatkopf"></h1>
   </div>
   <div class="rumpf">
+    <div class="o" role="button" tabindex="0" onclick="ordnerNeu(tatOrdner)">
+      <span class="ic">＋</span>
+      <span class="nm" data-t="k.unterordner_neu"></span></div>
     <div class="o" role="button" tabindex="0" onclick="ordnerZielAuf(tatOrdner)">
       <span class="ic">📦</span>
       <span class="nm" data-t="k.verschieben_nach"></span></div>
@@ -623,6 +637,15 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
 </div>
 
 <div class="melde" id="melde"></div>
+<div class="angebot" id="angebot" hidden role="dialog" aria-live="polite">
+  <div id="angebot_frage"></div>
+  <div class="aklein" id="angebot_wer"></div>
+  <div class="aklein" id="angebot_hinweis"></div>
+  <div class="knoepfe">
+    <button class="blank" onclick="angebotWeg()" id="angebot_nein"></button>
+    <button class="haupt" onclick="angebotAnnehmen()" id="angebot_ja"></button>
+  </div>
+</div>
 
 <script>
 /*SPRACHE*/
@@ -1049,12 +1072,21 @@ function ordnerVon(uid){
 function offenOrdner(){
   return (S.offen && S.offen.ordner) || S.ordner;
 }
-async function ordnerNeu(){
-  const name = prompt(txt("k.ordner_name"));
-  if(!name) return;
-  const r = await sende("klient_ordner_neu", {name:name});
+/* A folder at the top, or — from the long-press sheet — a subfolder right
+   inside the folder that was pressed. The parent is opened afterwards, so the
+   new folder is SEEN where it was made. */
+async function ordnerNeu(eltern){
+  const o = eltern ? S.ordner_liste.find(x => x.name === eltern) : null;
+  if(eltern && !o) return;
+  if(eltern) blick("ordner");
+  const name = prompt(o ? txt("k.unterordner_name", {o:ordnerName(o)})
+                        : txt("k.ordner_name"));
+  if(!name || !name.trim()) return;
+  const r = await sende("klient_ordner_neu", {name:name.trim(), eltern:eltern || ""});
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
-  if(r.ok) await allesLaden();
+  if(!r.ok) return;
+  if(eltern) S.zu.delete(eltern);
+  await allesLaden();
 }
 
 /* ── The list ──────────────────────────────────────────────────────────── */
@@ -1691,15 +1723,79 @@ async function stapelVerschieben(ziel, uids){
 async function verschiebeListe(ziel, liste){
   if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
   let gut = true, zahl = 0, letzte = "";
+  const angebot = angebotSammler(liste);
   for(const [ordner, teil] of nachOrdnern(liste)){
     if(ordner === ziel) continue;             // already there — nothing to do
-    const r = await sende("klient_verschieben", {ordner:ordner, uids:teil, ziel:ziel});
-    if(r.ok){ zahl += teil.length; letzte = r.text || letzte; }
+    const r = await sende("klient_verschieben", {ordner:ordner, uids:teil, ziel:ziel,
+                                                 adressen:angebot.adressen(ordner, teil)});
+    if(r.ok){ zahl += teil.length; letzte = r.text || letzte; angebot.nimm(r.angebot); }
     else { gut = false; melde(r.text || txt("k.ging_nicht"), false); }
   }
   if(gut) melde(letzte, true);
   if(S.wahl) wahlAus();
   if(zahl) await nachTat(liste.map(p => p.uid), liste);
+  if(gut && zahl) angebot.zeigen();
+}
+/* ── „Always here?" after filing by hand ───────────────────────────────────
+   The same as on the wide page — see there. Asked, never ticked in advance;
+   every sender named before anything is set; only when every moved mail's
+   sender is known; and the engine checks the offer again. */
+function angebotSammler(liste){
+  const bekannt = new Map();
+  for(const m of S.mails) bekannt.set(wahlSchluessel(m), m.adresse || "");
+  if(S.offen) bekannt.set(wahlSchluessel(S.offen), S.offen.adresse || "");
+  let vollstaendig = true, ergebnis = null;
+  return {
+    adressen(ordner, teil){
+      const raus = [];
+      for(const uid of teil){
+        const a = bekannt.get(ordner + "\u0000" + uid);
+        if(!a){ vollstaendig = false; continue; }
+        if(!raus.includes(a)) raus.push(a);
+      }
+      return vollstaendig ? raus : [];
+    },
+    nimm(a){
+      if(!a || !a.adressen || !a.adressen.length) return;
+      if(!ergebnis) ergebnis = {ziel:a.ziel, zeige:a.zeige, adressen:[]};
+      for(const x of a.adressen) if(!ergebnis.adressen.includes(x)) ergebnis.adressen.push(x);
+    },
+    zeigen(){
+      if(vollstaendig && ergebnis && ergebnis.adressen.length <= 5) angebotZeigen(ergebnis);
+    },
+  };
+}
+let ANGEBOT = null;
+function angebotZeigen(a){
+  ANGEBOT = a;
+  const eine = a.adressen.length === 1;
+  $("#angebot_frage").textContent = eine
+    ? txt("k.angebot_frage_eine", {wer:a.adressen[0], o:a.zeige})
+    : txt("k.angebot_frage", {n:a.adressen.length, o:a.zeige});
+  $("#angebot_wer").textContent = eine ? "" : a.adressen.join(", ");
+  $("#angebot_wer").hidden = eine;
+  $("#angebot_hinweis").textContent = txt("k.angebot_hinweis");
+  $("#angebot_ja").textContent = txt("k.angebot_ja");
+  $("#angebot_nein").textContent = txt("k.angebot_nein");
+  const k = $("#angebot");
+  k.hidden = false;
+  clearTimeout(k._t);
+  k._t = setTimeout(angebotWeg, 25000);
+}
+function angebotWeg(){
+  const k = $("#angebot");
+  clearTimeout(k._t);
+  k.hidden = true;
+  ANGEBOT = null;
+}
+async function angebotAnnehmen(){
+  const a = ANGEBOT;
+  angebotWeg();
+  if(!a) return;
+  melde(txt("k.regel_laeuft"), null, true);
+  const r = await sende("klient_immer_hierhin", {ziel:a.ziel, adressen:a.adressen});
+  melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);
+  if(r.ok && r.nachgezogen) await allesLaden();
 }
 async function stapelLoeschen(uids){
   const liste = posten(uids);
