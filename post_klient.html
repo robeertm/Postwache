@@ -630,6 +630,11 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
       <span class="leise" aria-hidden="true">🔍</span>
       <input id="suche" data-t-platzhalter="k.suchen"
              onkeydown="if(event.key==='Enter')sucheLos();if(event.key==='Escape')sucheLeeren()">
+      <select id="suchort" onchange="if($('#suche').value)sucheLos()"
+              data-t-titel="k.such_wo">
+        <option value="ueberall" data-t="k.such_alle_ordner"></option>
+        <option value="hier" data-t="k.such_dieser_ordner"></option>
+      </select>
       <select id="suchfeld" onchange="if($('#suche').value)sucheLos()">
         <option value="alle" data-t="k.feld_alle"></option>
         <option value="von" data-t="k.feld_von"></option>
@@ -888,6 +893,7 @@ function esc(s){ return String(s == null ? "" : s)
    shows up as „the wrong mail opened". */
 const S = {
   pf:"", ordner:"INBOX", seite:1, sieb:"", suche:"", feld:"alle",
+  ueberall:true,           // a search asks EVERY folder unless told otherwise
   sortierung:"datum", richtung:"ab", pro:50,
   mails:[], uid:0, offen:null, gewaehlt:new Set(),
   ordner_liste:[], rollen:{}, einst:{}, faehig:{}, postfaecher:[],
@@ -1132,7 +1138,7 @@ function ordnerMalen(){
        somewhere else, and mail can be carried INTO it. A special folder is a
        position, not a drawer — it does not travel, but post may land in it. */
     return `<div class="o ${o.rolle ? "" : "eigen"} ${tief > 0 ? "unter" : ""} ${kinder ? "eltern" : ""}
-        ${(!S.neu && o.name === S.ordner) ? "an" : ""}" tabindex="0"
+        ${(!vieleOrdner() && o.name === S.ordner) ? "an" : ""}" tabindex="0"
         style="--tief:${tief}"
         ${o.rolle ? "" : 'draggable="true"'}
         ondragstart="ordnerZiehStart(event,'${escJs(o.name)}')"
@@ -1268,7 +1274,10 @@ function alleFalten(zu){
   ordnerMalen();
 }
 async function ordnerWaehlen(name){
-  S.neu = false;
+  S.neu = false; S.aus_neu = false;
+  /* Clicking a folder during a search everywhere narrows the search to it —
+     the word stays, the place changes. That is what the click says. */
+  if(trefferUeberall()){ S.ueberall = false; $("#suchort").value = "hier"; }
   S.ordner = name; S.seite = 1; S.gewaehlt.clear(); S.uid = 0; S.offen = null;
   leseLeeren();
   ordnerMalen();
@@ -1280,7 +1289,10 @@ async function ordnerWaehlen(name){
    folder but twelve. Here they are one list again, with the folder written next
    to every line. */
 async function neuWaehlen(){
-  S.neu = true;
+  S.neu = true; S.aus_neu = false;
+  /* „New" is one glance at what came in — it does not search. A word left in
+     the field would claim a filter that is not there. */
+  if(S.suche){ $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true; }
   S.seite = 1; S.gewaehlt.clear(); S.uid = 0; S.offen = null;
   leseLeeren();
   ordnerMalen();
@@ -1292,6 +1304,10 @@ async function neuWaehlen(){
    instead of assuming. */
 /* The folder of the mail that is OPEN — the server says so in its answer, and in
    the „New" view that is the only one who knows. */
+/* 🔑 A search across every folder is a list out of many folders, exactly like
+   the „New" view — and every place that has to know it asks HERE. */
+function trefferUeberall(){ return !S.neu && !!S.suche && S.ueberall; }
+function vieleOrdner(){ return S.neu || trefferUeberall(); }
 function offenOrdner(){
   return (S.offen && S.offen.ordner) || S.ordner;
 }
@@ -1400,7 +1416,7 @@ async function postfachWechseln(id){
 
 <script>
 /* ── The list ──────────────────────────────────────────────────────────────── */
-async function ladeListe(frisch){
+async function ladeListe(frisch, blaettern){
   const r = $("#rollen");
   const stand = r.scrollTop;
   if(!S.mails.length) $("#zeilen").innerHTML = ladebalken(8);
@@ -1410,7 +1426,7 @@ async function ladeListe(frisch){
       ? await sende("klient_neu", {})
       : await sende("klient_liste", {ordner:S.ordner, seite:S.seite, sieb:S.sieb,
           suche:S.suche, feld:S.feld, sortierung:S.sortierung, richtung:S.richtung,
-          pro_seite:S.pro});
+          pro_seite:S.pro, ueberall:trefferUeberall(), blaettern:!!blaettern});
   }catch(e){ return; }
   if(!a || a.ok === false){ melde((a && a.text) || txt("k.ging_nicht"), false); return; }
   S.mails = a.mails || [];
@@ -1426,6 +1442,9 @@ async function ladeListe(frisch){
     S.seiten = a.seiten || 1;
     S.gesamt = a.gesamt || 0;
     S.sortiert = a.sortiert !== false;
+    S.in_ordnern = a.in_ordnern || 0;
+    S.such_gekuerzt = !!a.gekuerzt;
+    S.treffer_gesamt = a.treffer_gesamt || 0;
   }
   listeMalen();
   if(frisch) r.scrollTop = 0; else r.scrollTop = stand;
@@ -1465,7 +1484,8 @@ function haftungBlick(){
   /* 🔴 WHICH LIST it was pinned in. Without this the row would be pushed into
      a SEARCH RESULT it does not match, or into another folder — a held row in
      the wrong list is worse than a lost one. */
-  return [S.neu ? "neu" : "", S.ordner || "", S.sieb || "", S.suche || ""].join("\u0000");
+  return [S.neu ? "neu" : "", trefferUeberall() ? "*" : S.ordner || "", S.sieb || "",
+          S.suche || ""].join("\u0000");
 }
 function haftungMerken(){
   S.haftung = null;
@@ -1513,7 +1533,7 @@ function listeMalen(){
     const dritte = zweitzeile(m);
     /* In the „New" view the one thing every row has to answer is WHERE it is
        now — that is the whole point of gathering it. */
-    const ort = (S.neu && m.ordner_kurz)
+    const ort = (vieleOrdner() && m.ordner_kurz)
       ? `<span class="ort" title="${esc(m.ordner_zeige || "")}"
               >📁 ${esc(ordnerKurz(m))}</span>` : "";
     const zeichen = [
@@ -1608,10 +1628,21 @@ function spanneMalen(){
     }
     return;
   }
+  /* Leaving „New" for a search must not leave its „cut" note behind. */
+  const neuHinweis = $("#neuhinweis");
+  if(neuHinweis) neuHinweis.hidden = true;
   const von = S.gesamt ? (S.seite - 1) * S.pro + 1 : 0;
   const bis = Math.min(S.gesamt, S.seite * S.pro);
   $("#spanne").textContent = S.gesamt
-    ? txt("k.spanne", {von:von, bis:bis, n:S.gesamt.toLocaleString(LANG)}) : "";
+    ? txt("k.spanne", {von:von, bis:bis, n:S.gesamt.toLocaleString(LANG)})
+      + (trefferUeberall() ? " · " + txt("k.such_in_ordnern", {o:S.in_ordnern}) : "")
+    : "";
+  /* Honest when the ceiling cut: above it every folder gave its newest hits. */
+  $("#spanne").title = (trefferUeberall() && S.such_gekuerzt)
+    ? txt("k.such_gekuerzt", {n:S.gesamt.toLocaleString(LANG),
+                              g:S.treffer_gesamt.toLocaleString(LANG)}) : "";
+  if(trefferUeberall() && S.such_gekuerzt)
+    $("#spanne").textContent += " ⚠︎";
   $("#zurueck").disabled = S.seite <= 1;
   $("#weiter").disabled = S.seite >= (S.seiten || 1);
 }
@@ -1621,7 +1652,7 @@ async function blaettern(d){
      FOLDER, the search or the filter still clears it — there „chosen" means
      something else. */
   S.seite = Math.max(1, Math.min(S.seiten || 1, S.seite + d));
-  await ladeListe(true);
+  await ladeListe(true, true);
 }
 
 /* ── Selection ─────────────────────────────────────────────────────────────
@@ -1662,8 +1693,15 @@ async function alleImOrdner(){
   if(knopf) knopf.disabled = true;
   const r = await sende("klient_liste", {ordner:S.ordner, seite:S.seite,
       sieb:S.sieb, suche:S.suche, feld:S.feld, sortierung:S.sortierung,
-      richtung:S.richtung, pro_seite:S.pro, alle_uids:true});
+      richtung:S.richtung, pro_seite:S.pro, alle_uids:true,
+      ueberall:trefferUeberall(), blaettern:true});
   if(knopf) knopf.disabled = false;
+  /* Across folders the answer is (folder, number) pairs — a number alone would
+     tick the mail with that number in the folder that happens to be open. */
+  if(r && r.ok && r.alle_posten){
+    for(const [o, u] of r.alle_posten) S.gewaehlt.add(o + "\u0000" + u);
+    return listeMalen();
+  }
   if(!r || !r.ok || !r.alle_uids) return melde(txt("k.ging_nicht"), false);
   for(const u of r.alle_uids) S.gewaehlt.add(S.ordner + "\u0000" + u);
   listeMalen();
@@ -2053,6 +2091,8 @@ async function sortSetzen(){
   S.sortierung = $("#sortierung").value;
   if(!S.faehig.sort && S.sortierung !== "datum")
     melde(txt("k.kein_sort"), false);
+  else if(trefferUeberall() && S.sortierung !== "datum")
+    melde(txt("k.such_nur_datum"), false);
   S.seite = 1; await ladeListe(true);
 }
 async function richtungDrehen(){
@@ -2060,16 +2100,33 @@ async function richtungDrehen(){
   $("#richtung").textContent = S.richtung === "ab" ? "↓" : "↑";
   S.seite = 1; await ladeListe(true);
 }
+/* 🔴 THE SEARCH THAT ONLY SAW ONE FOLDER (12.10.2026)
+
+   A search asked the open folder and nothing else — and in the „New" view,
+   where every session starts, it asked nothing at all: that view ignored the
+   word. In a mailbox the watchman files, the inbox holds the little that is
+   left, so the reader searched, found nothing, and took the mail for lost.
+
+   🔑 Now a search asks EVERY folder unless „this folder" is chosen, and every
+   hit says where it lives. Searching from „New" leaves it for the hits, and
+   clearing the search goes back there. */
 async function sucheLos(){
   S.suche = $("#suche").value.trim();
   S.feld = $("#suchfeld").value;
+  S.ueberall = $("#suchort").value !== "hier";
+  if(!S.suche && S.aus_neu) return sucheLeeren();     // an emptied field ends it
+  if(S.suche && S.neu){ S.neu = false; S.aus_neu = true; }
   S.seite = 1; S.gewaehlt.clear();
   $("#suche_x").hidden = !S.suche;
+  ordnerMalen();
   await ladeListe(true);
 }
 async function sucheLeeren(){
   $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true;
-  S.seite = 1; await ladeListe(true);
+  S.seite = 1; S.gewaehlt.clear();
+  if(S.aus_neu) return neuWaehlen();
+  ordnerMalen();
+  await ladeListe(true);
 }
 </script>
 

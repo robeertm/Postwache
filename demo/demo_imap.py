@@ -212,41 +212,49 @@ def _teil(roh: bytes, was: str) -> bytes:
 
 
 def _passt(n: "Nachricht", kriterien: list) -> bool:
-    """Die Suchkriterien, die der Klient schickt — und nur die."""
+    """Die Suchkriterien, die der Klient schickt — und nur die. Mehrere
+    hintereinander gelten zusammen (UND), wie bei einem echten Server."""
     i = 0
     while i < len(kriterien):
-        k = kriterien[i].upper()
-        if k in ("ALL", "CHARSET", "UTF-8"):
-            i += 1; continue
-        if k == "UNSEEN":
-            if "\\Seen" in n.flaggen: return False
-            i += 1; continue
-        if k == "SEEN":
-            if "\\Seen" not in n.flaggen: return False
-            i += 1; continue
-        if k == "FLAGGED":
-            if "\\Flagged" not in n.flaggen: return False
-            i += 1; continue
-        if k == "UNANSWERED":
-            if "\\Answered" in n.flaggen: return False
-            i += 1; continue
-        if k == "OR":
-            # 🔑 Genau eine Form kommt vor: OR HEADER X "a" HEADER X "b".
-            links = kriterien[i+1:i+4]; rechts = kriterien[i+4:i+7]
-            if not (_passt(n, links) or _passt(n, rechts)): return False
-            i += 7; continue
-        if k == "HEADER" and i + 2 < len(kriterien):
-            feld, wert = kriterien[i+1].lower(), kriterien[i+2].lower()
-            kopf = n.roh.split(b"\r\n\r\n", 1)[0].decode("utf-8", "replace").lower()
-            if not any(z.startswith(feld + ":") and wert in z
-                       for z in kopf.split("\r\n")): return False
-            i += 3; continue
-        if k in ("FROM", "TO", "SUBJECT", "BODY", "TEXT") and i + 1 < len(kriterien):
-            wert = kriterien[i+1].lower()
-            if wert not in n.roh.decode("utf-8", "replace").lower(): return False
-            i += 2; continue
-        i += 1
+        ok, i = _ein_kriterium(n, kriterien, i)
+        if not ok:
+            return False
     return True
+
+
+def _ein_kriterium(n: "Nachricht", kriterien: list, i: int) -> tuple:
+    """EIN Kriterium ab Stelle i → (passt, naechste Stelle).
+
+    🔴 Rekursiv, weil `OR` zwei ganze Kriterien nimmt, und die koennen selbst
+    `OR` sein: die Suche „ueberall" schickt `OR OR SUBJECT x FROM x TEXT x`.
+    Die alte Fassung kannte nur `OR HEADER … HEADER …` und las alles andere
+    falsch — eine Suche im Demo-Postfach traf dann Zufaelliges."""
+    k = kriterien[i].upper()
+    if k in ("ALL", "UTF-8"):
+        return True, i + 1
+    if k == "CHARSET":
+        return True, i + 2
+    if k == "UNSEEN":
+        return "\\Seen" not in n.flaggen, i + 1
+    if k == "SEEN":
+        return "\\Seen" in n.flaggen, i + 1
+    if k == "FLAGGED":
+        return "\\Flagged" in n.flaggen, i + 1
+    if k == "UNANSWERED":
+        return "\\Answered" not in n.flaggen, i + 1
+    if k == "OR":
+        links, j = _ein_kriterium(n, kriterien, i + 1)
+        rechts, j = _ein_kriterium(n, kriterien, j)
+        return links or rechts, j
+    if k == "HEADER" and i + 2 < len(kriterien):
+        feld, wert = kriterien[i+1].lower(), kriterien[i+2].lower()
+        kopf = n.roh.split(b"\r\n\r\n", 1)[0].decode("utf-8", "replace").lower()
+        return any(z.startswith(feld + ":") and wert in z
+                   for z in kopf.split("\r\n")), i + 3
+    if k in ("FROM", "TO", "SUBJECT", "BODY", "TEXT") and i + 1 < len(kriterien):
+        wert = kriterien[i+1].lower()
+        return wert in n.roh.decode("utf-8", "replace").lower(), i + 2
+    return True, i + 1
 
 
 def _zerlege(rest: str) -> list:
