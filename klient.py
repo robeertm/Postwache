@@ -84,6 +84,8 @@ NEU_GRENZE = 200                    # rows in the „New" overview at most
 NEU_KOEPFE = 500                    # and header records fetched for it at most
 SUCHE_DECKEL = 5000                 # hits dated and ordered across all folders at most
 SUCHE_HALTEN = 120                  # seconds one cross-folder hit list serves paging
+EIN_GRENZE = 300                    # rows in the „Filed" view at most
+EIN_TAGE = {"t1": 1, "t3": 3, "t7": 7}
 
 # Special folders are recognised by their FLAG, not by their name — a mailbox in
 # French calls its bin „Corbeille", and a name-based guess misses every mailbox
@@ -1396,6 +1398,91 @@ class Briefkasten(W.Postfach if W is not None else object):
                 saetze[(ordner, uid)] = satz
         return [saetze[(o, u)] for _, o, u in posten if (o, u) in saetze]
 
+    # ── Where did it go? ─────────────────────────────────────────────
+    # 🔴 THE MAIL THAT WAS FILED AND THEN GONE (13.10.2026)
+    #
+    # The owner: „when mails come in, are filed and no longer stand in New, I
+    # must somehow be able to see where they went" — and the same morning:
+    # „got important mails today and cannot find them any more". „New" lists
+    # what is UNREAD; once a mail has been read anywhere (the phone's own mail
+    # app is enough) it leaves „New", and nothing on the page said where the
+    # watchman had put it. The watchman knew: every move is in the journal.
+    #
+    # 🔑 The journal says WHAT went WHERE, the mailbox says what is there NOW.
+    # A UID is gone the moment a mail moves, so the mail is looked for at its
+    # new place: by Message-Id where the journal has it (since 5.20.0), else
+    # by sender and subject. What is no longer there is shown as such — „it
+    # was filed into Bank, and has since been moved or deleted" is an answer
+    # too, and a better one than a missing row.
+    def finde_einsortierte(self, eintraege: list, orte: dict) -> list:
+        """[(journal entry, header record or None)] in the order given."""
+        nach = {}
+        for j in eintraege:
+            nach.setdefault(str(j.get("nach") or ""), []).append(j)
+        gefunden = {}
+        for ordner, liste in nach.items():
+            if not ordner or ordner not in orte:
+                continue
+            try:
+                self.waehle(ordner)
+            except Exception as e:
+                log("Ordner %s nicht lesbar: %s" % (ordner, str(e)[:100]))
+                continue
+            # One broad question first: mail filed on arrival arrived around
+            # the time it was filed. Two days of slack for the date boundary.
+            frueh = min(str(j.get("zeit") or "")[:10] for j in liste)
+            try:
+                seit = (datetime.strptime(frueh, "%Y-%m-%d")
+                        - timedelta(days=2)).strftime("%d-%b-%Y")
+            except ValueError:
+                seit = (datetime.now() - timedelta(days=9)).strftime("%d-%b-%Y")
+            uids = sorted(self._suchen([("SINCE " + seit).encode()]), reverse=True)[:600]
+            koepfe = self.koepfe(uids) if uids else {}
+            nach_mid, nach_kopf = {}, {}
+            for uid in uids:
+                k = koepfe.get(uid)
+                if not k:
+                    continue
+                mid = (k.get("message_id") or "").strip()
+                if mid:
+                    nach_mid.setdefault(mid, []).append(k)
+                nach_kopf.setdefault(((k.get("adresse") or "").lower(),
+                                      (k.get("betreff") or "").strip()), []).append(k)
+            benutzt = set()
+
+            def nimm(kandidaten, wann=""):
+                # 🔑 Same sender, same subject happens (a monthly statement):
+                # then the one whose date lies closest to the moment it was
+                # filed — filed on arrival means it arrived then.
+                frei = [k for k in kandidaten or [] if k["uid"] not in benutzt]
+                if not frei:
+                    return None
+                ziel = _sekunden(wann)
+                if ziel:
+                    frei.sort(key=lambda k: abs((_sekunden(k.get("zeit")) or 0) - ziel))
+                benutzt.add(frei[0]["uid"])
+                return frei[0]
+            for j in liste:
+                mid = str(j.get("message_id") or "").strip()
+                k = nimm(nach_mid.get(mid)) if mid else None
+                if k is None:
+                    k = nimm(nach_kopf.get((str(j.get("absender") or "").lower(),
+                                            str(j.get("betreff") or "").strip())),
+                             j.get("zeit"))
+                if k is None and mid:
+                    # Filed later than it arrived (the back-fill moves old
+                    # mail too) — then the broad question missed it.
+                    treffer = self._suchen([b'HEADER Message-ID "'
+                                            + mid.replace('"', "").encode("utf-8", "replace")
+                                            + b'"'])
+                    if treffer:
+                        k = (self.koepfe(treffer[-1:]) or {}).get(treffer[-1])
+                        if k:
+                            benutzt.add(k["uid"])
+                if k is not None:
+                    gefunden[id(j)] = k
+        return [(j, gefunden.get(id(j))) for j in eintraege]
+
     def mail(self, ordner: str, uid: int, bilder: bool = False,
              roh_teile: bool = True) -> dict:
         """Everything needed to display ONE mail — and nothing beyond it.
@@ -1768,6 +1855,15 @@ def _intern_zeit(s: str) -> str:
             timespec="seconds")
     except Exception:
         return ""
+
+
+def _sekunden(iso) -> float:
+    """An ISO time as seconds — with or without a zone (a naive one is local).
+    0 when it cannot be read."""
+    try:
+        return datetime.fromisoformat(str(iso or "")).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def _intern_sekunden(s: str) -> float:
@@ -3221,7 +3317,96 @@ def neu_liste(d: dict) -> dict:
                                          auszug=bool(einst["vorschautext"])))
     antwort["ok"] = True
     antwort["zeitraum"] = zeitraum
+    antwort["einsortiert_heute"] = einsortiert_heute(pf_id)
     return antwort
+
+
+def _journal_fuer(pf_id: str, tage: int) -> list:
+    """The watchman's moves for THIS mailbox in the last days, newest first.
+
+    🔴 The journal is shared by all mailboxes. Entries written since 5.20.0
+    carry their mailbox; older ones do not — they are counted as this
+    mailbox's only when there is no other watched mailbox they could belong
+    to. Undone moves are left out: that mail went back."""
+    try:
+        with open(os.path.join(W.OUT, "journal.jsonl"), encoding="utf-8") as fh:
+            zeilen = fh.read().splitlines()
+    except OSError:
+        return []
+    beobachtet = [f for f in (W.postfaecher() or []) if f.get("an", True)]
+    eindeutig = len(beobachtet) <= 1
+    ab = (datetime.now() - timedelta(days=tage)).strftime("%Y-%m-%d")
+    raus = []
+    for z in reversed(zeilen[-W.JOURNAL_ZEILEN:]):
+        try:
+            j = json.loads(z)
+        except ValueError:
+            continue
+        if not isinstance(j, dict) or j.get("zurueck"):
+            continue
+        if not j.get("nach") or j.get("nach") == j.get("von"):
+            continue
+        if str(j.get("zeit") or "")[:10] < ab:
+            continue
+        pf = j.get("pf")
+        if pf is None and not eindeutig:
+            j["_alt"] = True                 # may belong to another mailbox
+        elif pf is not None and pf != pf_id:
+            continue
+        raus.append(j)
+    # By the time it happened, not by the line it stands on — an undo rewrites
+    # the file, and nothing promises the lines stay in time order.
+    raus.sort(key=lambda j: str(j.get("zeit") or ""), reverse=True)
+    return raus
+
+
+def einsortiert_heute(pf_id: str) -> int:
+    """How many mails the watchman filed today — the number on the way in."""
+    heute = datetime.now().strftime("%Y-%m-%d")
+    return sum(1 for j in _journal_fuer(pf_id, 0)
+               if str(j.get("zeit") or "")[:10] == heute and not j.get("_alt"))
+
+
+def einsortiert(d: dict) -> dict:
+    """The „Filed" view: what the watchman put where, and where it is now."""
+    pf_id = str(d.get("pf") or "")
+    zeitraum = str(d.get("zeitraum") or "t1")
+    if zeitraum not in EIN_TAGE:
+        zeitraum = "t1"
+    eintraege = _journal_fuer(pf_id, EIN_TAGE[zeitraum])
+    gekuerzt = len(eintraege) > EIN_GRENZE
+    eintraege = eintraege[:EIN_GRENZE]
+
+    def arbeit(k):
+        orte = {o["name"]: o for o in k.baum() if o["waehlbar"]}
+        paare = k.finde_einsortierte(eintraege, orte)
+        mails, ordner = [], set()
+        for j, kopf in paare:
+            ziel = str(j.get("nach") or "")
+            o = orte.get(ziel) or {}
+            if kopf is None:
+                if j.get("_alt"):
+                    continue                 # unknown mailbox, and not here
+                satz = {"uid": 0, "weg": True, "von": j.get("absender") or "",
+                        "adresse": (j.get("absender") or "").lower(),
+                        "betreff": j.get("betreff") or "", "zeit": j.get("zeit") or "",
+                        "gelesen": True}
+            else:
+                satz = dict(kopf)
+            satz["ordner"] = ziel
+            satz["ordner_zeige"] = o.get("pfad") or j.get("anzeige") or ziel
+            satz["ordner_kurz"] = o.get("zeige") or j.get("anzeige") or ziel
+            satz["rolle"] = o.get("rolle") or ""
+            satz["einsortiert"] = j.get("zeit") or ""
+            satz["klasse"] = j.get("klasse") or ""
+            satz["von_ordner"] = j.get("von") or ""
+            mails.append(satz)
+            ordner.add(ziel)
+        return {"ok": True, "mails": mails, "gesamt": len(mails),
+                "ordner": len(ordner), "gekuerzt": gekuerzt, "zeitraum": zeitraum,
+                "weg": sum(1 for m in mails if m.get("weg")),
+                "einsortiert_heute": einsortiert_heute(pf_id)}
+    return tu(pf_id, arbeit)
 
 
 def _bilder_erlaubt(pf_id: str, adresse: str, wunsch) -> bool:

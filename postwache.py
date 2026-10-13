@@ -4444,7 +4444,13 @@ def lauf_fuer_postfach(zug: dict, einst: dict, tok: str, t0: float) -> dict:
                             "zeit": eintrag["gesehen"], "uid": uid,
                             "von": "INBOX", "nach": voll, "anzeige": ziel,
                             "klasse": klasse, "betreff": kopf["betreff"],
-                            "absender": kopf["adresse"], "zurueck": False},
+                            "absender": kopf["adresse"], "zurueck": False,
+                            # 🔑 Which mailbox and which mail — the journal is
+                            # shared by all mailboxes, and a UID is gone the
+                            # moment the mail has moved. The client's „Filed"
+                            # view finds the mail at its new place by these.
+                            "pf": _PF_ID,
+                            "message_id": kopf.get("message_id") or ""},
                             JOURNAL_ZEILEN)
                 elif darf:
                     eintrag["wuerde_nach"] = ziel

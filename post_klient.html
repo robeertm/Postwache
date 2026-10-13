@@ -330,6 +330,8 @@ body.zieht .z,body.zieht .o{cursor:grabbing}
 .z.an{background:var(--offen);box-shadow:inset 3px 0 0 var(--akzent)}
 .z.gewaehlt{background:var(--wahl)}
 .z.weg{opacity:.45;text-decoration:line-through}
+.z.fort{opacity:.55}
+.z.fort .ort{border-style:dashed}
 .z .haken{grid-column:1;grid-row:1/4;width:1.05rem;height:1.05rem;
   accent-color:var(--akzent);margin:0;cursor:pointer;justify-self:center;
   opacity:.22;transition:opacity .12s}
@@ -704,6 +706,12 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
         <div id="neutasten" style="display:none;gap:.45rem;align-items:center">
           <select id="neu_zeitraum" onchange="einstellungSetzen('neu_zeitraum',this.value)"
                   style="width:auto"></select>
+          <select id="ein_zeitraum" onchange="einZeitraum(this.value)" style="width:auto">
+            <option value="t1" data-t="k.o_seit_gestern"></option>
+            <option value="t3" data-t="k.o_drei_tage"></option>
+            <option value="t7" data-t="k.o_sieben_tage"></option>
+          </select>
+          <button class="blank kleiner" id="ein_knopf" onclick="einsortiertWaehlen()" hidden></button>
           <span class="kleiner leise" id="neuhinweis" hidden></span>
         </div>
         <div class="blaettern">
@@ -894,6 +902,8 @@ function esc(s){ return String(s == null ? "" : s)
 const S = {
   pf:"", ordner:"INBOX", seite:1, sieb:"", suche:"", feld:"alle",
   ueberall:true,           // a search asks EVERY folder unless told otherwise
+  neu_art:"",              // "" = „New", "ein" = „Filed" — both lists out of many folders
+  ein_zeitraum:"t1", ein_heute:0,
   sortierung:"datum", richtung:"ab", pro:50,
   mails:[], uid:0, offen:null, gewaehlt:new Set(),
   ordner_liste:[], rollen:{}, einst:{}, faehig:{}, postfaecher:[],
@@ -1166,12 +1176,20 @@ function ordnerMalen(){
   };
   const offen = neuZahl();
   teile.push(`<div class="obaum">
-    <div class="o neu ${S.neu ? "an" : ""}" tabindex="0" onclick="neuWaehlen()"
+    <div class="o neu ${S.neu && !S.neu_art ? "an" : ""}" tabindex="0" onclick="neuWaehlen()"
          onkeydown="if(event.key==='Enter')neuWaehlen()"
          title="${esc(txt("k.neu_hilfe"))}">
       <span class="ofalt"></span><span class="ic">✨</span>
       <span class="nm">${esc(txt("k.neu"))}</span>
       ${offen ? `<span class="u">${offen}</span>` : ""}
+    </div>
+    <div class="o neu einsortiert ${S.neu && S.neu_art === "ein" ? "an" : ""}" tabindex="0"
+         onclick="einsortiertWaehlen()"
+         onkeydown="if(event.key==='Enter')einsortiertWaehlen()"
+         title="${esc(txt("k.einsortiert_hilfe"))}">
+      <span class="ofalt"></span><span class="ic">📮</span>
+      <span class="nm">${esc(txt("k.einsortiert"))}</span>
+      ${S.ein_heute ? `<span class="n">${S.ein_heute}</span>` : ""}
     </div>
   </div>`);
   teile.push(`<div class="obaum">${sonder.map(o => zeile(o, 0, false)).join("")}</div>`);
@@ -1274,7 +1292,7 @@ function alleFalten(zu){
   ordnerMalen();
 }
 async function ordnerWaehlen(name){
-  S.neu = false; S.aus_neu = false;
+  S.neu = false; S.aus_neu = false; S.neu_art = "";
   /* Clicking a folder during a search everywhere narrows the search to it —
      the word stays, the place changes. That is what the click says. */
   if(trefferUeberall()){ S.ueberall = false; $("#suchort").value = "hier"; }
@@ -1289,7 +1307,7 @@ async function ordnerWaehlen(name){
    folder but twelve. Here they are one list again, with the folder written next
    to every line. */
 async function neuWaehlen(){
-  S.neu = true; S.aus_neu = false;
+  S.neu = true; S.aus_neu = false; S.neu_art = "";
   /* „New" is one glance at what came in — it does not search. A word left in
      the field would claim a filter that is not there. */
   if(S.suche){ $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true; }
@@ -1299,6 +1317,28 @@ async function neuWaehlen(){
   blick("liste");
   await ladeListe(true);
 }
+/* 🔴 WHERE DID IT GO? (13.10.2026)
+
+   „New" lists what is UNREAD. Once a mail has been read anywhere — the phone's
+   own mail app is enough — it leaves „New", and nothing here said where the
+   watchman had filed it. The owner, the same morning: important mails came in
+   today, and they could not be found any more.
+
+   🔑 „Filed" is the watchman's journal turned into a list: what it moved, when,
+   and into which folder — read or not. Every row opens the mail at its new
+   place; a row whose mail has since been moved on or deleted says so instead
+   of vanishing. It is the „New" machinery with a different source, so every
+   action already knows how to deal with rows from many folders. */
+async function einsortiertWaehlen(){
+  S.neu = true; S.aus_neu = false; S.neu_art = "ein";
+  if(S.suche){ $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true; }
+  S.seite = 1; S.gewaehlt.clear(); S.uid = 0; S.offen = null;
+  leseLeeren();
+  ordnerMalen();
+  blick("liste");
+  await ladeListe(true);
+}
+async function einZeitraum(v){ S.ein_zeitraum = v; await ladeListe(true); }
 /* Which folder a row really lives in. In a folder that is the folder; in the
    „New" view every row can answer differently, and EVERY action asks here
    instead of assuming. */
@@ -1423,7 +1463,8 @@ async function ladeListe(frisch, blaettern){
   let a;
   try{
     a = S.neu
-      ? await sende("klient_neu", {})
+      ? await sende(S.neu_art === "ein" ? "klient_einsortiert" : "klient_neu",
+                    S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum} : {})
       : await sende("klient_liste", {ordner:S.ordner, seite:S.seite, sieb:S.sieb,
           suche:S.suche, feld:S.feld, sortierung:S.sortierung, richtung:S.richtung,
           pro_seite:S.pro, ueberall:trefferUeberall(), blaettern:!!blaettern});
@@ -1437,6 +1478,7 @@ async function ladeListe(frisch, blaettern){
     S.neu_gesamt = a.gesamt || 0;
     S.neu_gekuerzt = !!a.gekuerzt;
     S.neu_ordner = a.ordner || 0;
+    S.ein_weg = a.weg || 0;
   }else{
     S.seite = a.seite || 1;
     S.seiten = a.seiten || 1;
@@ -1446,6 +1488,8 @@ async function ladeListe(frisch, blaettern){
     S.such_gekuerzt = !!a.gekuerzt;
     S.treffer_gesamt = a.treffer_gesamt || 0;
   }
+  if(typeof a.einsortiert_heute === "number" && a.einsortiert_heute !== S.ein_heute){
+    S.ein_heute = a.einsortiert_heute; ordnerMalen(); }
   listeMalen();
   if(frisch) r.scrollTop = 0; else r.scrollTop = stand;
   ordnerZahlAktualisieren(a.ordner_gesamt, a.ordner_ungelesen);
@@ -1484,7 +1528,7 @@ function haftungBlick(){
   /* 🔴 WHICH LIST it was pinned in. Without this the row would be pushed into
      a SEARCH RESULT it does not match, or into another folder — a held row in
      the wrong list is worse than a lost one. */
-  return [S.neu ? "neu" : "", trefferUeberall() ? "*" : S.ordner || "", S.sieb || "",
+  return [S.neu ? (S.neu_art || "neu") : "", trefferUeberall() ? "*" : S.ordner || "", S.sieb || "",
           S.suche || ""].join("\u0000");
 }
 function haftungMerken(){
@@ -1514,7 +1558,8 @@ function listeMalen(){
     z.innerHTML = "";
     leer.hidden = false;
     leer.innerHTML = S.neu
-      ? `<div><span class="gross">✨</span>${esc(txt("k.nichts_neu"))}</div>`
+      ? `<div><span class="gross">${S.neu_art === "ein" ? "📮" : "✨"}</span>${
+          esc(txt(S.neu_art === "ein" ? "k.ein_nichts" : "k.nichts_neu"))}</div>`
       : `<div><span class="gross">${S.suche ? "🔍" : "📭"}</span>
       ${esc(txt(S.suche ? "k.nichts_gefunden" : (S.sieb ? "k.nichts_im_sieb" : "k.ordner_leer")))}</div>`;
     spanneMalen();
@@ -1534,8 +1579,9 @@ function listeMalen(){
     /* In the „New" view the one thing every row has to answer is WHERE it is
        now — that is the whole point of gathering it. */
     const ort = (vieleOrdner() && m.ordner_kurz)
-      ? `<span class="ort" title="${esc(m.ordner_zeige || "")}"
-              >📁 ${esc(ordnerKurz(m))}</span>` : "";
+      ? `<span class="ort" title="${esc(m.ordner_zeige || "")}${m.einsortiert
+              ? " · " + esc(txt("k.ein_um", {z:wann(m.einsortiert)})) : ""}"
+              >${m.einsortiert ? "→ " : ""}📁 ${esc(ordnerKurz(m))}</span>` : "";
     const zeichen = [
       m.markiert ? '<span class="stern">★</span>' : "",
       m.beantwortet ? "<span>↩</span>" : "",
@@ -1544,7 +1590,8 @@ function listeMalen(){
       !m.gelesen ? '<span class="punkt"></span>' : ""
     ].filter(Boolean).join("");
     return `<div class="z ${m.gelesen ? "" : "neu"} ${m.uid === S.uid ? "an" : ""}
-        ${gewaehlt ? "gewaehlt" : ""} ${m.geloescht ? "weg" : ""} ${gleich ? "antwort" : ""}"
+        ${gewaehlt ? "gewaehlt" : ""} ${m.geloescht ? "weg" : ""} ${m.weg ? "fort" : ""}
+        ${gleich ? "antwort" : ""}"
         data-uid="${m.uid}" data-i="${i}" tabindex="0" draggable="true"
         ondragstart="mailZiehStart(event,${i})" ondragend="ziehEnde()"
         onclick="zeileKlick(event,${m.uid},${i})"
@@ -1579,6 +1626,7 @@ function ordnerKurz(m){
                                                     : (m.ordner_kurz || "");
 }
 function zweitzeile(m){
+  if(m.weg) return "⚠︎ " + txt("k.ein_weg_kurz");   // filed there, no longer there
   if(m.auszug) return m.auszug;
   const raus = [];
   const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(m.ordner || S.ordner);
@@ -1609,6 +1657,17 @@ function werkzeugMalen(){
       `<option value="${esc(v)}">${esc(txt(k))}</option>`).join("");
   }
   if(w) w.value = S.einst.neu_zeitraum || "ungelesen";
+  const ein = S.neu && S.neu_art === "ein";
+  if(w) w.style.display = ein ? "none" : "";
+  const ez = $("#ein_zeitraum");
+  if(ez){ ez.style.display = ein ? "" : "none"; ez.value = S.ein_zeitraum; }
+  /* 🔑 The way in sits where the question arises: in „New", where a read mail
+     has just disappeared. */
+  const ek = $("#ein_knopf");
+  if(ek){
+    ek.hidden = ein || !S.neu || !S.ein_heute;
+    ek.textContent = txt("k.ein_heute", {n:S.ein_heute});
+  }
 }
 function spanneMalen(){
   werkzeugMalen();
@@ -1616,12 +1675,13 @@ function spanneMalen(){
      found and, honestly, when it had to cut. */
   if(S.neu){
     $("#spanne").textContent = S.mails.length
-      ? txt("k.neu_spanne", {n:S.mails.length, o:S.neu_ordner}) : "";
+      ? txt(S.neu_art === "ein" ? "k.ein_spanne" : "k.neu_spanne",
+            {n:S.mails.length, o:S.neu_ordner}) : "";
     $("#zurueck").disabled = true;
     $("#weiter").disabled = true;
     const hinweis = $("#neuhinweis");
     if(hinweis){
-      hinweis.hidden = !S.neu_gekuerzt;
+      hinweis.hidden = !S.neu_gekuerzt || S.neu_art === "ein";
       hinweis.textContent = S.neu_gekuerzt
         ? txt("k.neu_gekuerzt", {n:S.mails.length,
                                  g:S.neu_gesamt.toLocaleString(LANG)}) : "";
@@ -1660,6 +1720,7 @@ async function blaettern(d){
    row, and mixing them up means the reader marks a mail as read while trying to
    tick it. */
 function zeileKlick(ev, uid, i){
+  if(!uid) return melde(txt("k.ein_weg"), false);
   if(ev.metaKey || ev.ctrlKey){ wahlUm(uid, i, false); return; }
   if(ev.shiftKey){ wahlUm(uid, i, true); return; }
   mailOeffnen(uid, (S.mails[i] || {}).ordner);
@@ -2137,6 +2198,7 @@ function leseLeeren(){
     ${esc(txt("k.nichts_offen"))}</div></div>`;
 }
 async function mailOeffnen(uid, ordner){
+  if(!uid) return melde(txt("k.ein_weg"), false);   // filed, but no longer there
   clearTimeout(S.lesemarke);
   S.uid = uid;
   S.uid_ordner = ordner || ordnerVon(uid);

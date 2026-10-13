@@ -7,6 +7,23 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.20.0] - 2026-10-13
+
+### Added
+
+🔑 **“Filed” — see where the watchman put a mail.** “New” lists what is unread;
+once a mail had been read anywhere (the phone's own mail app is enough), it left
+“New”, and nothing in the client said where the Postwache had filed it. A new
+entry **📮 Filed** under “New” lists every mail the Postwache moved — read or
+not — newest first, for since yesterday, 3 or 7 days, each with **→ 📁 folder**.
+A click opens the mail at its new place. A mail that has since been moved on or
+deleted keeps its row, dimmed, marked “no longer there”.
+
+- “New” itself shows the way in: **“📮 N filed today — where to?”**.
+- The move journal now records the mailbox and the Message-Id of every move,
+  so a filed mail is found again reliably. Older entries are matched by sender
+  and subject.
+
 ## [5.19.0] - 2026-10-12
 
 ### Fixed
