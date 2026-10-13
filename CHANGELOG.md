@@ -7,6 +7,16 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.20.1] - 2026-10-13
+
+### Fixed
+
+- **Dark mode: mails with their own colours are readable again.** A mail that
+  brings its own white box but no text colour inherited the light text of the
+  dark mode — light on white (measured contrast 1.15 : 1). A mail that sets any
+  colour of its own is now shown on paper, as the big mail programs do; mails
+  without colours of their own and plain-text mails still follow dark mode.
+
 ## [5.20.0] - 2026-10-13
 
 ### Added
