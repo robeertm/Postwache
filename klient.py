@@ -2451,6 +2451,27 @@ def _verlinken(s: str) -> str:
                   lambda t: '<a href="mailto:%s">%s</a>' % (t.group(1), t.group(1)), s)
 
 
+# 🔴 A MAIL THAT PAINTS ITS OWN PAPER (13.10.2026)
+#
+# In dark mode the frame sets a LIGHT text colour. A newsletter or a shop mail
+# that brings its own white box but leaves the text colour alone inherits that
+# light colour — light on white, unreadable (the owner's screenshot: a parcel
+# notice). The reverse happens too: a mail that sets dark grey text and no
+# background shows dark on our dark ground.
+#
+# 🔑 A mail that sets ANY colour of its own was designed on paper, so it is
+# shown on paper — the way the big mail programs do it. Only a mail without a
+# single colour of its own (and every plain-text mail) follows the dark mode.
+_EIGENE_FARBE = re.compile(
+    r"(?i)\bbgcolor\s*=|(?<![\w-])color\s*=|\bbackground(?:-color)?\s*:"
+    r"|(?<![\w-])color\s*:")
+
+
+def eigene_farben(html: str) -> bool:
+    """Does this HTML set a colour or a background of its own anywhere?"""
+    return bool(_EIGENE_FARBE.search(html or ""))
+
+
 def rahmen(inhalt: str, bilder: bool, dunkel: bool = True) -> str:
     """The document that goes into the frame — with its own policy.
 
@@ -2472,6 +2493,7 @@ def rahmen(inhalt: str, bilder: bool, dunkel: bool = True) -> str:
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
         '<meta http-equiv="Content-Security-Policy" content="%s">'
+        '<meta name="color-scheme" content="%s">'
         '<style>'
         'html,body{margin:0;padding:0}'
         'body{background:%s;color:%s;font:15px/1.55 ui-rounded,"SF Pro Rounded",'
@@ -2494,8 +2516,8 @@ def rahmen(inhalt: str, bilder: bool, dunkel: bool = True) -> str:
         'blockquote{margin:.5rem 0;padding:.1rem 0 .1rem .8rem;'
         'border-left:2px solid %s55;color:%s}'
         '</style></head><body>%s</body></html>'
-        % (politik, grund, schrift, akzent, akzent, akzent, akzent, leise,
-           leise, akzent, leise, inhalt))
+        % (politik, "dark" if dunkel else "light", grund, schrift, akzent, akzent,
+           akzent, akzent, leise, leise, akzent, leise, inhalt))
 
 
 # ── One warm connection per mailbox ──────────────────────────────────────
@@ -3481,7 +3503,11 @@ def mail_zeigen(d: dict) -> dict:
     # to paper and the letter stays night. Which mode is in force is something
     # only the browser knows (the setting may say „follow the device"), so the
     # page says so with the request.
-    m["rahmen"] = rahmen(inhalt, bilder, not bool(d.get("hell")))
+    # A mail with colours of its own is shown on paper even at night — see
+    # `eigene_farben()`. The page is told, so it can frame the letter.
+    papier = ansicht == "html" and eigene_farben(inhalt)
+    m["papier"] = papier
+    m["rahmen"] = rahmen(inhalt, bilder, not bool(d.get("hell")) and not papier)
     m["ok"] = True
     if einst["gelesen_nach"] == 0 and not m.get("gelesen"):
         try:
