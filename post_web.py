@@ -577,7 +577,9 @@ def nachziehen(adresse: str, ziel: str) -> dict:
                             "zeit": datetime.now().isoformat(timespec="seconds"),
                             "uid": uid, "von": ort, "nach": voll, "anzeige": ziel,
                             "klasse": urteil["klasse"], "betreff": kopf["betreff"],
-                            "absender": kopf["adresse"], "zurueck": False},
+                            "absender": kopf["adresse"], "zurueck": False,
+                            "pf": W._PF_ID,
+                            "message_id": kopf.get("message_id") or ""},
                             W.JOURNAL_ZEILEN)
             # 🔴 Back to the inbox — a change has to return to where it came
             #    from, otherwise every following fetch grasps at nothing.
@@ -1297,7 +1299,8 @@ def aufraeumen(d: dict) -> dict:
                         "uid": uid, "von": "INBOX", "nach": pf.voller_name(ziel),
                         "anzeige": ziel, "klasse": urteil["klasse"],
                         "betreff": kopf["betreff"], "absender": kopf["adresse"],
-                        "zurueck": False}, W.JOURNAL_ZEILEN)
+                        "zurueck": False, "pf": W._PF_ID,
+                        "message_id": kopf.get("message_id") or ""}, W.JOURNAL_ZEILEN)
     except Exception as e:
         return {"ok": False, "text": txt("a.aufraeumen_fehler", fehler=str(e)[:160])}
     rest = ", ".join("%d\u00d7 %s" % (n, k) for k, n in
@@ -2017,6 +2020,7 @@ KLIENT_AKTIONEN = {
     # Everything new, out of every folder at once — the view the watchman makes
     # necessary, because it is the one that moved the new mail away.
     "klient_neu": lambda d, marke: KL.neu_liste(dict(d, pf=_pf(d))),
+    "klient_einsortiert": lambda d, marke: KL.einsortiert(dict(d, pf=_pf(d))),
     "klient_mail": lambda d, marke: KL.mail_zeigen(dict(d, pf=_pf(d))),
     "klient_flaggen": lambda d, marke: KL.flaggen(dict(d, pf=_pf(d))),
     "klient_verschieben": lambda d, marke: KL.verschieben(dict(d, pf=_pf(d))),
