@@ -78,6 +78,13 @@ HORCH_TAKT = 20.0                   # a server without IDLE gets asked this ofte
 HORCH_ORDNER = 6                    # how many folders one reader may have watched
 MAX_ANHANG = 25 * 1024 * 1024       # per mail, adjustable up to this hard ceiling
 TEXT_GRENZE = 900 * 1024            # never render more body than this
+# 🔑 Where a provider writes the address a mail was DELIVERED to. With a
+# catch-all domain every address ends up in one mailbox, and `To:` often does not
+# say which one was used (newsletters, Bcc, „undisclosed recipients"). Measured on
+# a real catch-all mailbox: for one mail in six the address was ONLY in these
+# headers. Order = trust: the envelope first, `Delivered-To` last (some servers
+# write the final mailbox there, not the alias).
+ZUSTELL_KOEPFE = ("X-Envelope-To", "X-Original-To", "Envelope-To", "Delivered-To")
 AUSZUG_BYTES = 900                  # how much of a body a list excerpt costs
 AUSZUG_ZEICHEN = 180                # and how much of it a row shows
 NEU_GRENZE = 200                    # rows in the „New" overview at most
@@ -1549,6 +1556,8 @@ class Briefkasten(W.Postfach if W is not None else object):
             "an": _adressen_lang(msg.get_all("To") or []),
             "kopie": _adressen_lang(msg.get_all("Cc") or []),
             "antwort_an": _adressen_lang(msg.get_all("Reply-To") or []),
+            "zugestellt_an": [a.lower() for a in _nur_adressen(
+                [v for f in ZUSTELL_KOEPFE for v in (msg.get_all(f) or [])])],
             "betreff": W.dekodieren(msg.get("Subject", "")) or "",
             "zeit": _zeitpunkt(msg.get("Date", "")),
             "message_id": (msg.get("Message-Id") or "").strip(),
@@ -2837,7 +2846,8 @@ def _smtp_kurz(pf_id: str) -> dict:
         return {}
     return {"server": s["server"], "port": s["port"], "art": s["art"],
             "benutzer": s["benutzer"], "absender_name": s["absender_name"],
-            "passwort_da": bool(s["passwort"]), "geraten": s["geraten"]}
+            "passwort_da": bool(s["passwort"]), "geraten": s["geraten"],
+            "adresse": s["adresse"]}
 
 
 def _smtp_verbinden(s: dict):
@@ -2921,13 +2931,18 @@ def vorlage(d: dict) -> dict:
     art = str(d.get("art") or "antwort")
     ordner, uid = str(d.get("ordner") or "INBOX"), int(d.get("uid") or 0)
     einst = einstellungen()
+    haupt = str(smtp_zugang(pf_id).get("adresse") or "")
     if art == "neu" or not uid:
         return {"ok": True, "an": "", "kopie": "", "betreff": "",
-                "text": _signatur(einst), "art": "neu"}
+                "text": _signatur(einst), "art": "neu", "von": haupt}
     m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=False))
     if not m:
         return {"ok": False, "text": txt("k.mail_weg")}
     meine = eigene_adressen(pf_id)
+    # A reply goes out from the address the mail came in on. A forward is the
+    # owner writing to someone new, so it keeps the main address.
+    von = haupt if art == "weiter" else antwortadresse(m, haupt)
+    meine.add(von.lower())
     antwort_an = [a["adresse"] for a in m.get("antwort_an") or []]
     absender = antwort_an or ([m["adresse"]] if m.get("adresse") else [])
     an, kopie = "", ""
@@ -2949,13 +2964,72 @@ def vorlage(d: dict) -> dict:
             else (_signatur(einst) + "\n" + zitat))
     return {
         "ok": True, "art": art, "an": an, "kopie": kopie, "betreff": betreff,
-        "text": text,
+        "text": text, "von": von,
         "in_antwort_auf": m.get("message_id") or "",
         "quelle": {"ordner": ordner, "uid": uid},
         # Forwarding without the attachment is the classic complaint. They are
         # offered, ticked on, and fetched from the server only when sending.
         "anhaenge": (m.get("anhaenge") or []) if art == "weiter" else [],
     }
+
+
+def _domain(adresse: str) -> str:
+    return str(adresse or "").rsplit("@", 1)[-1].strip().lower() if "@" in str(adresse or "") else ""
+
+
+def antwortadresse(m: dict, haupt: str) -> str:
+    """Which of the owner's addresses a reply should come from.
+
+    With a catch-all domain the owner hands out a different address everywhere
+    (one for the car maker, one for the bank …) and they all land in one mailbox.
+    Answering from the main address would give that address away to everyone the
+    owner wrote back to — and the reply no longer matches what the other side has
+    on file.
+
+    🔑 Only addresses of the MAIN address's domain count. Other domains in `To:`
+    belong to other people — even when the owner also has an address there (a
+    free-mail provider is everybody's domain). And the provider only lets this
+    login send for its own domain anyway.
+
+    Order: the envelope headers first (they name the address really used); then,
+    if the main address itself is among the recipients, the main address — a
+    family member on the same domain in `To:` must not become the sender; then
+    the first address of the domain in `To:`, then in `Cc:`.
+    """
+    dom = _domain(haupt)
+    if not dom:
+        return haupt
+    def eigen(liste):
+        return [a for a in liste if _domain(a) == dom]
+    zustellung = eigen([str(a).lower() for a in m.get("zugestellt_an") or []])
+    if zustellung:
+        return zustellung[0]
+    an = eigen([str(e.get("adresse") or "").lower() for e in m.get("an") or []])
+    kopie = eigen([str(e.get("adresse") or "").lower() for e in m.get("kopie") or []])
+    if haupt.lower() in an + kopie:
+        return haupt
+    return (an + kopie + [haupt])[0]
+
+
+def _absender_pruefen(roh, s: dict) -> tuple:
+    """The sender address from the form — (address, error).
+
+    Empty means the main address. Anything else has to be ONE valid address on
+    the main address's domain: a typo in the domain would otherwise be refused
+    by the provider with a message nobody understands, or — worse — go out under
+    a domain the owner does not own."""
+    haupt = str(s.get("adresse") or "")
+    roh = str(roh or "").strip()
+    if not roh:
+        return haupt, ""
+    gefunden = [a for _, a in email.utils.getaddresses([roh]) if a]
+    if (len(gefunden) != 1 or not re.fullmatch(r"[^@\s<>,;]+@[^@\s<>,;]+\.[^@\s<>,;]+",
+                                                gefunden[0])):
+        return "", txt("k.von_ungueltig", a=roh[:120])
+    adresse = gefunden[0].strip()
+    if _domain(haupt) and _domain(adresse) != _domain(haupt):
+        return "", txt("k.von_fremd", a=adresse[:120], d=_domain(haupt))
+    return adresse, ""
 
 
 def _signatur(einst: dict) -> str:
@@ -3027,9 +3101,14 @@ def _brief_bauen(d: dict, pf_id: str, einst: dict) -> tuple:
         blind.append(s["adresse"])
     if not (an or kopie or blind):
         return None, [], txt("k.kein_empfaenger")
+    von, fehler = _absender_pruefen(d.get("von"), s)
+    if fehler:
+        return None, [], fehler
     msg = EmailMessage()
-    msg["From"] = email.utils.formataddr(
-        (s.get("absender_name") or "", s.get("adresse") or ""))
+    # 🔑 The header carries the chosen address, the envelope (`from_addr` in
+    # `senden`) stays the login. Bounces then reach the main mailbox, and the
+    # one route that is known to work is not touched.
+    msg["From"] = email.utils.formataddr((s.get("absender_name") or "", von or ""))
     if an:
         msg["To"] = ", ".join(an)
     if kopie:
@@ -3040,7 +3119,7 @@ def _brief_bauen(d: dict, pf_id: str, einst: dict) -> tuple:
         msg["Reply-To"] = str(einst["antwort_an"])
     msg["Subject"] = str(d.get("betreff") or "")
     msg["Date"] = email.utils.formatdate(localtime=True)
-    bereich = (s.get("adresse") or "@localhost").split("@")[-1]
+    bereich = (von or s.get("adresse") or "@localhost").split("@")[-1]
     msg["Message-Id"] = email.utils.make_msgid(domain=bereich)
     bezug = str(d.get("in_antwort_auf") or "").strip()
     if bezug:

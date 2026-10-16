@@ -633,6 +633,10 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
     <button class="haupt" onclick="senden()" id="sendeknopf" data-t="k.senden"></button>
   </div>
   <div class="rumpf gepolstert">
+    <div class="empf"><span data-t="k.von"></span>
+      <input id="s_von" autocomplete="off" spellcheck="false" list="s_von_liste"
+             oninput="vonHinweis()"><datalist id="s_von_liste"></datalist></div>
+    <div class="kleiner leise" id="s_vonhinweis" hidden style="padding:.35rem 0"></div>
     <div class="empf"><span data-t="k.an"></span>
       <input id="s_an" autocomplete="off" oninput="vorschlagSuchen(this)"></div>
     <div class="vorschlag" id="vorschlag_an"></div>
@@ -2052,6 +2056,7 @@ async function verfassen(art, uid){
                                      uid:(v.quelle || {}).uid}))};
   $("#schreibkopf").textContent = txt({neu:"k.neue_mail", antwort:"k.antworten",
     antwort_alle:"k.allen", weiter:"k.weiterleiten"}[art] || "k.neue_mail");
+  vonFuellen(v.von);
   $("#s_an").value = v.an || "";
   $("#s_kopie").value = v.kopie || "";
   $("#s_betreff").value = v.betreff || "";
@@ -2070,6 +2075,27 @@ async function verfassen(art, uid){
       feld.scrollTop = 0;
     }
   }, 90);
+}
+/* The sender. A reply comes from the address the mail came in on — the server
+   chooses it (`antwortadresse`); the field can be changed, and a hint says when
+   it is not the main address, so nobody sends as an alias without noticing. */
+function hauptAdresse(){
+  return (S.smtp && S.smtp.adresse)
+      || (S.postfaecher.find(p => p.id === S.pf) || {}).adresse || "";
+}
+function vonFuellen(von){
+  const haupt = hauptAdresse();
+  $("#s_von").value = von || haupt;
+  $("#s_von_liste").innerHTML = [...new Set([von, haupt].filter(Boolean))]
+    .map(a => `<option value="${esc(a)}"></option>`).join("");
+  vonHinweis();
+}
+function vonHinweis(){
+  const wert = $("#s_von").value.trim().toLowerCase();
+  const haupt = hauptAdresse();
+  const h = $("#s_vonhinweis");
+  h.hidden = !wert || !haupt || wert === haupt.toLowerCase();
+  h.textContent = h.hidden ? "" : txt("k.von_neben", {h:haupt});
 }
 function schreibenZu(){
   const leer = !$("#s_an").value && !$("#s_betreff").value.trim()
@@ -2108,7 +2134,7 @@ function dateienNehmen(dateien){
 }
 function briefFelder(){
   const b = S.brief || {};
-  return {an:$("#s_an").value, kopie:$("#s_kopie").value, blind:"",
+  return {von:$("#s_von").value, an:$("#s_an").value, kopie:$("#s_kopie").value, blind:"",
     betreff:$("#s_betreff").value, text:$("#s_text").value,
     anhaenge:b.anhaenge || [], uebernahme:b.uebernahme || [],
     in_antwort_auf:b.in_antwort_auf || "", quelle:b.quelle || null};

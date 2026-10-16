@@ -7,6 +7,27 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.21.0] - 2026-10-16
+
+### Added
+
+- **Replies come from the address the mail came in on.** With a catch-all
+  domain you hand out a different address everywhere — one for the car maker,
+  one for the bank — and they all land in one mailbox. A reply now goes out from
+  the address the mail was delivered to, read from the delivery headers
+  (`X-Envelope-To`, `X-Original-To`, `Envelope-To`, `Delivered-To`) and then
+  from `To`/`Cc`. Only addresses on the domain of the mailbox's own address
+  count; if the mailbox address itself is among the recipients, it stays the
+  sender. Forwards and new mail keep the main address.
+- **A “From” field in both compose windows**, prefilled with that choice and
+  editable, with a short note whenever the mail will not go out from the main
+  address. A sender outside the mailbox's domain, or anything that is not a
+  single valid address, is refused before connecting.
+- The envelope sender stays the login address, so bounces still reach the main
+  mailbox; only the `From:` header (and the domain of the `Message-Id`) changes.
+  Your provider has to allow sending as these addresses — catch-all packages
+  usually do.
+
 ## [5.20.1] - 2026-10-13
 
 ### Fixed
