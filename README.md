@@ -221,6 +221,10 @@ to you, most frequent first. Sending needs an outgoing server; it is guessed fro
 your IMAP host and can be checked with a button that **logs in and hangs up
 again** — a test that sends a real mail to prove it works is not a test.
 
+If your domain is a catch-all with a different address for every shop or
+service, a reply goes out from the address the mail was sent to — read from the
+delivery headers, shown in the **From** field, and changeable there.
+
 ## Install
 
 ### One command

@@ -739,6 +739,13 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
     <button class="blank" onclick="verfassenZu()">✕</button>
   </div>
   <div class="fleib">
+    <div class="empf"><label for="v_von" data-t="k.von"></label>
+      <div style="flex:1 1 auto">
+        <input id="v_von" autocomplete="off" spellcheck="false" list="v_von_liste"
+               oninput="vonHinweis()">
+        <datalist id="v_von_liste"></datalist>
+        <div class="kleiner leise" id="v_vonhinweis" hidden></div>
+      </div></div>
     <div class="empf"><label for="v_an" data-t="k.an"></label>
       <div style="flex:1 1 auto;position:relative">
         <input id="v_an" autocomplete="off" oninput="vorschlagSuchen(this)"
@@ -2414,9 +2421,8 @@ async function verfassen(art, uid){
                                      uid:(v.quelle || {}).uid}))};
   $("#v_titel").textContent = txt({neu:"k.neue_mail", antwort:"k.antworten",
     antwort_alle:"k.allen", weiter:"k.weiterleiten"}[art] || "k.neue_mail");
-  $("#v_absender").textContent = (S.smtp && S.smtp.server)
-    ? txt("k.von") + " " + ((S.postfaecher.find(p => p.id === S.pf) || {}).adresse || "")
-    : txt("k.smtp_fehlt");
+  $("#v_absender").textContent = (S.smtp && S.smtp.server) ? "" : txt("k.smtp_fehlt");
+  vonFuellen(v.von);
   $("#v_an").value = v.an || "";
   $("#v_kopie").value = v.kopie || "";
   $("#v_blind").value = "";
@@ -2440,6 +2446,27 @@ async function verfassen(art, uid){
       feld.scrollTop = 0;
     }
   }, 70);
+}
+/* The sender. A reply comes from the address the mail came in on — the server
+   chooses it (`antwortadresse`); the field can be changed, and a hint says when
+   it is not the main address, so nobody sends as an alias without noticing. */
+function hauptAdresse(){
+  return (S.smtp && S.smtp.adresse)
+      || (S.postfaecher.find(p => p.id === S.pf) || {}).adresse || "";
+}
+function vonFuellen(von){
+  const haupt = hauptAdresse();
+  $("#v_von").value = von || haupt;
+  $("#v_von_liste").innerHTML = [...new Set([von, haupt].filter(Boolean))]
+    .map(a => `<option value="${esc(a)}"></option>`).join("");
+  vonHinweis();
+}
+function vonHinweis(){
+  const wert = $("#v_von").value.trim().toLowerCase();
+  const haupt = hauptAdresse();
+  const h = $("#v_vonhinweis");
+  h.hidden = !wert || !haupt || wert === haupt.toLowerCase();
+  h.textContent = h.hidden ? "" : txt("k.von_neben", {h:haupt});
 }
 function verfassenZu(){
   const leer = !$("#v_an").value && !$("#v_betreff").value.trim() &&
@@ -2485,7 +2512,8 @@ function dateienNehmen(dateien){
 }
 function briefFelder(){
   const b = S.brief || {};
-  return {an:$("#v_an").value, kopie:$("#v_kopie").value, blind:$("#v_blind").value,
+  return {von:$("#v_von").value, an:$("#v_an").value, kopie:$("#v_kopie").value,
+    blind:$("#v_blind").value,
     betreff:$("#v_betreff").value, text:$("#v_text").value,
     anhaenge:b.anhaenge || [], uebernahme:b.uebernahme || [],
     in_antwort_auf:b.in_antwort_auf || "", quelle:b.quelle || null,
