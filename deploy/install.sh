@@ -8,7 +8,7 @@ set -eu
 
 DIR="${POSTWACHE_DIR:-./postwache}"
 PORT="${POSTWACHE_PORT:-8110}"
-IMAGE="${POSTWACHE_IMAGE:-ghcr.io/der Dienstbenutzer/postwache:latest}"
+IMAGE="${POSTWACHE_IMAGE:-ghcr.io/robeertm/postwache:latest}"
 TZ_DEFAULT="${TZ:-Europe/Berlin}"
 
 say()  { printf '  %s\n' "$1"; }
