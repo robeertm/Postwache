@@ -7,6 +7,18 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.21.2] - 2026-10-18
+
+### Fixed
+
+- **The one-line install works again.** Since 3.0.0 the published
+  `docker-compose.yml`, `docker-compose.both.yml` and the three `deploy/`
+  scripts named an image and download address with a broken account name
+  (`ghcr.io/der Dienstbenutzer/…`), so `install.sh` and `install-both.sh` failed
+  when pulling. They point at `ghcr.io/robeertm/…` and
+  `raw.githubusercontent.com/robeertm/…` again, and the publishing step now
+  refuses to ship a torn image or download address.
+
 ## [5.21.1] - 2026-10-18
 
 ### Fixed

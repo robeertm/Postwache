@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # DocuSort AND the Postwache, wired to each other — one command.
 #
-#   curl -fsSL https://raw.githubusercontent.com/der Dienstbenutzer/Postwache/main/deploy/install-both.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/robeertm/Postwache/main/deploy/install-both.sh | bash
 #
 # Writes docker-compose.both.yml and an .env with a freshly made pairing secret,
 # then starts both. Attachments from your mail land in DocuSort by themselves
@@ -15,7 +15,7 @@ say()  { printf '\033[32m→\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m!\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
-RAW="https://raw.githubusercontent.com/der Dienstbenutzer/Postwache/main"
+RAW="https://raw.githubusercontent.com/robeertm/Postwache/main"
 DIR="${INSTALL_DIR:-$PWD/docusort-postwache}"
 
 command -v docker >/dev/null 2>&1 || die "Docker is missing. Install it and run this again."

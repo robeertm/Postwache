@@ -27,7 +27,7 @@
 
 services:
   docusort:
-    image: ghcr.io/der Dienstbenutzer/docusort:latest
+    image: ghcr.io/robeertm/docusort:latest
     container_name: docusort
     restart: unless-stopped
     ports:
@@ -50,7 +50,7 @@ services:
       - ./docusort/logs:/app/logs
 
   postwache:
-    image: ghcr.io/der Dienstbenutzer/postwache:latest
+    image: ghcr.io/robeertm/postwache:latest
     container_name: postwache
     restart: unless-stopped
     ports:

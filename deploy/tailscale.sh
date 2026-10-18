@@ -28,7 +28,7 @@ say()  { printf '\033[32m→\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m!\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
-RAW="https://raw.githubusercontent.com/der Dienstbenutzer/Postwache/main"
+RAW="https://raw.githubusercontent.com/robeertm/Postwache/main"
 
 # ---------- Where does this install live? ----------
 # Either we were called from the directory holding docker-compose.yml, or from
