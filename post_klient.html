@@ -2403,10 +2403,72 @@ function quelleZeigen(){
   window.open("/api/klient/roh?pf=" + encodeURIComponent(S.pf) + "&ordner=" +
     encodeURIComponent(offenOrdner()) + "&uid=" + S.uid, "_blank");
 }
-function briefDrucken(){
-  const f = $("#brief");
-  try{ f.contentWindow.focus(); f.contentWindow.print(); }
-  catch(e){ window.print(); }
+/* 🔴 Printing (5.21.1). The letter's frame is sandboxed WITHOUT `allow-modals`,
+   and in such a frame the browser drops print() without an error — Chrome only
+   logs „Ignored call to 'print()'", Safari says nothing — so the catch never
+   ran and the button did nothing, since 5.0.0. And a working print of THAT frame
+   would still have put the bare letter on paper: no subject, no sender, no
+   date, and at night light letters on white.
+   So printing gets a sheet of its own: the head of the mail plus the letter in
+   DAY colours, in a hidden frame that may open the print dialog
+   (`allow-modals`) and still runs nothing — `allow-scripts` stays out, and the
+   policy inside says script-src 'none' as before. */
+const DRUCK_STIL =
+  "@page{margin:14mm}@media print{body{padding:0}}" +
+  ".pw-druckkopf{margin:0 0 1rem;padding:0 0 .7rem;border-bottom:1px solid #6e635355;" +
+  "font:13px/1.45 system-ui,'Segoe UI',sans-serif;color:#2b2015}" +
+  ".pw-druckkopf .pw-dk-betreff{font-size:18px;font-weight:700;margin:0 0 .45rem}" +
+  ".pw-druckkopf table.pw-dk{border-collapse:collapse;max-width:100%}" +
+  ".pw-druckkopf table.pw-dk th{text-align:left;font-weight:600;color:#6e6353;" +
+  "padding:.08rem .9rem .08rem 0;vertical-align:top;white-space:nowrap}" +
+  ".pw-druckkopf table.pw-dk td{padding:.08rem 0;vertical-align:top}";
+function druckKopf(m){
+  const wer = a => a.name && a.adresse && a.name !== a.adresse
+    ? a.name + " <" + a.adresse + ">" : (a.adresse || a.name || "");
+  const z = [];
+  const zeile = (n, w) => { if(w) z.push(`<tr><th>${esc(n)}</th><td>${esc(w)}</td></tr>`); };
+  zeile(txt("k.von"), wer({name:m.von, adresse:m.adresse}));
+  zeile(txt("k.an"), (m.an || []).map(wer).join(", "));
+  zeile(txt("k.kopie"), (m.kopie || []).map(wer).join(", "));
+  zeile(txt("k.datum"), langesDatum(m.zeit));
+  const anh = m.anhaenge || [];
+  if(anh.length) zeile(txt("k.anhaenge", {n:anh.length}), anh.map(x => x.n).join(", "));
+  return `<div class="pw-druckkopf"><div class="pw-dk-betreff">${
+    esc(m.betreff || txt("k.ohne_betreff"))}</div><table class="pw-dk">${z.join("")}</table></div>`;
+}
+async function briefDrucken(){
+  const m = S.offen;
+  if(!m) return;
+  // The letter again, in day colours — the same view and the same images
+  // decision the reader has on screen.
+  const t = await sende("klient_mail", {ordner:offenOrdner(), uid:m.uid, ansicht:m.ansicht,
+                                        hell:1, bilder: m.bilder ? 1 : 0});
+  if(!t || !t.ok || !t.rahmen) return melde((t && t.text) || txt("k.ging_nicht"), false);
+  // 🔑 The seam is the end of OUR head — `rahmen()` writes it, and the mail
+  // only starts after it, so the first hit is never the sender's markup.
+  const naht = "</style></head><body>";
+  const i = t.rahmen.indexOf(naht);
+  if(i < 0) return melde(txt("k.ging_nicht"), false);
+  const blatt = t.rahmen.slice(0, i) + DRUCK_STIL + naht + druckKopf(m) +
+                t.rahmen.slice(i + naht.length);
+  const alt = $("#druckblatt");
+  if(alt) alt.remove();
+  const f = document.createElement("iframe");
+  f.id = "druckblatt";
+  f.title = txt("k.drucken");
+  f.setAttribute("sandbox", "allow-same-origin allow-modals");
+  f.setAttribute("aria-hidden", "true");
+  f.tabIndex = -1;
+  // Off screen but with a real size: a frame of 0 × 0 is laid out at 0 × 0,
+  // and some engines print exactly that.
+  f.style.cssText = "position:fixed;left:-10000px;top:0;width:820px;height:1100px;" +
+                    "border:0;pointer-events:none";
+  f.onload = () => {
+    try{ f.contentWindow.focus(); f.contentWindow.print(); }
+    catch(e){ melde(txt("k.ging_nicht"), false); }
+  };
+  f.srcdoc = blatt;
+  document.body.appendChild(f);
 }
 </script>
 
