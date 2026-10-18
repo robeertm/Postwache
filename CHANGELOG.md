@@ -7,6 +7,17 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.21.1] - 2026-10-18
+
+### Fixed
+
+- **Printing a mail works again.** The 🖨️ button called `print()` inside the
+  sandboxed frame that shows the letter — a frame without `allow-modals`, in
+  which browsers drop the call silently. Printing now builds a sheet of its own:
+  the head of the mail (subject, from, to, cc, date, attachments) above the
+  letter, always in day colours so nothing prints light-on-white, in a hidden
+  frame that may open the print dialog but still runs no scripts.
+
 ## [5.21.0] - 2026-10-16
 
 ### Added
