@@ -7,6 +7,17 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.22.0] - 2026-10-21
+
+### Changed
+
+- **Deleted mail arrives in the bin as read.** Deleting an unread mail — with the
+  button, the key, the gesture, or by dragging it onto the bin — marks it read
+  before it moves, so the bin no longer counts as new mail here or in any other
+  mail program. With the setting *only mark as deleted* the mail is marked read
+  as well. Moving mail into any other folder leaves it as it was.
+- The Tailscale binary carried in the image moves from 1.104.1 to **1.104.2**.
+
 ## [5.21.2] - 2026-10-18
 
 ### Fixed
