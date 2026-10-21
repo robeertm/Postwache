@@ -3644,7 +3644,9 @@ def verschieben(d: dict) -> dict:
         return {"ok": False, "text": txt("k.nichts_gewaehlt")}
     if ziel == ordner:
         return {"ok": False, "text": txt("k.selbes_ziel")}
-    erg = tu(pf_id, lambda k: k.verschieben_viele(ordner, uids, ziel))
+    korb = _rollen_ordner(pf_id, "papierkorb")
+    erg = tu(pf_id, lambda k: _in_den_korb(k, ordner, uids, ziel) if korb and ziel == korb
+             else k.verschieben_viele(ordner, uids, ziel))
     if erg.get("ok") and W is not None:
         W.chronik("klient_verschoben", n=erg["n"],
                   text="%d nach %s" % (erg["n"], utf7_dekodieren(ziel)))
@@ -3729,6 +3731,19 @@ def regel_angebot(pf_id: str, ziel: str, adressen) -> dict:
         return {}
 
 
+def _in_den_korb(k, ordner: str, uids: list, korb: str) -> dict:
+    """Into the bin — and read on arrival.
+
+    🔑 (5.22.0) Whoever deletes a mail has dealt with it, read or not. Unread mail
+    in the bin kept a count alive that meant nothing, and every other program
+    showed the bin as „new". The flag is set in the source folder BEFORE the move,
+    so it travels along (MOVE and COPY both keep flags) — one rule for the button,
+    the key, the gesture and dragging onto the bin.
+    """
+    k.flagge(ordner, uids, "\\Seen", True)
+    return k.verschieben_viele(ordner, uids, korb)
+
+
 def loeschen(d: dict) -> dict:
     """Delete — and „delete" means two different things.
 
@@ -3747,7 +3762,7 @@ def loeschen(d: dict) -> dict:
     endgueltig = bool(d.get("endgueltig")) or einst["papierkorb"] == "flagge" \
         or not korb or korb == ordner
     if not endgueltig:
-        erg = tu(pf_id, lambda k: k.verschieben_viele(ordner, uids, korb))
+        erg = tu(pf_id, lambda k: _in_den_korb(k, ordner, uids, korb))
         if erg.get("ok"):
             # 🔑 One mail is not „1 mails". The message is meant to read as a
             #    sentence, and for that the one needs its own form — the same
@@ -3758,8 +3773,11 @@ def loeschen(d: dict) -> dict:
         return erg
 
     def arbeit(k):
+        aufraeumen = d.get("endgueltig") or einst["papierkorb"] != "flagge"
+        if not aufraeumen:
+            k.flagge(ordner, uids, "\\Seen", True)     # stays in view, ticked off: read
         n = k.flagge(ordner, uids, "\\Deleted", True)
-        if d.get("endgueltig") or einst["papierkorb"] != "flagge":
+        if aufraeumen:
             k.m.expunge()
         return n
     n = tu(pf_id, arbeit)
