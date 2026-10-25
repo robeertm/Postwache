@@ -7,6 +7,20 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.23.0] - 2026-10-25
+
+### Added
+
+- **Read-only access for one program.** `GET /api/lesezugang/mails` gives a
+  dashboard or a personal assistant the latest mails, ranked by importance —
+  time, sender name and domain, subject, class and reason, folder, an excerpt of
+  at most 300 characters, read or unread — and nothing else: no body, no
+  attachments, no way to change anything. It has a bearer token of its own
+  (`lesezugang.py neu|stand|aus` inside the container; only the hash is stored)
+  and does not exist until that token is made. The list comes from what the
+  watchman has already recorded, so it answers in milliseconds; read state and
+  excerpt come from a separate read-only connection in the background.
+
 ## [5.22.0] - 2026-10-21
 
 ### Changed

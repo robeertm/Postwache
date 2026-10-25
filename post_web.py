@@ -71,6 +71,10 @@ try:
     import klient as KL              # since 5.0.0: the mail client
 except Exception:                    # and the watchman page must not fail because of it
     KL = None
+try:
+    import lesezugang as LZ          # since 5.23.0: the read-only door for one program
+except Exception:
+    LZ = None
 
 # The client is its own page: it needs the whole window, and the watchman page is
 # a dashboard with a maximum width. One file each, one job each.
@@ -2392,6 +2396,12 @@ class Handler(BaseHTTPRequestHandler):
         # server there? No state, no subprocess, no lock.
         if pfad.rstrip("/") == "/api/gesundheit":
             return self._sende(200, {"ok": True, "fassung": _version()})
+        # 🔑 The read-only door has its OWN key (a bearer token, see
+        #    lesezugang.py) and stands in front of the page lock on purpose: the
+        #    page lock is for people, this is for one program that may read the
+        #    latest mails and do nothing else. No token configured = 404.
+        if pfad == "/api/lesezugang/mails":
+            return self._lesezugang(abfrage)
         if self.path.startswith("/api/lage"):
             if self._gesperrt():
                 return self._sende(401, {"fehler": txt("k.bitte_anmelden"),
@@ -2416,6 +2426,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self._umleiten("/post")
             return self._seite("post_web.html")
         self._sende(404, {"fehler": txt("a.nicht_gefunden")})
+
+    def _lesezugang(self, abfrage: dict):
+        if LZ is None or W is None or KL is None:
+            return self._sende(404, {"ok": False, "fehler": "not found"})
+        code = LZ.pruefen(self.headers.get("Authorization") or "", self.client_address[0])
+        if code != 200:
+            zusatz = (("WWW-Authenticate", "Bearer"),) if code == 401 else (
+                (("Retry-After", str(LZ.BREMSE_S)),) if code == 429 else ())
+            return self._sende(code, {"ok": False, "fehler": LZ.FEHLER.get(code, "no")}, zusatz=zusatz)
+        try:
+            return self._sende(200, LZ.mails(abfrage))
+        except Exception as e:
+            log_text = "Lesezugang: %s" % type(e).__name__
+            try:
+                W.log(log_text)
+            except Exception:
+                pass
+            return self._sende(500, {"ok": False, "fehler": "internal"})
 
     def _klient_seite(self, abfrage: dict):
         """Phone version or wide version.

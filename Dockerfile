@@ -55,7 +55,8 @@ RUN set -eux; \
 
 WORKDIR /app
 COPY postwache.py post_web.py post_web.html VERSION ollama_einrichten.py umbau.py \
-     umzug.py klient.py post_klient.html post_mobil.html tailscale_zugang.py /app/
+     umzug.py klient.py post_klient.html post_mobil.html tailscale_zugang.py \
+     lesezugang.py /app/
 # The language files belong to the program, not to the state. Without them the
 # page shows its keys instead of text — and nothing reports that.
 COPY locales /app/locales

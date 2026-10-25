@@ -499,6 +499,39 @@ two are installed get asked.
   never what was written.
 - Nothing is sent anywhere unless you configure it: Telegram, DocuSort and the
   judgment helper are each off until you turn them on.
+- The read-only door for one program (see below) is off until you make its key.
+
+## Read-only access for one program
+
+A dashboard or a personal assistant can read the latest mails — and do nothing
+else — through one door with a key of its own:
+
+```
+GET /api/lesezugang/mails?tage=3&max=20&ungelesen=0&suche=<word>
+Authorization: Bearer <token>
+```
+
+Per mail it gets the time, the sender's name and domain, the subject, the
+watchman's class and its reason, a rank (security and deadlines first, then
+authorities, people and faults, then everything else), the folder it lies in,
+an excerpt of at most 300 characters and whether it is read. Never the body,
+never attachments, never a full address. Looking changes nothing in the
+mailbox: the list comes from what the watchman already wrote down, and read or
+unread comes from a separate connection that opens every folder read-only.
+
+The door does not exist until you make a key, inside the container:
+
+```bash
+docker exec postwache python3 /app/lesezugang.py neu     # prints the token once
+docker exec postwache python3 /app/lesezugang.py stand   # on / off
+docker exec postwache python3 /app/lesezugang.py aus     # removes it again
+```
+
+Only the token's SHA-256 is stored. Ten wrong tokens in a minute slow the door
+down for a minute. Requests from public addresses are refused (default: any
+address that is not public; `POSTWACHE_LESEZUGANG_NETZE` narrows it to a
+comma-separated list of networks) — but behind Docker's port mapping every request arrives from the
+bridge, so on most installs the token is the lock, not the network list.
 
 ## Updating
 
