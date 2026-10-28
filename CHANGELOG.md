@@ -7,6 +7,27 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.25.0] - 2026-10-28
+
+### Added
+
+- **The reader program can read one mail.** `GET /api/lesezugang/mail?message_id=…`
+  (read token) returns that mail's text as plain text (capped at 20 000
+  characters), the names and domains of its recipients, and what a reply needs:
+  the reply address, a prefilled subject and the own address it would be sent
+  from. The mail is found live and read on a connection that cannot write —
+  nothing is marked read, moved or changed. A mail in the trash is not served.
+- **…and send a reply, a forward or a new mail.**
+  `POST /api/lesezugang/senden` (action token) with
+  `{"art": "antwort"|"weiterleiten"|"neu", "message_id", "an", "kopie", "betreff", "text"}`
+  sends through the same path as the page: a reply is threaded and goes to the
+  original's reply address unless another is given, a forward carries the
+  original and its attachments, a new mail needs recipient, subject and text.
+  The sender is always the mailbox's own address; a recipient is never guessed;
+  every address must be well formed; at most 20 recipients and 30 sends an hour.
+  The door asks nobody — the program must have your yes before it calls.
+  The read token does not send and the action token does not read a mail's text.
+
 ## [5.24.0] - 2026-10-28
 
 ### Added

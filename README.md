@@ -533,6 +533,30 @@ address that is not public; `POSTWACHE_LESEZUGANG_NETZE` narrows it to a
 comma-separated list of networks) — but behind Docker's port mapping every request arrives from the
 bridge, so on most installs the token is the lock, not the network list.
 
+With the same read token, one mail's text can be fetched by its Message-ID —
+as plain text, capped, read-only (nothing is marked read), never from the
+trash:
+
+```
+GET /api/lesezugang/mail?message_id=<id>
+Authorization: Bearer <token>
+```
+
+Acting is a second door with a second key (`lesezugang.py neu-aktion`,
+`aus-aktion`); the read token never opens it and its token never reads:
+
+```
+POST /api/lesezugang/loeschen   {"message_id": "<id>"}            # into the trash, nothing more
+POST /api/lesezugang/senden     {"art": "antwort"|"weiterleiten"|"neu",
+                                 "message_id": "<id>", "an": "...", "betreff": "...", "text": "..."}
+Authorization: Bearer <action token>
+```
+
+Sending is real and cannot be undone; the door does not ask — the program
+must ask you first. The sender is always the mailbox's own address, a recipient
+is never guessed (a reply goes to the original's reply address unless you name
+another), at most 20 recipients and 30 sends an hour.
+
 ## Updating
 
 **It happens by itself.** Both the `docker-compose.yml` in this repository and
