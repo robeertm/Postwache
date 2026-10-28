@@ -1654,13 +1654,18 @@ class Briefkasten(W.Postfach if W is not None else object):
             getan += len(stueck)
         return getan
 
-    def verschieben_viele(self, ordner: str, uids: list, ziel: str) -> dict:
+    def verschieben_viele(self, ordner: str, uids: list, ziel: str,
+                          nur_move: bool = False) -> dict:
         """Move — with MOVE where the server can do it, otherwise copy, tick off,
         expunge.
 
         🔴 The watchman's rule holds unchanged: `\\Deleted` is set only AFTER a
         confirmed copy. If the copy fails, the mail stays where it is. And
         `EXPUNGE` runs only in the source folder of this very move.
+
+        🔑 `nur_move=True` (the reader program's action door) has NO fallback:
+        without a working MOVE nothing is moved, and neither `\\Deleted` nor
+        `EXPUNGE` is ever sent.
         """
         if not uids or not ziel:
             return {"ok": False, "n": 0, "text": txt("k.kein_ziel")}
@@ -1674,6 +1679,8 @@ class Briefkasten(W.Postfach if W is not None else object):
                     getan += len(stueck)
                     continue
                 log("MOVE abgelehnt, es geht per Kopie weiter")
+            if nur_move:
+                break
             typ, _ = self.m.uid("COPY", satz, self._zitat(ziel))
             if typ != "OK":
                 # 🔴 The watchman's rule, unchanged: `\\Deleted` is set ONLY
@@ -3731,7 +3738,7 @@ def regel_angebot(pf_id: str, ziel: str, adressen) -> dict:
         return {}
 
 
-def _in_den_korb(k, ordner: str, uids: list, korb: str) -> dict:
+def _in_den_korb(k, ordner: str, uids: list, korb: str, nur_move: bool = False) -> dict:
     """Into the bin — and read on arrival.
 
     🔑 (5.22.0) Whoever deletes a mail has dealt with it, read or not. Unread mail
@@ -3739,9 +3746,12 @@ def _in_den_korb(k, ordner: str, uids: list, korb: str) -> dict:
     showed the bin as „new". The flag is set in the source folder BEFORE the move,
     so it travels along (MOVE and COPY both keep flags) — one rule for the button,
     the key, the gesture and dragging onto the bin.
+
+    `nur_move=True` forbids the COPY + `\\Deleted` + EXPUNGE fallback (see
+    `verschieben_viele`): the reader program's action door uses it.
     """
     k.flagge(ordner, uids, "\\Seen", True)
-    return k.verschieben_viele(ordner, uids, korb)
+    return k.verschieben_viele(ordner, uids, korb, nur_move=nur_move)
 
 
 def loeschen(d: dict) -> dict:

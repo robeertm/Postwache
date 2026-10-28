@@ -7,6 +7,27 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.24.0] - 2026-10-28
+
+### Added
+
+- **A separate move-to-trash door for the same program.**
+  `POST /api/lesezugang/loeschen` with `{"message_id": …}` or
+  `{"message_ids": […]}` (at most 25) moves mails into the trash — and nothing
+  more. It has a bearer token of its own (`lesezugang.py neu-aktion|aus-aktion`,
+  `stand` shows both doors; only the hash is stored) and does not exist until
+  that token is made. The read token does not open it, and its token does not
+  open the read door. Each mail is found live by its Message-ID before anything
+  happens; a mail already in the trash, a mailbox without a trash folder and a
+  server without `MOVE` are refused. There is no permanent delete: no
+  `\Deleted`, no `EXPUNGE`.
+
+### Changed
+
+- **The read door no longer shows the trash.** Mails lying in the trash are not
+  listed and the trash folder is never read; every listed mail now carries its
+  `message_id`.
+
 ## [5.23.0] - 2026-10-25
 
 ### Added

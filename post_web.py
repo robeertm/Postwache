@@ -73,6 +73,7 @@ except Exception:                    # and the watchman page must not fail becau
     KL = None
 try:
     import lesezugang as LZ          # since 5.23.0: the read-only door for one program
+                                     # (5.24.0: plus its own move-to-trash door)
 except Exception:
     LZ = None
 
@@ -2427,14 +2428,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._seite("post_web.html")
         self._sende(404, {"fehler": txt("a.nicht_gefunden")})
 
+    def _lesezugang_abweisen(self, code: int):
+        """The answer of both reader doors when they do not open — one shape."""
+        zusatz = (("WWW-Authenticate", "Bearer"),) if code == 401 else (
+            (("Retry-After", str(LZ.BREMSE_S)),) if code == 429 else ())
+        return self._sende(code, {"ok": False, "fehler": LZ.FEHLER.get(code, "no")}, zusatz=zusatz)
+
     def _lesezugang(self, abfrage: dict):
         if LZ is None or W is None or KL is None:
             return self._sende(404, {"ok": False, "fehler": "not found"})
         code = LZ.pruefen(self.headers.get("Authorization") or "", self.client_address[0])
         if code != 200:
-            zusatz = (("WWW-Authenticate", "Bearer"),) if code == 401 else (
-                (("Retry-After", str(LZ.BREMSE_S)),) if code == 429 else ())
-            return self._sende(code, {"ok": False, "fehler": LZ.FEHLER.get(code, "no")}, zusatz=zusatz)
+            return self._lesezugang_abweisen(code)
         try:
             return self._sende(200, LZ.mails(abfrage))
         except Exception as e:
@@ -2444,6 +2449,37 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             return self._sende(500, {"ok": False, "fehler": "internal"})
+
+    def _lesezugang_loeschen(self):
+        """`POST /api/lesezugang/loeschen` — the reader's ONE action: move into
+        the trash. Opened by the ACTION key only (never the read key, never a
+        page session), checked BEFORE the body is even read."""
+        if LZ is None or W is None or KL is None:
+            return self._sende(404, {"ok": False, "fehler": "not found"})
+        code = LZ.pruefen_aktion(self.headers.get("Authorization") or "", self.client_address[0])
+        if code != 200:
+            return self._lesezugang_abweisen(code)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            n = -1
+        if n > LZ.AKTION_KOERPER:
+            return self._lesezugang_abweisen(413)
+        try:
+            d = json.loads(self.rfile.read(n).decode("utf-8")) if n > 0 else None
+        except Exception:
+            d = None
+        if not isinstance(d, dict):
+            return self._lesezugang_abweisen(400)
+        try:
+            erg = LZ.loeschen(d)
+        except Exception as e:
+            try:
+                W.log("Lesezugang (Aktion): %s" % type(e).__name__)
+            except Exception:
+                pass
+            return self._sende(500, {"ok": False, "fehler": "internal"})
+        return self._sende(200 if erg.get("ok") else 400, erg)
 
     def _klient_seite(self, abfrage: dict):
         """Phone version or wide version.
@@ -2570,6 +2606,20 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(inhalt)
 
     def do_POST(self):
+        # 🔴 THE READER'S ACTION DOOR COMES FIRST, MATCHED ON THE WHOLE PATH.
+        #
+        # Below, an action is chosen by the LAST path segment only — so
+        # `/api/lesezugang/<x>` would reach page action `<x>` if this were
+        # missing or came later. The exact path goes to its own handler, gated
+        # by the action key alone and in front of the page lock (the reader is a
+        # program, it has no session). Every OTHER path under `/api/lesezugang`
+        # is a 404 here: that namespace never falls through to `_klient_aktion`,
+        # to a page action, or to a „saved" answer.
+        pfad = self.path.split("?", 1)[0]
+        if pfad == "/api/lesezugang/loeschen":
+            return self._lesezugang_loeschen()
+        if "/api/lesezugang" in pfad:
+            return self._sende(404, {"ok": False, "fehler": "not found"})
         name = self.path.rsplit("/", 1)[-1]
         if name not in AKTIONEN and name not in KLIENT_AKTIONEN:
             return self._sende(404, {"ok": False, "text": "unbekannte Aktion"})
