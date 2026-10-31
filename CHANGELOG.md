@@ -7,6 +7,23 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.26.0] - 2026-10-31
+
+### Added
+
+- **The read door tells who really sent a mail.** Asking for one mail
+  (`GET /api/lesezugang/mail`, read key) now also returns a `kopf` block
+  worked out from the mail's raw header, fetched read-only (`PEEK`, nothing
+  is marked): every From address, the number of From lines, the receiving
+  host of the topmost `Received` line, the `Authentication-Results` written
+  *above* that line (parsed per RFC 8601: authserv-id, method, result,
+  properties), how many such lines sit *below* it (only counted — a sender
+  can write those into his own mail), signs of an automatic mail
+  (`Auto-Submitted`, `Precedence`, auto-reply headers, an empty
+  `Return-Path`, delivery reports, mailing lists), the size and the
+  attachments' names, sizes and types. Which verdicts to trust is up to the
+  reader; the door does not guess which server the mail went through.
+
 ## [5.25.2] - 2026-10-31
 
 ### Fixed

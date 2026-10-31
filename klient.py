@@ -1582,6 +1582,18 @@ class Briefkasten(W.Postfach if W is not None else object):
             "grund": urteil.get("grund") or "",
         }
 
+    def kopf_roh(self, ordner: str, uid: int) -> bytes:
+        """Only the raw header block of one mail, in the order the servers wrote
+        it — PEEK, so it marks nothing read. For the read door's `kopf` block."""
+        self.waehle(ordner)
+        typ, daten = self.m.uid("FETCH", str(uid), "(BODY.PEEK[HEADER])")
+        if typ != "OK":
+            return b""
+        for el in daten or []:
+            if isinstance(el, tuple) and len(el) >= 2:
+                return el[1] or b""
+        return b""
+
     def roh(self, ordner: str, uid: int) -> bytes:
         """The whole mail as it lies on the server — for „show source"."""
         self.waehle(ordner)

@@ -19,8 +19,41 @@ else. What it gets per mail in the list: time, sender name and domain, subject,
 the watchman's class and why, a rank, the folder it lies in, an excerpt of at
 most 300 characters, read or unread. Asked for ONE mail by its Message-ID, it
 also gets that mail's text as plain text (capped), the names and domains of its
-recipients, and the one address a reply would go to. Attachments and any way to
-change something are never behind the read door.
+recipients, the one address a reply would go to, and (since 5.26.0) a `kopf`
+block worked out from the mail's RAW header (see below). Attachments and any
+way to change something are never behind the read door.
+
+🔑 THE HEADER BLOCK: WHO REALLY SENT IT (since 5.26.0)
+
+A reader that acts on mail — say, an assistant that may answer one trusted
+sender on its own — needs more than a display name: it needs to know whether
+the mail really comes from that sender, and whether it was written by a person
+at all. So one mail's answer carries `kopf`:
+
+    "kopf": {
+      "von": ["a@example.org"],     every address of every From line, lower case
+      "von_zeilen": 1,              how many From lines there are
+      "empfang": "mx.example.net",  the `by` host of the TOPMOST Received line
+      "echtheit": [                 Authentication-Results ABOVE that line, in order
+        {"authserv": "example.net",
+         "ergebnisse": [{"methode": "dkim", "ergebnis": "pass",
+                         "eigenschaften": {"header.d": "example.org"}}]}],
+      "echtheit_unten": 0,          Authentication-Results BELOW it: only counted
+      "auto": {"auto_submitted", "precedence", "autoreply_kopf",
+               "return_path", "bericht", "liste"},
+      "groesse": 12345,             RFC822.SIZE
+      "anhaenge": [{"name", "bytes", "typ"}]
+    }
+
+🔴 Only lines ABOVE the topmost `Received` were written by the receiving
+server — it puts its own Received line on top and its verdict right above it.
+Everything below came with the mail, and a sender can write any
+„Authentication-Results: …; dkim=pass" into his own message. Those lines are
+therefore never parsed into `echtheit`, only counted. Which `authserv` and
+which `empfang` host to trust is the reader's decision: this door does not
+know which server the owner's mail goes through, and it does not guess. The
+raw header is fetched on the same read-only connection (`EXAMINE`,
+`BODY.PEEK[HEADER]`), so looking still changes nothing.
 
 🔑 WHY IT IS ITS OWN DOOR WITH ITS OWN KEY
 
@@ -697,7 +730,7 @@ def loeschen(body: dict) -> dict:
 
 
 # ── One mail, found live and read on a connection that cannot write ──────────
-def _live(mid: str) -> tuple:
+def _live(mid: str, mit_kopf: bool = False) -> tuple:
     """(pf id, error, folder, mail record) for one Message-ID — error "" = found.
 
     🔴 Its own connection with `schreiben=False`: every folder is opened with
@@ -718,12 +751,156 @@ def _live(mid: str) -> tuple:
             if ergebnis:
                 return pid, (IM_KORB if ergebnis == SCHON_IM_KORB else MAIL_FEHLT), "", {}
             m = k.mail(ordner, uids[0], bilder=False)
+            if m and mit_kopf:
+                # Same connection, folder still open with EXAMINE: PEEK only.
+                m["_kopf_roh"] = k.kopf_roh(ordner, uids[0])
     except Exception as e:
         W.log("Lesezugang: Mail nicht lesbar: %s" % type(e).__name__)
         return pid, UNERREICHBAR, "", {}
     if not m or (m.get("message_id") or "").strip() != mid:
         return pid, MAIL_FEHLT, "", {}
     return pid, "", ordner, m
+
+
+KOPF_MAX = 200                  # longest single value handed out in `kopf`
+
+
+def _flach(wert) -> str:
+    """A header value unfolded onto one line, runs of blanks folded."""
+    return " ".join(str(wert or "").split())
+
+
+def _ohne_kommentare(t: str) -> str:
+    """RFC 5322 comments `( … )` removed — nested ones too — but not inside a
+    quoted string, where a bracket is just a character."""
+    raus, tiefe, zitat, i = [], 0, False, 0
+    while i < len(t):
+        c = t[i]
+        if c == "\\" and i + 1 < len(t) and (zitat or tiefe):
+            if not tiefe:
+                raus.append(t[i:i + 2])
+            i += 2
+            continue
+        if zitat:
+            raus.append(c)
+            if c == '"':
+                zitat = False
+        elif c == "(":
+            tiefe += 1
+        elif c == ")" and tiefe:
+            tiefe -= 1
+        elif not tiefe:
+            if c == '"':
+                zitat = True
+            raus.append(c)
+        i += 1
+    return "".join(raus)
+
+
+def _teilen(t: str, zeichen: str = ";") -> list:
+    """Split at `zeichen`, but never inside a quoted string."""
+    teile, jetzt, zitat = [], [], False
+    for c in t:
+        if c == '"':
+            zitat = not zitat
+        if c == zeichen and not zitat:
+            teile.append("".join(jetzt))
+            jetzt = []
+        else:
+            jetzt.append(c)
+    teile.append("".join(jetzt))
+    return teile
+
+
+_AR_PAAR = re.compile(r'([A-Za-z0-9_.\-/]+)\s*=\s*("(?:[^"\\]|\\.)*"|[^\s";]+)')
+
+
+def _ar_lesen(wert: str) -> dict:
+    """One Authentication-Results line (RFC 8601) as authserv-id and results.
+
+    `authserv-id [version]; method=result [reason=…] ptype.property=value …; …`
+    Comments go, `;` only splits outside quotes, quoted values lose their
+    quotes, everything is lower case. A line that cannot be read gives empty
+    results — never an exception: an unreadable verdict is no verdict."""
+    try:
+        teile = [x.strip() for x in _teilen(_ohne_kommentare(_flach(wert)))]
+        kopf = teile[0].split() if teile and teile[0] else []
+        raus = {"authserv": kopf[0].lower()[:KOPF_MAX] if kopf else "", "ergebnisse": []}
+        for teil in teile[1:]:
+            paare = _AR_PAAR.findall(teil)
+            if not paare:
+                continue                    # "none" or garbage: no result
+            methode, ergebnis = paare[0]
+            eig = {}
+            for name, w in paare[1:]:
+                name = name.lower()
+                if name == "reason" or "." not in name:
+                    continue
+                if w.startswith('"') and w.endswith('"') and len(w) >= 2:
+                    w = re.sub(r"\\(.)", r"\1", w[1:-1])
+                if len(eig) < 10:
+                    eig[name[:60]] = w.lower()[:KOPF_MAX]
+            raus["ergebnisse"].append({"methode": methode.split("/")[0].lower()[:40],
+                                       "ergebnis": ergebnis.strip('"').lower()[:40],
+                                       "eigenschaften": eig})
+            if len(raus["ergebnisse"]) >= 20:
+                break
+        return raus
+    except Exception:
+        return {"authserv": "", "ergebnisse": []}
+
+
+def _empfang(received: str) -> str:
+    """The `by` host of one Received line — comments removed first, because a
+    comment may well say „by" too."""
+    t = _ohne_kommentare(_flach(received))
+    m = re.search(r"(?i)\bby\s+([^\s;()]+)", t)
+    return m.group(1).strip("[]").lower()[:KOPF_MAX] if m else ""
+
+
+def kopf_pruefung(roh: bytes, groesse: int = 0, anhaenge=None) -> dict:
+    """The `kopf` block of one mail (see the module docstring) out of its RAW
+    header bytes. Pure function: no mailbox, no network."""
+    msg = W.msg_aus_bytes(roh or b"")
+    oben, unten, empfang, gesehen = [], 0, "", False
+    for name, wert in msg.items():
+        n = name.lower()
+        if n == "received" and not gesehen:
+            # 🔴 The receiving server writes its Received line on top and its
+            #    verdict above it. Below this line the SENDER may have written
+            #    anything, including a forged verdict — so below is only counted.
+            gesehen, empfang = True, _empfang(wert)
+            continue
+        if n == "authentication-results":
+            if gesehen:
+                unten += 1
+            elif len(oben) < 10:
+                oben.append(_ar_lesen(wert))
+    froms = msg.get_all("From") or []
+    von = [a.lower()[:254] for _, a in email.utils.getaddresses([_flach(f) for f in froms]) if a][:10]
+
+    def eins(feld):
+        return _flach(msg.get(feld, "")).lower()[:KOPF_MAX]
+    # A mail with no Received line at all never passed a receiving server
+    # (e.g. one put into the mailbox by a program): `empfang` stays "" and a
+    # careful reader treats every verdict in it as unproven.
+    return {
+        "von": von, "von_zeilen": len(froms), "empfang": empfang,
+        "echtheit": oben, "echtheit_unten": unten,
+        "auto": {
+            "auto_submitted": eins("Auto-Submitted"),
+            "precedence": eins("Precedence"),
+            # NOT X-Auto-Response-Suppress: one mail program sets that on
+            # every ordinary mail it sends.
+            "autoreply_kopf": any(msg.get(f) is not None for f in ("X-Autoreply", "X-Autorespond", "X-Auto-Response")),
+            "return_path": _flach(msg.get("Return-Path", ""))[:KOPF_MAX],
+            "bericht": msg.get_content_type() == "multipart/report",
+            "liste": msg.get("List-Id") is not None or msg.get("List-Unsubscribe") is not None,
+        },
+        "groesse": int(groesse or 0),
+        "anhaenge": [{"name": str(a.get("n") or "")[:120], "bytes": int(a.get("b") or 0),
+                      "typ": str(a.get("m") or "")[:80]} for a in (anhaenge or [])][:20],
+    }
 
 
 def _html_text(html: str) -> str:
@@ -774,7 +951,7 @@ def mail(abfrage: dict) -> dict:
     mid = _mid_sauber((abfrage.get("message_id") or [""])[0])
     if not mid:
         return {"ok": False, "fehler": KEINE_ID}
-    pid, fehler, ordner, m = _live(mid)
+    pid, fehler, ordner, m = _live(mid, mit_kopf=True)
     # The outcome only: no subject, no sender, no Message-ID.
     W.log("Lesezugang: eine Mail angefragt, %s" % (fehler or "geliefert"))
     if fehler:
@@ -793,6 +970,8 @@ def mail(abfrage: dict) -> dict:
         "anhaenge": [str(a.get("n") or "")[:120] for a in m.get("anhaenge") or []][:20],
         "text": text[:TEXT_MAX], "gekuerzt": len(text) > TEXT_MAX,
         "fremdtext": True,
+        # 🔑 Who really sent it, worked out from the RAW header (since 5.26.0).
+        "kopf": kopf_pruefung(m.get("_kopf_roh") or b"", m.get("groesse") or 0, m.get("anhaenge")),
         # 🔑 What a reply needs, and the only full addresses handed out: where
         #    it would go (Reply-To or sender) and which own address it would
         #    come from. The send door fills both in by itself as well.
