@@ -406,7 +406,7 @@ MARKEN = {
 # and thereby discarded a first name on its own).
 # 🔴 The bracket must contain a HOSTNAME, not just anything. The first version
 # only checked for „[…]“ — and the counter-check promptly declared
-# `"Mike" <mike@example.de>` with the subject „[Wichtig] Kannst du mal schauen?“
+# `"Tom" <tom@example.de>` with the subject „[Wichtig] Kannst du mal schauen?“
 # a machine, which would have muted a friend. A hostname has a dot and no
 # space; „Wichtig“ has neither.
 BETREFF_HOST = re.compile(r"^\s*\[[^\]\s]*\.[^\]\s]*\]")  # „[host.synology.me] …"

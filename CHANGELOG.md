@@ -7,6 +7,23 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.25.1] - 2026-10-31
+
+### Changed
+
+- **Tailscale in the image is now 1.104.4** (was 1.104.2), the current stable
+  release. Nothing to do on your side: the next image update brings it along.
+- **Two code comments use a neutral example name** instead of a real first
+  name. No behaviour change.
+
+### Added
+
+- **Commit identity check.** A small script (`scripts/check_commit_identity.py`)
+  and a workflow (`.github/workflows/commit-identity.yml`) check on every push
+  that each commit's author and committer is a GitHub no-reply address. This
+  repository is a generated tree written by the publishing tool, so a personal
+  address in a commit can only be a mistake — and now it fails the push check.
+
 ## [5.25.0] - 2026-10-28
 
 ### Added
