@@ -2145,7 +2145,14 @@ async function senden(){
   k.innerHTML = '<span class="laedt"></span>';
   let r;
   try{ r = await sende("klient_senden", briefFelder()); }
-  catch(e){ k.disabled = false; k.textContent = txt("k.senden"); return; }
+  catch(e){
+    k.disabled = false; k.textContent = txt("k.senden");
+    /* 🔴 5.25.2: a request that never came back used to reset the button and
+       say NOTHING — on the phone that looked exactly like „sending does not
+       work". „gesperrt" already shows the door; everything else gets a word. */
+    if(String(e && e.message) !== "gesperrt") melde(txt("k.senden_abgerissen"), false, false);
+    return;
+  }
   k.disabled = false;
   k.textContent = txt("k.senden");
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);

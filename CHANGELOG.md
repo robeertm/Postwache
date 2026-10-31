@@ -7,6 +7,32 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.25.2] - 2026-10-31
+
+### Fixed
+
+- **Sending survives a short network hiccup.** One failed name lookup used
+  to make "send" fail right away. Now the connection to the outgoing server
+  is tried up to three times (2 s and 5 s apart), but only when the *way* to
+  the server failed (name lookup, timeout, refused or dropped connection) —
+  before anything was said to the server, so a mail is never sent twice. A
+  refused login or recipient is an answer and is not retried. This covers
+  the page, the reader program's send door, the outgoing-server check and
+  the one-time word mail.
+- **A clear message when it still fails:** after three attempts the page
+  says that nothing was sent and to try again shortly, instead of showing
+  the raw Python error.
+- **No more silent send button.** If the send request itself does not come
+  back (connection dropped), the phone and the wide page now say so instead
+  of quietly resetting the button.
+- A half-open SMTP connection is closed when STARTTLS or the login fails.
+
+### Added
+
+- **Every send leaves one log line** — the number of recipients on success,
+  the kind of error on failure, and each retry. Never an address, never a
+  subject.
+
 ## [5.25.1] - 2026-10-31
 
 ### Changed

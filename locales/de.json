@@ -481,6 +481,8 @@
   "k.smtp_art": "Sicherheit",
   "k.smtp_benutzer": "Benutzer",
   "k.smtp_fehler": "Postausgang: {fehler}",
+  "k.smtp_kein_weg": "Postausgang nicht erreichbar (Netz oder Namensauflösung gestört) — nach {n} Versuchen aufgegeben. Es wurde nichts gesendet, bitte gleich noch einmal versuchen.",
+  "k.senden_abgerissen": "Keine Antwort von der Postwache — die Verbindung ist abgerissen. Ob die Mail hinausging, zeigt der Gesendet-Ordner; sonst bitte noch einmal senden.",
   "k.smtp_fehlt": "Kein Postausgang eingerichtet",
   "k.smtp_kein_server": "Kein Postausgang eingerichtet.",
   "k.smtp_ok": "Postausgang erreichbar — {server}:{port}.",

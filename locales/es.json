@@ -481,6 +481,8 @@
   "k.smtp_art": "Seguridad",
   "k.smtp_benutzer": "Usuario",
   "k.smtp_fehler": "Servidor de salida: {fehler}",
+  "k.smtp_kein_weg": "Servidor de salida inalcanzable (fallo de red o de resolución de nombres) — abandonado tras {n} intentos. No se envió nada; inténtalo de nuevo en un momento.",
+  "k.senden_abgerissen": "Sin respuesta de Postwache — la conexión se cortó. La carpeta de enviados muestra si el correo salió; si no, vuelve a enviarlo.",
   "k.smtp_fehlt": "Sin servidor de salida configurado",
   "k.smtp_kein_server": "Sin servidor de salida configurado.",
   "k.smtp_ok": "Servidor de salida accesible — {server}:{port}.",

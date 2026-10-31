@@ -481,6 +481,8 @@
   "k.smtp_art": "Security",
   "k.smtp_benutzer": "User",
   "k.smtp_fehler": "Outgoing server: {fehler}",
+  "k.smtp_kein_weg": "Outgoing server not reachable (network or name lookup failing) — gave up after {n} attempts. Nothing was sent; please try again in a moment.",
+  "k.senden_abgerissen": "No answer from Postwache — the connection dropped. The sent folder shows whether the mail went out; otherwise please send it again.",
   "k.smtp_fehlt": "No outgoing server set up",
   "k.smtp_kein_server": "No outgoing server set up.",
   "k.smtp_ok": "Outgoing server reachable — {server}:{port}.",

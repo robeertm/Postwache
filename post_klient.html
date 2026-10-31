@@ -2587,7 +2587,15 @@ async function senden(){
   $("#v_stand").innerHTML = `<span class="laedt"></span> ${esc(txt("k.sende"))}`;
   let r;
   try{ r = await sende("klient_senden", briefFelder()); }
-  catch(e){ k.disabled = false; return; }
+  catch(e){
+    k.disabled = false;
+    /* 🔴 5.25.2: the spinner used to stay and nothing was said when the request
+       itself failed. „gesperrt" already shows the door; everything else gets a
+       word, and the status line is cleared. */
+    $("#v_stand").textContent = "";
+    if(String(e && e.message) !== "gesperrt") melde(txt("k.senden_abgerissen"), false);
+    return;
+  }
   k.disabled = false;
   $("#v_stand").textContent = "";
   melde(r.text || (r.ok ? "" : txt("k.ging_nicht")), r.ok);

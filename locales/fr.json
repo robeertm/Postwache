@@ -481,6 +481,8 @@
   "k.smtp_art": "Sécurité",
   "k.smtp_benutzer": "Utilisateur",
   "k.smtp_fehler": "Serveur d’envoi : {fehler}",
+  "k.smtp_kein_weg": "Serveur d’envoi injoignable (réseau ou résolution de noms en panne) — abandon après {n} tentatives. Rien n’a été envoyé ; réessayez dans un instant.",
+  "k.senden_abgerissen": "Pas de réponse de Postwache — la connexion a été interrompue. Le dossier des envoyés indique si le message est parti ; sinon, renvoyez-le.",
   "k.smtp_fehlt": "Aucun serveur d’envoi configuré",
   "k.smtp_kein_server": "Aucun serveur d’envoi configuré.",
   "k.smtp_ok": "Serveur d’envoi joignable — {server}:{port}.",

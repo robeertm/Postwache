@@ -526,7 +526,7 @@ def _not_mailen(wort: str) -> str:
                 "fragt die Postwache sofort nach einem neuen Wort.\n\n"
                 "Warst du das nicht? Dann ignoriere diese Mail \u2014 es wurde "
                 "nichts geaendert, dein bisheriges Wort gilt weiter." % wort)
-            verbindung = _smtp_verbinden(s)
+            verbindung = _smtp_verbinden_geduldig(s)
             try:
                 verbindung.send_message(nachricht)
             finally:
@@ -2863,13 +2863,70 @@ def _smtp_verbinden(s: dict):
         verbindung = smtplib.SMTP_SSL(s["server"], s["port"], timeout=30)
     else:
         verbindung = smtplib.SMTP(s["server"], s["port"], timeout=30)
-        verbindung.ehlo()
-        if s["art"] == "starttls":
-            verbindung.starttls()
+    try:
+        if s["art"] != "ssl":
             verbindung.ehlo()
-    if s["passwort"]:
-        verbindung.login(s["benutzer"], s["passwort"])
+            if s["art"] == "starttls":
+                verbindung.starttls()
+                verbindung.ehlo()
+        if s["passwort"]:
+            verbindung.login(s["benutzer"], s["passwort"])
+    except Exception:
+        # A half-open connection is not handed back — and not left lying around.
+        try:
+            verbindung.close()
+        except Exception:
+            pass
+        raise
     return verbindung
+
+
+# 🔴 5.25.2: ONE failed name lookup was enough to lose a mail. On 2026-10-31 the
+#    resolver of the network hiccuped for a few minutes (every container on the
+#    host saw it), and whoever pressed „send" in that window got an error — and on
+#    the phone not even that. These are the errors of the WAY to the server, not
+#    of the server: nothing has been said to it yet, so trying again can never
+#    send a mail twice. A refused login or a refused recipient is an answer, and
+#    an answer is not asked twice.
+SMTP_WARTEN = (2, 5)        # seconds before the 2nd and 3rd attempt
+SMTP_VORUEBERGEHEND = (socket.gaierror, TimeoutError, ConnectionError,
+                       smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected)
+
+
+def _smtp_verbinden_geduldig(s: dict):
+    """`_smtp_verbinden`, with up to two more attempts when the WAY failed."""
+    versuche = (0,) + tuple(SMTP_WARTEN)
+    for nr, warten in enumerate(versuche, 1):
+        if warten:
+            time.sleep(warten)
+        try:
+            return _smtp_verbinden(s)
+        except smtplib.SMTPAuthenticationError:
+            raise                       # an answer, not a hiccup
+        except SMTP_VORUEBERGEHEND as e:
+            if nr == len(versuche):
+                raise
+            log("Postausgang: Versuch %d/%d ging nicht (%s), versuche erneut"
+                % (nr, len(versuche), _fehler_kurz(e)))
+
+
+_ADRESSE = re.compile(r"[^\s<>\"',;:]+@[^\s<>\"',;:]+")
+
+
+def _fehler_kurz(e: Exception) -> str:
+    """An error for the log — its kind and its words, never an address."""
+    return ("%s: %s" % (type(e).__name__, _ADRESSE.sub("<adresse>", str(e))))[:160]
+
+
+def _smtp_fehlertext(e: Exception) -> str:
+    """What the reader sees when sending failed. The way to the server gets its
+    own sentence — „Temporary failure in name resolution" tells nobody that
+    nothing went out and that trying again later is the whole remedy."""
+    if isinstance(e, smtplib.SMTPAuthenticationError):
+        return txt("k.smtp_anmeldung")
+    if isinstance(e, SMTP_VORUEBERGEHEND):
+        return txt("k.smtp_kein_weg", n=1 + len(SMTP_WARTEN))
+    return txt("k.smtp_fehler", fehler=str(e)[:160])
 
 
 def smtp_pruefen(d: dict) -> dict:
@@ -2889,16 +2946,14 @@ def smtp_pruefen(d: dict) -> dict:
     if d.get("passwort"):
         s["passwort"] = str(d["passwort"])
     try:
-        verbindung = _smtp_verbinden(s)
+        verbindung = _smtp_verbinden_geduldig(s)
         try:
             verbindung.quit()
         except Exception:
             pass
         return {"ok": True, "text": txt("k.smtp_ok", server=s["server"], port=s["port"])}
-    except smtplib.SMTPAuthenticationError:
-        return {"ok": False, "text": txt("k.smtp_anmeldung")}
     except Exception as e:
-        return {"ok": False, "text": txt("k.smtp_fehler", fehler=str(e)[:160])}
+        return {"ok": False, "text": _smtp_fehlertext(e)}
 
 
 def eigene_adressen(pf_id: str) -> set:
@@ -3199,16 +3254,21 @@ def senden(d: dict) -> dict:
         return {"ok": False, "text": fehler}
     fuer_ablage = msg.as_bytes()
     del msg["Bcc"]                  # a blind copy stays blind on the wire
+    # 🔴 5.25.2: sending used to leave NO line in the log, neither on success
+    #    nor on failure — the error went to the browser and nowhere else. „No
+    #    SMTP lines in the log" then meant nothing at all. Now every attempt
+    #    leaves one line: how many recipients, and on failure the kind of
+    #    error. Never an address, never a subject.
     try:
-        verbindung = _smtp_verbinden(s)
-    except smtplib.SMTPAuthenticationError:
-        return {"ok": False, "text": txt("k.smtp_anmeldung")}
+        verbindung = _smtp_verbinden_geduldig(s)
     except Exception as e:
-        return {"ok": False, "text": txt("k.smtp_fehler", fehler=str(e)[:160])}
+        log("Senden gescheitert (Verbindung): %s" % _fehler_kurz(e))
+        return {"ok": False, "text": _smtp_fehlertext(e)}
     try:
         verwehrt = verbindung.send_message(msg, from_addr=s["adresse"],
                                            to_addrs=empfaenger)
     except Exception as e:
+        log("Senden gescheitert (Uebergabe): %s" % _fehler_kurz(e))
         try:
             verbindung.quit()
         except Exception:
@@ -3218,6 +3278,8 @@ def senden(d: dict) -> dict:
         verbindung.quit()
     except Exception:
         pass
+    log("Gesendet: %d Empfaenger%s" % (len(empfaenger),
+                                       ", %d verwehrt" % len(verwehrt) if verwehrt else ""))
     nachwort = []
     if verwehrt:
         # Partly delivered is not „sent". Naming who was refused is the whole
