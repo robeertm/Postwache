@@ -330,6 +330,7 @@
   "k.gestern": "ieri",
   "k.gewaehlt": "{n} selezionati",
   "k.ging_nicht": "Non è andata.",
+  "k.server_leer": "Il server non ha inviato alcun elenco, anche se la cartella contiene messaggi. Riprova tra un attimo.",
   "k.h.anhang_grenze": "Quasi nessun server accetta di più.",
   "k.h.bilder": "Un’immagine esterna rivela quando hai aperto il messaggio.",
   "k.h.gelesen_nach": "Il guardiano non segna mai — solo tu.",

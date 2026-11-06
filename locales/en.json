@@ -330,6 +330,7 @@
   "k.gestern": "yesterday",
   "k.gewaehlt": "{n} selected",
   "k.ging_nicht": "That did not work.",
+  "k.server_leer": "The server sent no list although the folder holds mail. Please try again in a moment.",
   "k.h.anhang_grenze": "Hardly any server accepts more.",
   "k.h.bilder": "A remote image reveals when you opened the mail.",
   "k.h.gelesen_nach": "The watchman never marks — only you do.",

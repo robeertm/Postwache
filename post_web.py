@@ -17,6 +17,7 @@ login.
 from __future__ import annotations
 
 import base64
+import gzip
 import imaplib
 import io
 import json
@@ -2019,6 +2020,8 @@ KLIENT_AKTIONEN = {
     "klient_ordner": lambda d, marke: {"ok": True, "ordner": KL.tu(
         _pf(d), lambda k: k.baum(bool(d.get("frisch"))))},
     "klient_liste": lambda d, marke: KL.liste(dict(d, pf=_pf(d))),
+    # 5.27.0: the rows come first, the excerpts of a first visit a moment later.
+    "klient_auszuege": lambda d, marke: KL.auszuege(dict(d, pf=_pf(d))),
     # 🔑 The waiting request. It comes back when the provider says something (IMAP
     # IDLE) — that is what makes new mail appear without anybody pressing
     # anything. It holds one thread of this server and NOT the mailbox lock.
@@ -2312,6 +2315,10 @@ def installer_bauen(system: str, herkunft: str, zettel: str = ""):
     return None
 
 
+GZIP_AB = 1400                      # bytes; below one packet packing gains nothing
+GZIP_TYP = re.compile(r"^(text/|application/(json|javascript))", re.I)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -2322,8 +2329,19 @@ class Handler(BaseHTTPRequestHandler):
             koerper = json.dumps(koerper, ensure_ascii=False).encode("utf-8")
         elif isinstance(koerper, str):
             koerper = koerper.encode("utf-8")
+        # 🔑 5.27.0: a folder page is 30–60 kB of JSON and the client page
+        #    itself well over 100 kB — packed they are a tenth of that. On a
+        #    phone over a tunnel that is the difference you see. Only text, only
+        #    when the browser says it can unpack, never for a picture.
+        packen = (len(koerper) > GZIP_AB and GZIP_TYP.match(typ or "")
+                  and "gzip" in (self.headers.get("Accept-Encoding") or "").lower())
+        if packen:
+            koerper = gzip.compress(koerper, compresslevel=5)
         self.send_response(code)
         self.send_header("Content-Type", typ)
+        if packen:
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(koerper)))
         self.send_header("Cache-Control", "no-store")
         for name, wert in zusatz or ():

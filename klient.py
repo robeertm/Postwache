@@ -19,9 +19,11 @@ nothing but the fact that no word is set.
 mail counts as read is decided by the reader, never by the act of displaying it —
 and „mark as read" is a setting with an „only by hand" position.
 
-🔴 Nothing is cached on disk. Headers live in memory for as long as a list is
-shown, bodies only for the duration of one response. The principle from the
-watchman („the body is stored nowhere") survives the client.
+🔴 Nothing is cached on disk. Header records (and the two-line excerpt of a
+list row) live in memory only — since 5.27.0 for up to three hours, so that a
+folder clicked again is there at once; bodies only for the duration of one
+response. The principle from the watchman („the body is stored nowhere")
+survives the client.
 """
 from __future__ import annotations
 
@@ -93,6 +95,16 @@ SUCHE_DECKEL = 5000                 # hits dated and ordered across all folders 
 SUCHE_HALTEN = 120                  # seconds one cross-folder hit list serves paging
 EIN_GRENZE = 300                    # rows in the „Filed" view at most
 EIN_TAGE = {"t1": 1, "t3": 3, "t7": 7}
+# 🔑 5.27.0 — speed. What a header record SAYS (sender, subject, date, parts)
+# never changes for a given UID inside one UIDVALIDITY: IMAP forbids it. Only
+# the flags move. So the records are kept in memory and only their flags are
+# asked again — or not even that, when the folder's mark proves nothing changed.
+KOPF_HALT_S = 3 * 3600              # a folder's records are dropped after this long unused
+KOPF_HALT_ORDNER = 80               # folders kept per mailbox at most
+KOPF_HALT_SAETZE = 6000             # records per folder at most
+LISTEN_HALT_MAX = 200               # kept UID orders (folder × filter × search) at most
+LEBT_PRUEFEN_S = 60.0               # a connection quiet for longer is asked whether it lives
+BAUM_FRISCH_S = 2.0                 # „fresh" tree requests this close together share one answer
 
 # Special folders are recognised by their FLAG, not by their name — a mailbox in
 # French calls its bin „Corbeille", and a name-based guess misses every mailbox
@@ -802,6 +814,90 @@ def utf7_kodieren(name: str) -> str:
 _VERBINDUNGEN = {}
 _V_SCHLOSS = threading.Lock()
 
+# ── What is kept in memory between two clicks (5.27.0) ──────────────────────
+# 🔴 Never on disk, and never trusted blindly. A header record is kept per
+# (account, folder, UIDVALIDITY): a new UIDVALIDITY is a new folder as far as
+# IMAP is concerned, so every record of the old one is thrown away. Flags are
+# asked again unless the folder's mark — UIDVALIDITY, UIDNEXT, MESSAGES and
+# HIGHESTMODSEQ, read BEFORE anything else — is exactly the one the record was
+# stamped with. A mark read before the data can only ever be older than the
+# data, never newer, so a stale record can be refreshed for nothing but never
+# served as fresh.
+_KOPF_HALT = {}          # (account, folder, uidvalidity) -> {"zeit", "saetze"}
+_LISTEN_HALT = {}        # (account, folder, filter, search, field, order, dir) -> {"marke", "uids", "echt"}
+_EIN_HALT = {}           # (account, folder) -> {"marke", "schluessel", "funde"}
+_HALT_SCHLOSS = threading.Lock()
+
+
+def halt_vergessen() -> None:
+    """Forget everything kept in memory — for the test bench, and as the one
+    switch should a server ever be caught breaking the rules."""
+    with _HALT_SCHLOSS:
+        _KOPF_HALT.clear()
+        _LISTEN_HALT.clear()
+        _EIN_HALT.clear()
+
+
+def _halt_fuer(konto: tuple, ordner: str, uidvalidity: int) -> dict:
+    """The kept records of one folder in one UIDVALIDITY — created on demand.
+
+    🔴 Records of the same folder under ANOTHER UIDVALIDITY are dropped right
+    here: the server has said this is a different folder now, and a UID from
+    the old one means nothing in it. Folders nobody looked at for hours go too,
+    and never more than KOPF_HALT_ORDNER per account."""
+    jetzt = time.time()
+    with _HALT_SCHLOSS:
+        for schluessel in list(_KOPF_HALT):
+            e = _KOPF_HALT[schluessel]
+            if schluessel[0] == konto and schluessel[1] == ordner \
+                    and schluessel[2] != uidvalidity:
+                del _KOPF_HALT[schluessel]
+            elif jetzt - e["zeit"] > KOPF_HALT_S:
+                del _KOPF_HALT[schluessel]
+        schluessel = (konto, ordner, uidvalidity)
+        e = _KOPF_HALT.get(schluessel)
+        if e is None:
+            eigene = sorted((k for k in _KOPF_HALT if k[0] == konto),
+                            key=lambda k: _KOPF_HALT[k]["zeit"])
+            for k in eigene[:max(0, len(eigene) - KOPF_HALT_ORDNER + 1)]:
+                del _KOPF_HALT[k]
+            e = _KOPF_HALT[schluessel] = {"zeit": jetzt, "saetze": {}}
+        e["zeit"] = jetzt
+        return e["saetze"]
+
+
+def _text_teil(struct):
+    """(part, ENCODING, charset, subtype) of the first text part — what an
+    excerpt is fetched from — or None."""
+    teile = W._teile(struct) if struct else []
+    t = _erster_text(teile, "plain") or _erster_text(teile, "html")
+    if not t:
+        return None
+    return (t["nr"], (t.get("kodierung") or "").upper(), t.get("zeichensatz") or "",
+            t["subtyp"].lower())
+
+
+def _ein_schluessel(j: dict) -> tuple:
+    """What identifies one journal entry for the „Filed" memory."""
+    return (str(j.get("zeit") or ""), str(j.get("message_id") or ""),
+            str(j.get("absender") or "").lower(), str(j.get("betreff") or ""))
+
+
+def _oeffentlich(satz: dict, auszug: bool = True) -> dict:
+    """A copy without the bookkeeping. Callers write into what they get (the
+    folder of a row in „New"), and that must never reach the kept record. The
+    excerpt only goes out where it was asked for — as before."""
+    return {k: v for k, v in satz.items()
+            if not k.startswith("_") and (auszug or k != "auszug")}
+
+
+def _flaggen_setzen(satz: dict, flaggen: list) -> None:
+    satz["gelesen"] = "\\seen" in flaggen
+    satz["markiert"] = "\\flagged" in flaggen
+    satz["beantwortet"] = "\\answered" in flaggen
+    satz["entwurf"] = "\\draft" in flaggen
+    satz["geloescht"] = "\\deleted" in flaggen
+
 
 class Briefkasten(W.Postfach if W is not None else object):
     """The watchman's mailbox, taught what a client needs on top: the tree with
@@ -820,10 +916,16 @@ class Briefkasten(W.Postfach if W is not None else object):
         self.schreibend = False     # and in which mode
         self.faehig = set()
         self.baum_stand = (0.0, [])
+        self.uidvalidity = None     # of the selected folder, from the server's answer
+        # Which account the kept records belong to — server, port and address,
+        # so two mailboxes on one server never share a record.
+        self.konto = (str(zug.get("server") or ""), str(zug.get("port") or ""),
+                      str(zug.get("adresse") or "").lower())
 
     def __enter__(self):
         super().__enter__()
         self.ordner, self.schreibend = "INBOX", bool(self.schreiben)
+        self.uidvalidity = self._uidvalidity_lesen()
         try:
             typ, dat = self.m.capability()
             if typ == "OK" and dat:
@@ -856,28 +958,99 @@ class Briefkasten(W.Postfach if W is not None else object):
             return -1
         typ, dat = self.m.select(self._zitat(ordner), readonly=not schreiben)
         if typ != "OK":
+            self.ordner, self.uidvalidity = "", None
             raise RuntimeError("Ordner nicht wählbar: %s" % ordner)
         self.ordner, self.schreibend = ordner, bool(schreiben)
+        self.uidvalidity = self._uidvalidity_lesen()
         try:
             return int((dat[0] or b"0").decode() if isinstance(dat[0], bytes) else dat[0])
         except (TypeError, ValueError, IndexError):
             return 0
 
+    def _uidvalidity_lesen(self):
+        """UIDVALIDITY of the folder just selected — the server says it in its
+        answer to SELECT/EXAMINE. Without it no record is kept or served: a
+        folder whose identity is unknown cannot vouch for anything."""
+        try:
+            wert = (self.m.untagged_responses.get("UIDVALIDITY") or [None])[-1]
+            if isinstance(wert, bytes):
+                wert = wert.decode("ascii", "replace")
+            return int(str(wert).strip()) if wert is not None else None
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+    def _baum_veraltet(self) -> None:
+        """Something was written — the counts in the kept tree no longer hold."""
+        self.baum_stand = (0.0, self.baum_stand[1])
+
     # ── The tree ────────────────────────────────────────────────────
+    def _liste_mit_zahlen(self) -> tuple:
+        """(LIST lines, {name: (total, unread)}) — in ONE command where the
+        server can do it.
+
+        🔴 MEASURED 06.11.2026 on a real mailbox with 175 folders: one STATUS per
+        folder took 4.4–13 s, and that ran on the connection every click waits
+        for — after every new mail, every action, every return to the tab. With
+        LIST-STATUS (RFC 5819) the same answer is ONE round trip: 0.2–0.5 s,
+        and all 175 counts identical. A server without it gets the old way."""
+        if self.kann("LIST-STATUS"):
+            try:
+                typ, dat = self.m._simple_command(
+                    "LIST", '""', '"*"', "RETURN", "(STATUS (MESSAGES UNSEEN))")
+                typ, zeilen = self.m._untagged_response(typ, dat, "LIST")
+                status = self.m.untagged_responses.pop("STATUS", [])
+                if typ == "OK" and zeilen and zeilen != [None]:
+                    return zeilen, self._status_lesen(status)
+            except imaplib.IMAP4.abort:
+                raise
+            except Exception as e:
+                log("LIST-STATUS nicht nutzbar: %s" % str(e)[:100])
+        typ, zeilen = self.m.list()
+        return (zeilen if typ == "OK" else None), {}
+
+    @staticmethod
+    def _status_lesen(status: list) -> dict:
+        """{name: (total, unread)} out of the STATUS lines LIST-STATUS sent along.
+        The name is taken exactly as the LIST lines write it (quotes stripped,
+        nothing unescaped) — the same spelling is the key on both sides. A line
+        that cannot be read is left out, and that folder is counted the old way."""
+        raus = {}
+        for el in status or []:
+            if not isinstance(el, bytes):
+                continue
+            s = el.decode("utf-8", "replace").strip()
+            t = re.match(r'^("(?:[^"\\]|\\.)*"|\S+)\s+\((.*)\)$', s)
+            if not t:
+                continue
+            name = t.group(1)
+            if name.startswith('"') and name.endswith('"') and len(name) > 1:
+                name = name[1:-1]
+            g = re.search(r"MESSAGES\s+(\d+)", t.group(2), re.I)
+            u = re.search(r"UNSEEN\s+(\d+)", t.group(2), re.I)
+            if g and u:
+                raus[name] = (int(g.group(1)), int(u.group(1)))
+        return raus
+
     def baum(self, frisch: bool = False) -> list:
         """All folders with flags, depth, counts and role.
 
-        The counts come from STATUS, one command per folder — with 160 folders
-        that is a second, so the answer is kept for half a minute. `frisch=True`
-        asks again."""
-        if not frisch and self.baum_stand[1] and time.time() - self.baum_stand[0] < 30:
+        The counts come along with the list (LIST-STATUS), or — on a server
+        without it — from one STATUS per folder. The answer is kept for half a
+        minute; `frisch=True` asks again, unless the tree is barely two seconds
+        old and nothing has been written since: three tabs that wake up at once
+        then share one question instead of queueing three."""
+        alter = time.time() - self.baum_stand[0]
+        if self.baum_stand[1] and (alter < BAUM_FRISCH_S
+                                   or (not frisch and alter < 30)):
             return self.baum_stand[1]
         try:
-            typ, zeilen = self.m.list()
+            zeilen, zahlen = self._liste_mit_zahlen()
+        except imaplib.IMAP4.abort:
+            raise
         except Exception as e:
             log("Ordnerbaum nicht lesbar: %s" % str(e)[:120])
             return []
-        if typ != "OK":
+        if zeilen is None:
             return []
         roh = []
         for zl in zeilen or []:
@@ -908,7 +1081,7 @@ class Briefkasten(W.Postfach if W is not None else object):
             waehlbar = "\\noselect" not in flaggen
             gesamt, ungelesen = (0, 0)
             if waehlbar:
-                gesamt, ungelesen = self.zaehlen(name)
+                gesamt, ungelesen = zahlen.get(name) or self.zaehlen(name)
             teile = name.split(trenner) if trenner else [name]
             raus.append({
                 "name": name,
@@ -965,6 +1138,43 @@ class Briefkasten(W.Postfach if W is not None else object):
             t = re.search(feld + r"\s+(\d+)", s, re.I)
             zahl[feld] = int(t.group(1)) if t else 0
         return (zahl["MESSAGES"], zahl["UNSEEN"], zahl["UIDNEXT"])
+
+    def marke(self, name: str):
+        """The folder's mark: (UIDVALIDITY, UIDNEXT, MESSAGES, HIGHESTMODSEQ,
+        UNSEEN) — or None when it cannot vouch for anything.
+
+        🔑 With CONDSTORE (RFC 7162) HIGHESTMODSEQ grows with EVERY change in the
+        folder: a flag, a deletion, an arrival. Together with UIDNEXT (arrivals)
+        and MESSAGES (removals) an unchanged mark means an unchanged folder. One
+        STATUS, ~20 ms on the real server.
+
+        🔴 Never for the folder that is SELECTED on this connection: the RFC
+        says STATUS is not a way to look for news in the selected mailbox, and
+        a mark that might be behind is worse than none. Then None — the caller
+        asks the server properly, as before."""
+        if not self.kann("CONDSTORE") or not name or name == self.ordner:
+            return None
+        try:
+            typ, dat = self.m.status(
+                self._zitat(name),
+                "(MESSAGES UNSEEN UIDNEXT UIDVALIDITY HIGHESTMODSEQ)")
+        except imaplib.IMAP4.abort:
+            raise
+        except Exception:
+            return None
+        if typ != "OK" or not dat or not dat[0]:
+            return None
+        s = dat[0].decode("utf-8", "replace") if isinstance(dat[0], bytes) else str(dat[0])
+        zahl = {}
+        for feld in ("UIDVALIDITY", "UIDNEXT", "MESSAGES", "HIGHESTMODSEQ", "UNSEEN"):
+            t = re.search(r"\b" + feld + r"\s+(\d+)", s, re.I)
+            if not t:
+                return None
+            zahl[feld] = int(t.group(1))
+        if not zahl["UIDVALIDITY"] or not zahl["HIGHESTMODSEQ"]:
+            return None
+        return (zahl["UIDVALIDITY"], zahl["UIDNEXT"], zahl["MESSAGES"],
+                zahl["HIGHESTMODSEQ"], zahl["UNSEEN"])
 
     def lauschen(self, sekunden: float, weiter=None) -> bool:
         """Wait for the server to say something. True = it did.
@@ -1053,7 +1263,7 @@ class Briefkasten(W.Postfach if W is not None else object):
                     return [int(x) for x in roh.split()], True
             except Exception as e:
                 log("SORT nicht nutzbar: %s" % str(e)[:100])
-        alle = self._suchen(kriterien)
+        alle = self._suchen(kriterien, streng=True)
         alle.sort(reverse=umgekehrt)
         # Without SORT only the date can be ordered honestly, and only as UID
         # order. Everything else would be a claim.
@@ -1081,13 +1291,19 @@ class Briefkasten(W.Postfach if W is not None else object):
             kriterien.append(self._such_bytes(feld, suche))
         return kriterien or [b"ALL"]
 
-    def _suchen(self, kriterien: list) -> list:
+    def _suchen(self, kriterien: list, streng: bool = False) -> list:
         """UID SEARCH with three attempts: with charset, without, and ASCII-only.
-        A server that cannot do one of them must not leave the page empty."""
+        A server that cannot do one of them must not leave the page empty.
+
+        🔴 `streng=True` (the folder list): when EVERY attempt failed, that is an
+        error and says so — „the server did not answer" must never be drawn as
+        „this folder is empty"."""
         versuche = ([b"CHARSET", b"UTF-8"] + kriterien, kriterien)
         for args in versuche:
             try:
                 typ, dat = self.m.uid("SEARCH", *args)
+            except imaplib.IMAP4.abort:
+                raise
             except Exception:
                 continue
             if typ == "OK":
@@ -1096,9 +1312,157 @@ class Briefkasten(W.Postfach if W is not None else object):
                     return [int(x) for x in roh.split()]
                 except ValueError:
                     return []
+        if streng:
+            raise RuntimeError(txt("k.server_leer"))
         return []
 
-    def koepfe(self, uids: list, auszug: bool = False) -> dict:
+    def koepfe(self, uids: list, auszug: bool = False, stand=None,
+               nur_kopf: bool = False, auszug_wenn_da: bool = False) -> dict:
+        """{uid: header record} for the given UIDs of the SELECTED folder.
+
+        🔑 5.27.0: what a record says never changes for a UID, so a record seen
+        before is taken from memory and only its FLAGS are asked again — one
+        small FETCH instead of three big ones. `stand` is the folder's mark read
+        BEFORE this call; a record stamped with exactly that mark needs not even
+        that. A UID the flag question does not come back for is gone from the
+        server, and it is gone from the answer too.
+
+        `nur_kopf=True` is for matching only (sender, subject, Message-Id, date):
+        no blueprint, and the flags are NOT refreshed — never draw from it."""
+        raus = {}
+        if not uids:
+            return raus
+        halt = self._halt()
+        alt, neu = {}, []
+        for u in uids:
+            satz = halt.get(u) if halt is not None else None
+            if satz is not None and (nur_kopf or (
+                    "anhang" in satz and (not auszug or satz.get("_auszug")))):
+                alt[u] = satz
+            else:
+                neu.append(u)
+        if neu:
+            frisch = self._koepfe_holen(neu, auszug, nur_kopf)
+            for u, satz in frisch.items():
+                satz["_stand"] = stand
+                satz["_auszug"] = bool(auszug and not nur_kopf)
+                raus[u] = satz
+            if halt is not None:
+                self._halt_ablegen(halt, frisch)
+        if alt and not nur_kopf:
+            pruefen = [u for u, satz in alt.items()
+                       if stand is None or satz.get("_stand") != stand]
+            if pruefen:
+                flaggen = self.flaggen_holen(pruefen)
+                for u in pruefen:
+                    if u not in flaggen:
+                        # Gone from the server — out of the answer and the memory.
+                        alt.pop(u, None)
+                        if halt is not None:
+                            with _HALT_SCHLOSS:
+                                halt.pop(u, None)
+                        continue
+                    _flaggen_setzen(alt[u], flaggen[u])
+                    alt[u]["_stand"] = stand
+        raus.update(alt)
+        return {u: _oeffentlich(satz, auszug or auszug_wenn_da) for u, satz in raus.items()}
+
+    def auszuege_nachholen(self, uids: list) -> dict:
+        """{uid: excerpt} for records of the SELECTED folder that were sent
+        without one (5.27.0: the list comes first, the excerpts a moment later).
+
+        Still BODY.PEEK, still only the first AUSZUG_BYTES of the text part —
+        the part is known from the kept record, so no blueprint is asked again.
+        A record that is not kept any more is fetched in full."""
+        halt = self._halt()
+        raus, gruppen, fehlt = {}, {}, []
+        for u in uids:
+            satz = halt.get(u) if halt is not None else None
+            if satz is None or "_teil" not in satz:
+                fehlt.append(u)
+            elif satz.get("_auszug"):
+                if satz.get("auszug"):
+                    raus[u] = satz["auszug"]
+            elif satz["_teil"]:
+                gruppen.setdefault(tuple(satz["_teil"]), []).append(u)
+            else:
+                satz["_auszug"] = True          # no text part: nothing to show
+        for u, text in self._auszuege_nach_teil(gruppen).items():
+            raus[u] = text
+            if halt is not None and u in halt:
+                halt[u]["auszug"] = text
+        for liste in gruppen.values():
+            for u in liste:
+                if halt is not None and u in halt:
+                    halt[u]["_auszug"] = True
+        if fehlt:
+            for u, satz in self.koepfe(fehlt, auszug=True).items():
+                if satz.get("auszug"):
+                    raus[u] = satz["auszug"]
+        return raus
+
+    def _halt(self):
+        """The kept records of the selected folder — or None when its identity
+        (UIDVALIDITY) is unknown. A new UIDVALIDITY throws the old records away."""
+        if not self.uidvalidity or not self.ordner:
+            return None
+        return _halt_fuer(self.konto, self.ordner, self.uidvalidity)
+
+    @staticmethod
+    def _halt_ablegen(halt: dict, saetze: dict) -> None:
+        with _HALT_SCHLOSS:
+            halt.update(saetze)
+            zuviel = len(halt) - KOPF_HALT_SAETZE
+            if zuviel > 0:
+                for u in list(halt)[:zuviel]:
+                    halt.pop(u, None)
+
+    def flaggen_holen(self, uids: list) -> dict:
+        """{uid: [flags]} — the one thing about a mail that changes.
+
+        🔴 A refused FETCH is an ERROR, not „these mails are gone": only a UID
+        missing from an ACCEPTED answer counts as removed."""
+        raus = {}
+        for stueck in self._uid_stuecke(uids):
+            typ, daten = self.m.uid("FETCH", self._uid_satz(stueck), "(UID FLAGS)")
+            if typ != "OK":
+                raise RuntimeError("Flaggen nicht lesbar")
+            gefragt = set(stueck)
+            for el in daten or []:
+                if isinstance(el, tuple):
+                    el = el[0]
+                if not isinstance(el, bytes):
+                    continue
+                zl = el.decode("utf-8", "replace")
+                u = re.search(r"UID\s+(\d+)", zl)
+                f = re.search(r"FLAGS\s+\(([^)]*)\)", zl)
+                if u and f and int(u.group(1)) in gefragt:
+                    # In order: an unasked notice that came earlier is
+                    # overwritten by the answer to this very question.
+                    raus[int(u.group(1))] = [x.lower() for x in f.group(1).split()]
+        return raus
+
+    def koepfe_in(self, ordner: str, uids: list, auszug: bool = False,
+                  marke=None, auszug_wenn_da: bool = False) -> dict:
+        """Records of a folder — without even selecting it when every one is
+        kept and stamped with the mark just read."""
+        if marke is not None and uids:
+            halt = _halt_fuer(self.konto, ordner, marke[0])
+            satze = [halt.get(u) for u in uids]
+            if all(satz is not None and "anhang" in satz
+                   and (not auszug or satz.get("_auszug"))
+                   and satz.get("_stand") == marke for satz in satze):
+                self.halt_uv = marke[0]
+                return {u: _oeffentlich(satz, auszug or auszug_wenn_da)
+                        for u, satz in zip(uids, satze)}
+        self.waehle(ordner)
+        if marke is not None and self.uidvalidity != marke[0]:
+            marke = None
+        self.halt_uv = self.uidvalidity
+        return self.koepfe(uids, auszug=auszug, stand=marke, auszug_wenn_da=auszug_wenn_da)
+
+    def _koepfe_holen(self, uids: list, auszug: bool = False,
+                      nur_kopf: bool = False) -> dict:
         """{uid: header record} for a page of the list — two FETCHes, no more.
 
         🔴 The metadata and the header block are fetched TOGETHER, the blueprint
@@ -1125,8 +1489,13 @@ class Briefkasten(W.Postfach if W is not None else object):
             if typ != "OK":
                 continue
             raus.update(self._koepfe_lesen(daten))
+        if nur_kopf:
+            return raus
         strukturen = self.strukturen(list(raus))
         for uid, satz in raus.items():
+            # Where the text sits — kept, so the excerpt can follow later
+            # without asking for the blueprint a second time.
+            satz["_teil"] = _text_teil(strukturen.get(uid))
             anh, _ = anhang_und_inline(strukturen.get(uid))
             satz["anhang"] = len(anh)
             satz["anhang_gross"] = sum(a["b"] for a in anh)
@@ -1153,15 +1522,16 @@ class Briefkasten(W.Postfach if W is not None else object):
         grouped by part number and encoding, so a page usually needs two or three
         FETCHes — most letters carry their text in the same place.
         """
-        raus, gruppen = {}, {}
+        gruppen = {}
         for uid, struct in (strukturen or {}).items():
-            teile = W._teile(struct) if struct else []
-            t = _erster_text(teile, "plain") or _erster_text(teile, "html")
-            if not t:
-                continue
-            schluessel = (t["nr"], (t.get("kodierung") or "").upper(),
-                          t.get("zeichensatz") or "", t["subtyp"].lower())
-            gruppen.setdefault(schluessel, []).append(uid)
+            schluessel = _text_teil(struct)
+            if schluessel:
+                gruppen.setdefault(schluessel, []).append(uid)
+        return self._auszuege_nach_teil(gruppen)
+
+    def _auszuege_nach_teil(self, gruppen: dict) -> dict:
+        """{uid: excerpt} for {(part, encoding, charset, subtype): [uids]}."""
+        raus = {}
         for (nr, kod, satz, sub), liste in gruppen.items():
             for i in range(0, len(liste), 100):
                 teil = ",".join(str(u) for u in sorted(liste[i:i + 100]))
@@ -1430,11 +1800,28 @@ class Briefkasten(W.Postfach if W is not None else object):
         for ordner, liste in nach.items():
             if not ordner or ordner not in orte:
                 continue
+            # 🔑 5.27.0: a folder whose mark has not moved since the last look
+            # still holds exactly what was found then — for the same journal
+            # entries. One STATUS instead of a search and two fetches.
+            schluessel = tuple(sorted(_ein_schluessel(j) for j in liste))
+            marke = self.marke(ordner)
+            with _HALT_SCHLOSS:
+                halt = _EIN_HALT.get((self.konto, ordner))
+            if (marke is not None and halt and halt["marke"] == marke
+                    and halt["schluessel"] == schluessel):
+                for j in liste:
+                    k = halt["funde"].get(_ein_schluessel(j))
+                    if k is not None:
+                        gefunden[id(j)] = dict(k)
+                continue
             try:
                 self.waehle(ordner)
             except Exception as e:
                 log("Ordner %s nicht lesbar: %s" % (ordner, str(e)[:100]))
                 continue
+            if marke is not None and self.uidvalidity != marke[0]:
+                marke = None
+            vorlaeufig = {}
             # One broad question first: mail filed on arrival arrived around
             # the time it was filed. Two days of slack for the date boundary.
             frueh = min(str(j.get("zeit") or "")[:10] for j in liste)
@@ -1444,7 +1831,11 @@ class Briefkasten(W.Postfach if W is not None else object):
             except ValueError:
                 seit = (datetime.now() - timedelta(days=9)).strftime("%d-%b-%Y")
             uids = sorted(self._suchen([("SINCE " + seit).encode()]), reverse=True)[:600]
-            koepfe = self.koepfe(uids) if uids else {}
+            # Stamped with the mark read before: the records of the matches
+            # below need no second question. (Headers and blueprint together
+            # cost fewer round trips than headers now and the rest later —
+            # measured on the real mailbox, 23 folders.)
+            koepfe = self.koepfe(uids, stand=marke) if uids else {}
             nach_mid, nach_kopf = {}, {}
             for uid in uids:
                 k = koepfe.get(uid)
@@ -1483,11 +1874,25 @@ class Briefkasten(W.Postfach if W is not None else object):
                                             + mid.replace('"', "").encode("utf-8", "replace")
                                             + b'"'])
                     if treffer:
-                        k = (self.koepfe(treffer[-1:]) or {}).get(treffer[-1])
+                        k = (self.koepfe(treffer[-1:], nur_kopf=True) or {}).get(treffer[-1])
                         if k:
                             benutzt.add(k["uid"])
                 if k is not None:
-                    gefunden[id(j)] = k
+                    vorlaeufig[id(j)] = k
+            voll = self.koepfe(sorted({k["uid"] for k in vorlaeufig.values()}),
+                               stand=marke) if vorlaeufig else {}
+            funde = {}
+            for j in liste:
+                k = vorlaeufig.get(id(j))
+                if k is not None and k["uid"] in voll:
+                    gefunden[id(j)] = voll[k["uid"]]
+                    funde[_ein_schluessel(j)] = dict(voll[k["uid"]])
+            with _HALT_SCHLOSS:
+                if marke is not None:
+                    _EIN_HALT[(self.konto, ordner)] = {
+                        "marke": marke, "schluessel": schluessel, "funde": funde}
+                else:
+                    _EIN_HALT.pop((self.konto, ordner), None)
         return [(j, gefunden.get(id(j))) for j in eintraege]
 
     def mail(self, ordner: str, uid: int, bilder: bool = False,
@@ -1654,6 +2059,7 @@ class Briefkasten(W.Postfach if W is not None else object):
         if not uids:
             return 0
         self.waehle(ordner, schreiben=True)
+        self._baum_veraltet()
         getan = 0
         for stueck in self._uid_stuecke(uids):
             typ, _ = self.m.uid("STORE", self._uid_satz(stueck),
@@ -1682,6 +2088,7 @@ class Briefkasten(W.Postfach if W is not None else object):
         if not uids or not ziel:
             return {"ok": False, "n": 0, "text": txt("k.kein_ziel")}
         self.waehle(ordner, schreiben=True)
+        self._baum_veraltet()
         getan, kopiert = 0, False
         for stueck in self._uid_stuecke(uids):
             satz = self._uid_satz(stueck)
@@ -1712,6 +2119,7 @@ class Briefkasten(W.Postfach if W is not None else object):
         """Put a mail INTO a folder — the sent copy, a draft. The folder is created
         if it is missing, because a provider without a drafts folder must not cost
         the text that was written."""
+        self._baum_veraltet()
         try:
             self.m.create(self._zitat(ordner))
         except Exception:
@@ -1737,6 +2145,7 @@ class Briefkasten(W.Postfach if W is not None else object):
         on this mailbox looks for them where they are, and the watchman files
         against them too.
         """
+        self._baum_veraltet()
         alle = self.ordner_liste()
         if alt not in alle or alt == "INBOX":
             return {"ok": False, "text": txt("k.ordner_fort")}
@@ -1797,6 +2206,7 @@ class Briefkasten(W.Postfach if W is not None else object):
         name exactly as the server lists it, so nothing about the separator or
         the encoding is guessed here — the new part is appended to it.
         """
+        self._baum_veraltet()
         pfad = (pfad or "").strip().strip("/")
         if not pfad:
             return {"ok": False, "text": txt("k.kein_name")}
@@ -1831,6 +2241,7 @@ class Briefkasten(W.Postfach if W is not None else object):
         been told the number and says yes, and a special folder is never deleted
         at all — every mail program on this mailbox expects it to be there.
         """
+        self._baum_veraltet()
         alle = self.ordner_liste()
         if name not in alle or name == "INBOX":
             return {"ok": False, "text": txt("k.ordner_fort")}
@@ -2591,7 +3002,12 @@ def briefkasten(pf_id: str):
     eintrag["schloss"].acquire()
     try:
         pf = eintrag["pf"]
-        if pf is not None and (time.time() - eintrag["zeit"] > LEERLAUF or not pf.lebt()):
+        # 🔑 5.27.0: a connection used a minute ago is not asked whether it
+        # still lives — that NOOP was one more round trip in front of every
+        # click. Should it have died anyway, the first command fails and `tu`
+        # opens a new one, as it always did.
+        ruhe = time.time() - eintrag["zeit"]
+        if pf is not None and (ruhe > LEERLAUF or (ruhe > LEBT_PRUEFEN_S and not pf.lebt())):
             _schliessen(pf)
             pf = None
         if pf is None:
@@ -3427,13 +3843,54 @@ def liste(d: dict) -> dict:
                                bool(d.get("blaettern")), bool(einst["vorschautext"]))
 
     def arbeit(k):
-        uids, echt = k.uids(ordner, sieb, suche, feld, sortierung, richtung)
+        # 🔑 5.27.0: the mark FIRST, before any data — see `Briefkasten.marke`.
+        # Unchanged mark = the kept order of UIDs still holds, and the records
+        # stamped with it need not be asked at all. ~20 ms instead of ~400.
+        marke = k.marke(ordner)
+        if marke is None and k.ordner == ordner:
+            # 🔴 The folder is the selected one, so there is no mark to trust.
+            #    Select it AGAIN: the server's answer carries the current
+            #    UIDVALIDITY — a folder recreated in the meantime must never be
+            #    read with the records of the old one — and a freshly selected
+            #    folder is in step with what other programs did. One round trip.
+            k.ordner = ""
+        schluessel = (k.konto, ordner, sieb, suche, feld, sortierung, richtung)
+        with _HALT_SCHLOSS:
+            halt = _LISTEN_HALT.get(schluessel)
+        if marke is not None and halt and halt["marke"] == marke:
+            uids, echt = halt["uids"], halt["echt"]
+        else:
+            uids, echt = k.uids(ordner, sieb, suche, feld, sortierung, richtung)
+            with _HALT_SCHLOSS:
+                _LISTEN_HALT.pop(schluessel, None)
+                if marke is not None:
+                    _LISTEN_HALT[schluessel] = {"marke": marke, "uids": uids,
+                                                "echt": echt}
+                    # Every search word is a key of its own — never let them pile up.
+                    while len(_LISTEN_HALT) > LISTEN_HALT_MAX:
+                        _LISTEN_HALT.pop(next(iter(_LISTEN_HALT)))
         gesamt = len(uids)
         seiten = max(1, (gesamt + pro - 1) // pro)
         nr = min(seite, seiten)
         teil = uids[(nr - 1) * pro:nr * pro]
-        koepfe = k.koepfe(teil, auszug=bool(einst["vorschautext"]))
-        gesamt_o, ungelesen_o = k.zaehlen(ordner)
+        # 🔑 5.27.0: the page may ask for the rows FIRST and the excerpts a
+        # moment later (`auszug_spaeter`): reading the start of fifty letters
+        # is the slowest part of a first visit, and the rows do not need it to
+        # be shown. Excerpts already kept come along at once.
+        spaeter = bool(einst["vorschautext"]) and bool(d.get("auszug_spaeter"))
+        koepfe = k.koepfe_in(ordner, teil, bool(einst["vorschautext"]) and not spaeter,
+                             marke, auszug_wenn_da=spaeter)
+        if marke is not None:
+            gesamt_o, ungelesen_o = marke[2], marke[4]
+        else:
+            gesamt_o, ungelesen_o = k.zaehlen(ordner)
+        # 🔴 The server says the folder holds mail, the list says nothing — that
+        # is a failed answer, not an empty folder. Never drawn as „empty", and
+        # never kept.
+        if not uids and not sieb and not suche and gesamt_o > 0:
+            with _HALT_SCHLOSS:
+                _LISTEN_HALT.pop(schluessel, None)
+            raise RuntimeError(txt("k.server_leer"))
         return {
             "ok": True, "ordner": ordner, "gesamt": gesamt, "seite": nr,
             "seiten": seiten, "pro_seite": pro, "sortiert": echt,
@@ -3442,8 +3899,73 @@ def liste(d: dict) -> dict:
             # In the order the server gave them — a dictionary has no order and
             # would show the newest mail somewhere in the middle.
             "mails": [koepfe[u] for u in teil if u in koepfe],
+            # Which rows still wait for their excerpt, and under which
+            # UIDVALIDITY — an excerpt must never land on a mail of a folder
+            # that was recreated in between.
+            "auszug_fehlt": [u for u in teil if u in koepfe and spaeter
+                             and _auszug_fehlt(k, ordner, u)],
+            "uidvalidity": getattr(k, "halt_uv", None),
         }
+    return _wenn_bekannt(d, tu(pf_id, arbeit))
+
+
+def _auszug_fehlt(k, ordner: str, uid: int) -> bool:
+    uv = getattr(k, "halt_uv", None)
+    if not uv:
+        return False
+    satz = _halt_fuer(k.konto, ordner, uv).get(uid)
+    return bool(satz is not None and not satz.get("_auszug"))
+
+
+def auszuege(d: dict) -> dict:
+    """The excerpts the list left out — `klient_auszuege`. Read-only, PEEK."""
+    pf_id = str(d.get("pf") or "")
+    ordner = str(d.get("ordner") or "INBOX")
+    uids = [int(u) for u in (d.get("uids") or []) if str(u).isdigit()][:200]
+    try:
+        uv = int(d.get("uidvalidity") or 0)
+    except (TypeError, ValueError):
+        uv = 0
+    if not uids or not einstellungen()["vorschautext"]:
+        return {"ok": True, "auszuege": {}}
+
+    def arbeit(k):
+        k.waehle(ordner)
+        if not uv or k.uidvalidity != uv:
+            return {"ok": True, "auszuege": {}, "veraltet": True}
+        return {"ok": True, "auszuege": {str(u): t for u, t in
+                                          k.auszuege_nachholen(uids).items()}}
     return tu(pf_id, arbeit)
+
+
+# 🔑 5.27.0 — „you already have this". The page sends the fingerprint of the
+# answer it is showing; when the fresh answer has the same one, only the
+# fingerprint goes back. Nothing is redrawn, nothing jumps, and the phone does
+# not download forty kilobytes it already holds. The fingerprint is taken over
+# the FRESH answer, so this can never keep an old list on screen.
+KENNUNG_OHNE = ("alle_uids", "alle_posten", "kennung")
+
+
+def _kennung(antwort: dict) -> str:
+    teile = {k: v for k, v in antwort.items() if k not in KENNUNG_OHNE}
+    roh = json.dumps(teile, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(roh.encode("utf-8")).hexdigest()[:20]
+
+
+def _wenn_bekannt(d: dict, antwort: dict) -> dict:
+    if not isinstance(antwort, dict) or not antwort.get("ok"):
+        return antwort
+    kennung = _kennung(antwort)
+    antwort["kennung"] = kennung
+    if (str(d.get("kennt") or "") == kennung and antwort.get("alle_uids") is None
+            and antwort.get("alle_posten") is None):
+        kurz = {"ok": True, "unveraendert": True, "kennung": kennung}
+        for feld in ("ordner", "gesamt", "seite", "seiten", "ordner_gesamt",
+                     "ordner_ungelesen", "einsortiert_heute"):
+            if feld in antwort:
+                kurz[feld] = antwort[feld]
+        return kurz
+    return antwort
 
 
 # The last hit list across all folders, per mailbox. 🔑 It serves only TURNING
@@ -3500,7 +4022,7 @@ def neu_liste(d: dict) -> dict:
     antwort["ok"] = True
     antwort["zeitraum"] = zeitraum
     antwort["einsortiert_heute"] = einsortiert_heute(pf_id)
-    return antwort
+    return _wenn_bekannt(d, antwort)
 
 
 def _journal_fuer(pf_id: str, tage: int) -> list:
@@ -3588,7 +4110,7 @@ def einsortiert(d: dict) -> dict:
                 "ordner": len(ordner), "gekuerzt": gekuerzt, "zeitraum": zeitraum,
                 "weg": sum(1 for m in mails if m.get("weg")),
                 "einsortiert_heute": einsortiert_heute(pf_id)}
-    return tu(pf_id, arbeit)
+    return _wenn_bekannt(d, tu(pf_id, arbeit))
 
 
 def _bilder_erlaubt(pf_id: str, adresse: str, wunsch) -> bool:

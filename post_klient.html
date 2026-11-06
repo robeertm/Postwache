@@ -314,7 +314,10 @@ body.zieht .z,body.zieht .o{cursor:grabbing}
 .blaettern{display:flex;align-items:center;gap:.3rem;margin-left:auto;font-size:.76rem;
   color:var(--leise)}
 .rollen{overflow:auto;flex:1 1 auto;min-height:0}
-.zeilen{display:flex;flex-direction:column}
+.zeilen{display:flex;flex-direction:column;transition:opacity .15s ease}
+/* 5.27.0: a click is answered AT ONCE — the old list steps back while the new
+   one is on its way, instead of standing there as if nothing had happened. */
+.zeilen.wartet{opacity:.45}
 /* 🔴 EVERY cell is placed by hand — column AND row, on every child. Automatic
    placement put the date in the free column and pushed sender and subject to the
    far right, with the second line under the checkbox. It looked like a layout
@@ -1164,6 +1167,8 @@ function ordnerMalen(){
         ondragleave="this.classList.remove('ziel')"
         ondrop="ziehAb(event,this,'${escJs(o.name)}',${o.rolle ? 1 : 0})"
         onclick="ordnerWaehlen('${escJs(o.name)}')"
+        onpointerenter="vorabSpaeter('${escJs(o.name)}')" onpointerleave="vorabNicht()"
+        onpointerdown="vorab('${escJs(o.name)}')"
         onkeydown="if(event.key==='Enter')ordnerWaehlen('${escJs(o.name)}')"
         title="${esc(o.pfad)} — ${o.gesamt} ${esc(txt("k.mails"))}">
       ${falt}<span class="ic ${o.ungelesen ? "atmet" : ""}">${o.icon || "📁"}</span>
@@ -1463,21 +1468,100 @@ async function postfachWechseln(id){
 
 <script>
 /* ── The list ──────────────────────────────────────────────────────────────── */
+/* 🔑 5.27.0 — A FOLDER IS THERE THE MOMENT IT IS CLICKED.
+
+   Every list the page has drawn is kept in memory (never on disk) with the
+   fingerprint the server gave it. Coming back to a folder draws that list AT
+   ONCE and asks the server in the same breath, sending the fingerprint along:
+   „unchanged" costs a few bytes and redraws nothing; anything else replaces
+   the list where it stands. The server answer is the truth, the memory is only
+   the first frame.
+
+   🔴 Only the LATEST request may draw. Click A, then B: when A's answer comes
+   in after B's, it is thrown away — otherwise the page would show folder A
+   under the name of folder B. */
+const LISTEN = new Map();          // key -> {a: answer, zeit}
+const LISTEN_MAX = 40;
+const LISTEN_ZEIGEN_MS = 15 * 60 * 1000;   // older than this: not shown as a first frame
+const UNTERWEGS = new Map();       // key -> pending answer (prefetch or load)
+let VORAB_UHR = 0;
+function listenSchluessel(art){
+  if(S.neu) return [S.pf, S.neu_art === "ein" ? "ein:" + S.ein_zeitraum : "neu"].join("\u0000");
+  if(trefferUeberall()) return "";            // hits everywhere have their own hold
+  return [S.pf, S.ordner, S.sieb || "", S.suche || "", S.feld || "", S.sortierung || "",
+          S.richtung || "", S.pro || "", S.seite || 1].join("\u0000");
+}
+function listeAnfrage(blaettern){
+  return S.neu
+    ? (S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum} : {})
+    : {ordner:S.ordner, seite:S.seite, sieb:S.sieb, suche:S.suche, feld:S.feld,
+       sortierung:S.sortierung, richtung:S.richtung, pro_seite:S.pro,
+       ueberall:trefferUeberall(), blaettern:!!blaettern, auszug_spaeter:true};
+}
+function listeMerken(schluessel, a){
+  if(!schluessel || !a || a.ok === false || a.unveraendert) return;
+  LISTEN.delete(schluessel);
+  LISTEN.set(schluessel, {a:a, zeit:Date.now()});
+  while(LISTEN.size > LISTEN_MAX) LISTEN.delete(LISTEN.keys().next().value);
+}
+/* What a change of the mailbox makes stale: the folder it happened in, and the
+   two views that gather from every folder. */
+function listenVergessen(ordner){
+  for(const k of [...LISTEN.keys()]){
+    const teile = k.split("\u0000");
+    if(!ordner || teile[1] === ordner || teile[1] === "neu" || String(teile[1]).startsWith("ein:"))
+      LISTEN.delete(k);
+  }
+}
 async function ladeListe(frisch, blaettern){
+  const nr = S.liste_nr = (S.liste_nr || 0) + 1;
   const r = $("#rollen");
   const stand = r.scrollTop;
-  if(!S.mails.length) $("#zeilen").innerHTML = ladebalken(8);
+  const z = $("#zeilen");
+  const schluessel = listenSchluessel();
+  const halt = schluessel ? LISTEN.get(schluessel) : null;
+  let gezeigt = S.liste_von === schluessel && S.liste_kennung ? S.liste_kennung : "";
+  if(!gezeigt && halt && Date.now() - halt.zeit < LISTEN_ZEIGEN_MS){
+    antwortZeigen(halt.a, schluessel, frisch ? 0 : stand);
+    gezeigt = halt.a.kennung || "";
+  }else if(!gezeigt){
+    if(!S.mails.length) z.innerHTML = ladebalken(8);
+    else{
+      z.classList.add("wartet");
+      setTimeout(() => { if(S.liste_nr === nr && z.classList.contains("wartet")){
+        z.innerHTML = ladebalken(8); z.classList.remove("wartet"); } }, 220);
+    }
+  }
+  const anfrage = listeAnfrage(blaettern);
+  if(gezeigt) anfrage.kennt = gezeigt;
   let a;
   try{
-    a = S.neu
-      ? await sende(S.neu_art === "ein" ? "klient_einsortiert" : "klient_neu",
-                    S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum} : {})
-      : await sende("klient_liste", {ordner:S.ordner, seite:S.seite, sieb:S.sieb,
-          suche:S.suche, feld:S.feld, sortierung:S.sortierung, richtung:S.richtung,
-          pro_seite:S.pro, ueberall:trefferUeberall(), blaettern:!!blaettern});
-  }catch(e){ return; }
+    const unterwegs = !gezeigt && schluessel ? UNTERWEGS.get(schluessel) : null;
+    a = unterwegs ? await unterwegs
+      : await sende(S.neu ? (S.neu_art === "ein" ? "klient_einsortiert" : "klient_neu")
+                          : "klient_liste", anfrage);
+  }catch(e){ if(S.liste_nr === nr) z.classList.remove("wartet"); return; }
+  if(S.liste_nr !== nr) return;                 // a newer request owns the list
+  z.classList.remove("wartet");
   if(!a || a.ok === false){ melde((a && a.text) || txt("k.ging_nicht"), false); return; }
+  if(a.unveraendert){
+    if(halt) halt.zeit = Date.now();
+    if(typeof a.einsortiert_heute === "number" && a.einsortiert_heute !== S.ein_heute){
+      S.ein_heute = a.einsortiert_heute; ordnerMalen(); }
+    ordnerZahlAktualisieren(a.ordner_gesamt, a.ordner_ungelesen);
+    return;
+  }
+  listeMerken(schluessel, a);
+  /* Drawn over a first frame: the reader may have scrolled in it already —
+     the place they are at stays. */
+  antwortZeigen(a, schluessel, gezeigt ? r.scrollTop : (frisch ? 0 : stand));
+}
+function antwortZeigen(a, schluessel, scroll){
+  const r = $("#rollen");
+  auszuegeVormerken(a, schluessel);
   S.mails = a.mails || [];
+  S.liste_von = schluessel;
+  S.liste_kennung = a.kennung || "";
   haftungAnwenden();
   if(S.neu){
     S.seite = 1; S.seiten = 1; S.sortiert = true;
@@ -1498,8 +1582,62 @@ async function ladeListe(frisch, blaettern){
   if(typeof a.einsortiert_heute === "number" && a.einsortiert_heute !== S.ein_heute){
     S.ein_heute = a.einsortiert_heute; ordnerMalen(); }
   listeMalen();
-  if(frisch) r.scrollTop = 0; else r.scrollTop = stand;
+  r.scrollTop = scroll || 0;
   ordnerZahlAktualisieren(a.ordner_gesamt, a.ordner_ungelesen);
+}
+/* 🔑 5.27.0 — THE ROWS FIRST, THE EXCERPTS A MOMENT LATER. Reading the start
+   of fifty letters is the slowest part of a first visit; the rows do not need
+   it to be shown. Their second line stays reserved (empty) and fills in place
+   — and only while the list they belong to is still the one on screen. */
+function auszuegeVormerken(a, schluessel){
+  const fehlt = new Set(a.auszug_fehlt || []);
+  if(!fehlt.size || a._holt) return;
+  for(const m of a.mails || []) if(fehlt.has(m.uid) && !m.auszug) m._kommt = true;
+  a._holt = true;
+  setTimeout(() => auszuegeHolen(a, schluessel, [...fehlt]), 0);
+}
+async function auszuegeHolen(a, schluessel, uids){
+  let r = null;
+  try{ r = await sende("klient_auszuege", {ordner:a.ordner, uids:uids,
+                                          uidvalidity:a.uidvalidity}); }
+  catch(e){ r = null; }
+  const texte = (r && r.ok && r.auszuege) || {};
+  for(const m of a.mails || []){
+    if(!m._kommt) continue;
+    if(texte[m.uid]) m.auszug = texte[m.uid];
+    delete m._kommt;
+  }
+  a.auszug_fehlt = [];
+  a._holt = false;
+  if(S.liste_von === schluessel || (a.mails && a.mails.length && S.mails.includes(a.mails[0])))
+    listeMalen();
+}
+/* 🔑 Ask before the click lands: a pointer resting on a folder, or the finger
+   going down on it, starts the question. One at a time, never for a list that
+   is already fresh — a sweep across the tree must not queue twenty questions
+   in front of the one that counts. */
+function vorabSpaeter(name){
+  clearTimeout(VORAB_UHR);
+  VORAB_UHR = setTimeout(() => vorab(name), 150);
+}
+function vorabNicht(){ clearTimeout(VORAB_UHR); }
+function vorab(name){
+  clearTimeout(VORAB_UHR);
+  if(!angemeldet() || name === S.ordner && !S.neu || UNTERWEGS.size) return;
+  const merk = {neu:S.neu, neu_art:S.neu_art, ordner:S.ordner, seite:S.seite};
+  S.neu = false; S.ordner = name; S.seite = 1;
+  const schluessel = listenSchluessel(), anfrage = listeAnfrage(false);
+  Object.assign(S, merk);
+  if(!schluessel) return;
+  const halt = LISTEN.get(schluessel);
+  if(halt && Date.now() - halt.zeit < 20000) return;
+  if(halt) anfrage.kennt = halt.a.kennung;
+  const p = sende("klient_liste", anfrage).then(a => {
+    if(a && a.unveraendert && halt){ halt.zeit = Date.now(); return halt.a; }
+    listeMerken(schluessel, a);
+    return a;
+  }).finally(() => UNTERWEGS.delete(schluessel));
+  UNTERWEGS.set(schluessel, p);
 }
 function ladebalken(n){
   return Array.from({length:n}, () => `<div class="z" style="pointer-events:none">
@@ -1557,6 +1695,9 @@ function haftungAnwenden(){
   let i = h.vor ? S.mails.findIndex(m => wahlSchluessel(m) === h.vor) + 1 : 0;
   if(h.vor && !i) i = h.i;
   S.mails.splice(Math.max(0, Math.min(i, S.mails.length)), 0, h.zeile);
+  /* What is on screen is no longer the server's list — never answer it with
+     „unchanged" (5.27.0). */
+  S.liste_kennung = "";
 }
 
 function listeMalen(){
@@ -1635,6 +1776,9 @@ function ordnerKurz(m){
 function zweitzeile(m){
   if(m.weg) return "⚠︎ " + txt("k.ein_weg_kurz");   // filed there, no longer there
   if(m.auszug) return m.auszug;
+  /* 5.27.0: the excerpt is on its way — keep its line, empty, so nothing
+     moves when it arrives. */
+  if(m._kommt) return "\u00a0";
   const raus = [];
   const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(m.ordner || S.ordner);
   if(gesendet && m.an) raus.push(txt("k.an") + ": " + m.an);
@@ -1829,6 +1973,7 @@ async function stapel(was, an, uids){
      many anyway. */
   const bet = new Set(liste.map(p => p.ordner + "\u0000" + p.uid));
   S.mails.forEach(m => { if(bet.has(wahlSchluessel(m))) m[was] = an; });
+  S.liste_kennung = "";
   if(S.offen && bet.has(wahlSchluessel(S.offen))) S.offen[was] = an;
   listeMalen();
   if(was === "gelesen") ordnerMalen();
@@ -2137,6 +2282,10 @@ async function nachTat(uids, liste){
   const weg = new Set((liste || []).map(p => p.ordner + "\u0000" + p.uid));
   S.mails = S.mails.filter(m => liste ? !weg.has(wahlSchluessel(m))
                                       : !uids.includes(m.uid));
+  /* 🔴 5.27.0: every kept list may still show what just moved — forget them,
+     and never let the server answer this screen with „unchanged". */
+  S.liste_kennung = "";
+  listenVergessen();
   S.gewaehlt.clear();
   if(uids.includes(S.uid)){
     const naechste = S.mails[Math.min(stelle, S.mails.length - 1)];
@@ -2216,6 +2365,8 @@ async function mailOeffnen(uid, ordner){
   let m;
   try{ m = await sende("klient_mail", {ordner:S.uid_ordner, uid:uid, hell:istHell()}); }
   catch(e){ return; }
+  /* 🔴 Two quick clicks: only the mail clicked LAST may be drawn. */
+  if(S.uid !== uid) return;
   if(!m || !m.ok){
     $("#lese").innerHTML = `<div class="leer"><div>${esc((m && m.text) || txt("k.ging_nicht"))}</div></div>`;
     return;
@@ -2940,7 +3091,7 @@ async function horchSchleife(){
     for(const ort in HORCH.marken){
       const v = vorher[ort], n = HORCH.marken[ort];
       if(!v) continue;
-      if(v.join() !== n.join()) etwas = true;
+      if(v.join() !== n.join()){ etwas = true; listenVergessen(ort); }
       if(n[2] > v[2]) neuePost = true;      // UIDNEXT only grows when post ARRIVES
     }
     if(etwas) await nachziehen(neuePost);

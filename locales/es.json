@@ -330,6 +330,7 @@
   "k.gestern": "ayer",
   "k.gewaehlt": "{n} seleccionados",
   "k.ging_nicht": "Eso no funcionó.",
+  "k.server_leer": "El servidor no envió ninguna lista aunque la carpeta contiene correos. Inténtalo de nuevo en un momento.",
   "k.h.anhang_grenze": "Casi ningún servidor acepta más.",
   "k.h.bilder": "Una imagen externa revela cuándo abriste el correo.",
   "k.h.gelesen_nach": "El vigilante nunca marca — solo tú.",

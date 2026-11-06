@@ -7,6 +7,44 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.27.0] - 2026-11-07
+
+### Changed
+
+- **A folder is there when you click it.** Measured on a real mailbox with
+  175 folders, the list itself came back in 0.3–0.5 s — but after every new
+  mail, every action and every return to the tab the page asked for the
+  counts of *all* folders, one `STATUS` each: 4.4 to 13 seconds, on the one
+  connection every click waits for. Now:
+  - the folder tree comes in **one** command where the server supports
+    LIST-STATUS (RFC 5819) — 0.2–0.5 s, the same counts; other servers keep
+    the old way. Requests for a fresh tree within two seconds share one answer;
+  - header records are kept **in memory** (never on disk) per account, folder
+    and UIDVALIDITY. What a header says never changes for a UID, only its
+    flags — so a known record costs one small `UID FETCH (UID FLAGS)`, and a
+    UID that does not come back is removed. A new UIDVALIDITY throws the
+    folder's records away;
+  - with CONDSTORE the folder's mark (`UIDVALIDITY`, `UIDNEXT`, `MESSAGES`,
+    `HIGHESTMODSEQ`) is read first: unchanged means the kept order and the
+    records stamped with it hold, without even selecting the folder (~20 ms).
+    The selected folder is never trusted this way — it is selected again;
+  - the page draws a folder it has seen **at once** from memory and asks the
+    server in the same breath; an unchanged answer is just a fingerprint and
+    redraws nothing. Only the latest request may draw. Resting the pointer on
+    a folder, or the finger going down on it, starts the question early;
+  - a first visit shows the rows first and the two-line excerpts a moment
+    later, in a line kept free for them, so nothing moves;
+  - the "Filed" view reuses what it found in folders whose mark has not moved;
+  - text and JSON answers are gzip-compressed when the browser accepts it
+    (the client page drops from about 212 kB to 66 kB).
+- **Tailscale in the image is now 1.104.5** (was 1.104.4).
+
+### Fixed
+
+- **An empty answer from the server is an error, not an empty folder.** When
+  every search attempt fails, or the server reports mail while the list comes
+  back empty, the page says so instead of showing "this folder is empty".
+
 ## [5.26.0] - 2026-10-31
 
 ### Added

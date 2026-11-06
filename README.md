@@ -147,6 +147,20 @@ morning. A server without `IDLE` is asked politely every 20 seconds instead.
 Nothing is ever redrawn under your hands: a selection, an open window, a focused
 field or a search all hold the list still, while the folder counts keep moving.
 
+**A folder is there when you click it.** A folder you have already seen is drawn
+at once from the page's memory, and the server is asked in the same breath; when
+nothing changed it answers with a fingerprint and nothing is redrawn. Behind it,
+header records are kept in the server's memory (never on disk) and only their
+flags are asked again — or not even that, when the folder's CONDSTORE mark
+(`UIDVALIDITY`, `UIDNEXT`, `MESSAGES`, `HIGHESTMODSEQ`) proves nothing changed. A
+new `UIDVALIDITY` throws a folder's records away, and a mail deleted by another
+program disappears on the next look. The folder tree with all its counts comes in
+one `LIST … RETURN (STATUS …)` where the server supports it. Measured on a real
+mailbox with 175 folders: a folder visited before shows in **about 30 ms** instead
+of 0.3–0.5 s, a first visit in **0.17–0.31 s** (rows first, the two-line excerpts a
+moment later in a line kept free for them), and a click while the page refreshes
+its counts no longer waits 5 seconds but about 0.4.
+
 ![The day mode](docs/screenshots/36-client-day.png)
 
 <p align="center"><i>The same house by daylight. Not another colour family — the

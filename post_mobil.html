@@ -986,6 +986,7 @@ function ordnerMalen(){
     return `<div class="o ${tief > 0 ? "unter" : ""} ${kinder ? "eltern" : ""}
         ${(!S.neu && o.name === S.ordner) ? "an" : ""}" style="--tief:${tief}"
         onclick="ordnerWaehlen('${escJs(o.name)}')" role="button" tabindex="0"
+        onpointerdown="vorab('${escJs(o.name)}')"
         ${o.rolle ? "" : `ontouchstart="ordnerDruckAn(event,'${escJs(o.name)}')"
         ontouchend="ordnerDruckAus()" ontouchmove="ordnerDruckAus()"
         ontouchcancel="ordnerDruckAus()"
@@ -1138,23 +1139,88 @@ async function ordnerNeu(eltern){
 }
 
 /* ── The list ──────────────────────────────────────────────────────────── */
+/* 🔑 5.27.0 — A FOLDER IS THERE THE MOMENT IT IS TAPPED. Every first page the
+   phone has drawn is kept in memory (never on disk) with the server's
+   fingerprint. Tapping that folder again draws it AT ONCE and asks the server
+   in the same breath: „unchanged" costs a few bytes and redraws nothing,
+   anything else replaces the list. And only the LATEST request may draw — a
+   slow answer for the folder tapped before must never fill this one. */
+const LISTEN = new Map();          // key -> {a: answer, zeit}
+const LISTEN_MAX = 30;
+const LISTEN_ZEIGEN_MS = 15 * 60 * 1000;
+const UNTERWEGS = new Map();       // key -> pending answer
+function listenSchluessel(){
+  if(S.neu) return [S.pf, S.neu_art === "ein" ? "ein:" + S.ein_zeitraum : "neu"].join("\u0000");
+  if(trefferUeberall()) return "";
+  return [S.pf, S.ordner, S.sieb || "", S.suche || "", S.suche ? S.feld : "alle",
+          S.pro || ""].join("\u0000");
+}
+function listeMerken(schluessel, a){
+  if(!schluessel || !a || a.ok === false || a.unveraendert) return;
+  LISTEN.delete(schluessel);
+  LISTEN.set(schluessel, {a:a, zeit:Date.now()});
+  while(LISTEN.size > LISTEN_MAX) LISTEN.delete(LISTEN.keys().next().value);
+}
+function listenVergessen(ordner){
+  for(const k of [...LISTEN.keys()]){
+    const teile = k.split("\u0000");
+    if(!ordner || teile[1] === ordner || teile[1] === "neu" || String(teile[1]).startsWith("ein:"))
+      LISTEN.delete(k);
+  }
+}
+function ladeAnfrage(frisch){
+  return S.neu
+    ? (S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum} : {})
+    : listeAnfrage({seite:frisch ? 1 : S.seite, blaettern:!frisch, auszug_spaeter:true});
+}
 async function ladeListe(frisch){
+  const nr = S.liste_nr = (S.liste_nr || 0) + 1;
   const o = S.ordner_liste.find(x => x.name === S.ordner) || {};
   $("#ordnername").textContent = S.neu ? txt(S.neu_art === "ein" ? "k.einsortiert" : "k.neu")
                                 : S.suche ? "🔍 " + S.suche
                                 : (o.name ? ordnerName(o) : "Postwache");
   $("#siebknopf").style.color = S.sieb ? "var(--akzent)" : "";
-  if(frisch) $("#zeilen").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
+  const schluessel = (frisch || S.neu) ? listenSchluessel() : "";
+  const halt = schluessel ? LISTEN.get(schluessel) : null;
+  let gezeigt = schluessel && S.mails.length && S.liste_von === schluessel
+                ? S.liste_kennung || "" : "";
+  if(!gezeigt && halt && Date.now() - halt.zeit < LISTEN_ZEIGEN_MS){
+    antwortZeigen(halt.a, schluessel, true, false);
+    gezeigt = halt.a.kennung || "";
+  }else if(!gezeigt && frisch){
+    $("#zeilen").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
+  }
+  const anfrage = ladeAnfrage(frisch);
+  if(gezeigt) anfrage.kennt = gezeigt;
   let a;
   try{
-    a = S.neu
-      ? await sende(S.neu_art === "ein" ? "klient_einsortiert" : "klient_neu",
-                    S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum} : {})
-      : await sende("klient_liste", listeAnfrage({seite:frisch ? 1 : S.seite,
-          blaettern:!frisch}));
+    const unterwegs = !gezeigt && schluessel ? UNTERWEGS.get(schluessel) : null;
+    a = unterwegs ? await unterwegs
+      : await sende(S.neu ? (S.neu_art === "ein" ? "klient_einsortiert" : "klient_neu")
+                          : "klient_liste", anfrage);
   }catch(e){ return; }
+  if(S.liste_nr !== nr) return;                 // a newer request owns the list
   if(!a || a.ok === false) return melde((a && a.text) || txt("k.ging_nicht"), false);
+  if(a.unveraendert){
+    if(halt) halt.zeit = Date.now();
+    if(typeof a.einsortiert_heute === "number" && a.einsortiert_heute !== S.ein_heute){
+      S.ein_heute = a.einsortiert_heute; ordnerMalen(); }
+    if(!S.neu){
+      const u = $("#ungelesen");
+      u.hidden = !a.ordner_ungelesen;
+      u.textContent = a.ordner_ungelesen || "";
+    }
+    return;
+  }
+  listeMerken(schluessel, a);
+  antwortZeigen(a, schluessel, frisch, !!gezeigt);
+}
+function antwortZeigen(a, schluessel, frisch, halten){
+  const o = S.ordner_liste.find(x => x.name === S.ordner) || {};
+  auszuegeVormerken(a, schluessel);
   S.mails = (frisch || S.neu) ? (a.mails || []) : S.mails.concat(a.mails || []);
+  S.liste_von = (frisch || S.neu) ? schluessel : "";
+  S.liste_kennung = (frisch || S.neu) ? (a.kennung || "") : "";
   if(typeof a.einsortiert_heute === "number" && a.einsortiert_heute !== S.ein_heute){
     S.ein_heute = a.einsortiert_heute; ordnerMalen(); }
   haftungAnwenden();
@@ -1177,7 +1243,54 @@ async function ladeListe(frisch){
   S.in_ordnern = a.in_ordnern || 0;
   listeMalen();
   fussMalen();
-  if(frisch) $("#rollen").scrollTop = 0;
+  if(frisch && !halten) $("#rollen").scrollTop = 0;
+}
+/* 🔑 5.27.0 — THE ROWS FIRST, THE EXCERPTS A MOMENT LATER. Reading the start
+   of fifty letters is the slowest part of a first visit; the rows do not need
+   it to be shown. Their second line stays reserved (empty) and fills in place
+   — and only while the list they belong to is still the one on screen. */
+function auszuegeVormerken(a, schluessel){
+  const fehlt = new Set(a.auszug_fehlt || []);
+  if(!fehlt.size || a._holt) return;
+  for(const m of a.mails || []) if(fehlt.has(m.uid) && !m.auszug) m._kommt = true;
+  a._holt = true;
+  setTimeout(() => auszuegeHolen(a, schluessel, [...fehlt]), 0);
+}
+async function auszuegeHolen(a, schluessel, uids){
+  let r = null;
+  try{ r = await sende("klient_auszuege", {ordner:a.ordner, uids:uids,
+                                          uidvalidity:a.uidvalidity}); }
+  catch(e){ r = null; }
+  const texte = (r && r.ok && r.auszuege) || {};
+  for(const m of a.mails || []){
+    if(!m._kommt) continue;
+    if(texte[m.uid]) m.auszug = texte[m.uid];
+    delete m._kommt;
+  }
+  a.auszug_fehlt = [];
+  a._holt = false;
+  if(S.liste_von === schluessel || (a.mails && a.mails.length && S.mails.includes(a.mails[0])))
+    listeMalen();
+}
+/* 🔑 The finger going down on a folder starts the question — the tap lands a
+   moment later and finds the answer on its way. One at a time, never for a
+   list that is already fresh. */
+function vorab(name){
+  if(!angemeldet() || (name === S.ordner && !S.neu) || UNTERWEGS.size) return;
+  const merk = {neu:S.neu, neu_art:S.neu_art, ordner:S.ordner, seite:S.seite};
+  S.neu = false; S.ordner = name; S.seite = 1;
+  const schluessel = listenSchluessel(), anfrage = ladeAnfrage(true);
+  Object.assign(S, merk);
+  if(!schluessel) return;
+  const halt = LISTEN.get(schluessel);
+  if(halt && Date.now() - halt.zeit < 20000) return;
+  if(halt) anfrage.kennt = halt.a.kennung;
+  const p = sende("klient_liste", anfrage).then(a => {
+    if(a && a.unveraendert && halt){ halt.zeit = Date.now(); return halt.a; }
+    listeMerken(schluessel, a);
+    return a;
+  }).finally(() => UNTERWEGS.delete(schluessel));
+  UNTERWEGS.set(schluessel, p);
 }
 /* 🔑 ONE description of what the list asks the server — the list, „load more"
    and „select all" send the same, or „all" means something other than what is
@@ -1233,6 +1346,7 @@ function haftungAnwenden(){
   let i = h.vor ? S.mails.findIndex(m => wahlSchluessel(m) === h.vor) + 1 : 0;
   if(h.vor && !i) i = h.i;
   S.mails.splice(Math.max(0, Math.min(i, S.mails.length)), 0, h.zeile);
+  S.liste_kennung = "";          // no longer the server's list (5.27.0)
 }
 
 /* Above the rows: in „Filed" the period, in „New" the way to „Filed" — it
@@ -1304,6 +1418,9 @@ function ordnerKurz(m){
 function dritteZeile(m){
   if(m.weg) return "⚠︎ " + txt("k.ein_weg_kurz");   // filed there, no longer there
   if(m.auszug) return m.auszug;
+  /* 5.27.0: the excerpt is on its way — keep its line, empty, so nothing
+     moves when it arrives. */
+  if(m._kommt) return "\u00a0";
   const gesendet = [S.rollen.gesendet, S.rollen.entwuerfe].includes(m.ordner || S.ordner);
   const wer = gesendet && m.an ? txt("k.an") + ": " + m.an : m.adresse;
   return wer + (m.anhang ? " · " + gr(m.anhang_gross) : "");
@@ -1673,6 +1790,8 @@ async function mailOeffnen(uid, ordner){
   try{ m = await sende("klient_mail", {ordner:ordner || ordnerVon(uid), uid:uid,
                                        hell:istHell()}); }
   catch(e){ return; }
+  /* 🔴 Two quick taps: only the mail tapped LAST may be drawn. */
+  if(S.uid !== uid) return;
   if(!m || !m.ok){
     $("#mailrumpf").innerHTML = `<div class="leerraum">${
       esc((m && m.text) || txt("k.ging_nicht"))}</div>`;
@@ -1823,6 +1942,7 @@ async function stapel(was, an, uids){
   }
   if(!gut) return;
   S.mails.forEach(m => { if(uids.includes(m.uid)) m[was] = an; });
+  S.liste_kennung = "";
   if(S.offen && uids.includes(S.offen.uid)){ S.offen[was] = an; mailMalen(); }
   if(S.wahl) wahlAus(); else listeMalen();
   fussMalen();
@@ -1942,6 +2062,9 @@ async function nachTat(uids, liste){
   const weg = new Set((liste || []).map(p => p.ordner + "\u0000" + p.uid));
   S.mails = S.mails.filter(m => liste ? !weg.has(wahlSchluessel(m))
                                       : !uids.includes(m.uid));
+  /* 🔴 5.27.0: kept lists may still show what just moved — forget them. */
+  S.liste_kennung = "";
+  listenVergessen();
   listeMalen();
   if(uids.includes(S.uid)){
     const naechste = S.mails[Math.min(stelle, S.mails.length - 1)];
@@ -1963,11 +2086,16 @@ async function nachTat(uids, liste){
 async function listeNachfuellen(){
   if(S.suche) return;                 // hits are not a folder page
   if(S.neu) return ladeListe(false);
+  const nr = S.liste_nr = (S.liste_nr || 0) + 1;
   const wunsch = Math.max(S.pro, Math.min(200, S.pro * (S.seite || 1)));
   const a = await sende("klient_liste", {ordner:S.ordner, seite:1, sieb:S.sieb,
                                          suche:"", feld:"alle", pro_seite:wunsch});
+  if(S.liste_nr !== nr) return;       // the reader has gone somewhere else
   if(!a || a.ok === false) return;
   S.mails = a.mails || [];
+  /* Several pages in one answer — not the kept first page; the next load asks
+     in full. */
+  S.liste_von = ""; S.liste_kennung = "";
   haftungAnwenden();
   S.gesamt = a.gesamt || 0;
   S.seiten = Math.max(1, Math.ceil(S.gesamt / S.pro));
@@ -2397,7 +2525,7 @@ async function horchSchleife(){
     for(const ort in HORCH.marken){
       const v = vorher[ort], n = HORCH.marken[ort];
       if(!v) continue;
-      if(v.join() !== n.join()) etwas = true;
+      if(v.join() !== n.join()){ etwas = true; listenVergessen(ort); }
       if(n[2] > v[2]) neuePost = true;      // UIDNEXT only grows when post ARRIVES
     }
     if(etwas) await nachziehen(neuePost);

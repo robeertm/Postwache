@@ -330,6 +330,7 @@
   "k.gestern": "gestern",
   "k.gewaehlt": "{n} gewählt",
   "k.ging_nicht": "Das ging nicht.",
+  "k.server_leer": "Der Server hat keine Liste geliefert, obwohl der Ordner Mails enthält. Bitte gleich noch einmal versuchen.",
   "k.h.anhang_grenze": "Mehr nimmt kaum ein Server an.",
   "k.h.bilder": "Ein Bild von außen verrät, wann du die Mail geöffnet hast.",
   "k.h.gelesen_nach": "Der Wächter markiert nie — nur du.",
