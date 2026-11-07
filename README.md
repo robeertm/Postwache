@@ -160,6 +160,9 @@ mailbox with 175 folders: a folder visited before shows in **about 30 ms** inste
 of 0.3–0.5 s, a first visit in **0.17–0.31 s** (rows first, the two-line excerpts a
 moment later in a line kept free for them), and a click while the page refreshes
 its counts no longer waits 5 seconds but about 0.4.
+"New" and "Filed" — the two views that gather from every folder — are worked
+out ahead on a read-only connection of their own and shown at once, then
+confirmed: the first look into "Filed" takes about 70 ms instead of 3.5 s.
 
 ![The day mode](docs/screenshots/36-client-day.png)
 

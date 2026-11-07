@@ -1493,7 +1493,7 @@ function listenSchluessel(art){
 }
 function listeAnfrage(blaettern){
   return S.neu
-    ? (S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum} : {})
+    ? (S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum, vorlaeufig_ok:true} : {vorlaeufig_ok:true})
     : {ordner:S.ordner, seite:S.seite, sieb:S.sieb, suche:S.suche, feld:S.feld,
        sortierung:S.sortierung, richtung:S.richtung, pro_seite:S.pro,
        ueberall:trefferUeberall(), blaettern:!!blaettern, auszug_spaeter:true};
@@ -1549,12 +1549,27 @@ async function ladeListe(frisch, blaettern){
     if(typeof a.einsortiert_heute === "number" && a.einsortiert_heute !== S.ein_heute){
       S.ein_heute = a.einsortiert_heute; ordnerMalen(); }
     ordnerZahlAktualisieren(a.ordner_gesamt, a.ordner_ungelesen);
-    return;
+  }else{
+    listeMerken(schluessel, a);
+    /* Drawn over a first frame: the reader may have scrolled in it already —
+       the place they are at stays. */
+    antwortZeigen(a, schluessel, gezeigt ? r.scrollTop : (frisch ? 0 : stand));
   }
-  listeMerken(schluessel, a);
-  /* Drawn over a first frame: the reader may have scrolled in it already —
-     the place they are at stays. */
-  antwortZeigen(a, schluessel, gezeigt ? r.scrollTop : (frisch ? 0 : stand));
+  if(a.vorlaeufig) await bestaetigen(nr, schluessel, a.warm_lauf);
+}
+/* 🔑 5.28.0 — „New" and „Filed" are worked out AHEAD on a connection of their
+   own. What comes back first is that result, marked provisional; this asks
+   straight back and waits for the run that confirms it — a bare „unchanged",
+   or the true list drawn where the reader is. */
+async function bestaetigen(nr, schluessel, lauf){
+  let b;
+  try{ b = await sende(S.neu_art === "ein" ? "klient_einsortiert" : "klient_neu",
+         Object.assign(listeAnfrage(false), {frisch_warten:true, warm_lauf:lauf || 0,
+                                              kennt:S.liste_kennung || ""})); }
+  catch(e){ return; }
+  if(S.liste_nr !== nr || !b || b.ok === false || b.unveraendert) return;
+  listeMerken(schluessel, b);
+  antwortZeigen(b, schluessel, $("#rollen").scrollTop);
 }
 function antwortZeigen(a, schluessel, scroll){
   const r = $("#rollen");

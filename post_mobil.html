@@ -1170,7 +1170,7 @@ function listenVergessen(ordner){
 }
 function ladeAnfrage(frisch){
   return S.neu
-    ? (S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum} : {})
+    ? (S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum, vorlaeufig_ok:true} : {vorlaeufig_ok:true})
     : listeAnfrage({seite:frisch ? 1 : S.seite, blaettern:!frisch, auszug_spaeter:true});
 }
 async function ladeListe(frisch){
@@ -1210,10 +1210,24 @@ async function ladeListe(frisch){
       u.hidden = !a.ordner_ungelesen;
       u.textContent = a.ordner_ungelesen || "";
     }
-    return;
+  }else{
+    listeMerken(schluessel, a);
+    antwortZeigen(a, schluessel, frisch, !!gezeigt);
   }
-  listeMerken(schluessel, a);
-  antwortZeigen(a, schluessel, frisch, !!gezeigt);
+  if(a.vorlaeufig) await bestaetigen(nr, schluessel, a.warm_lauf);
+}
+/* 🔑 5.28.0 — „New" and „Filed" are worked out AHEAD on a connection of their
+   own. The first answer is that result, marked provisional; this asks straight
+   back and waits for the run that confirms it. */
+async function bestaetigen(nr, schluessel, lauf){
+  let b;
+  try{ b = await sende(S.neu_art === "ein" ? "klient_einsortiert" : "klient_neu",
+         Object.assign(ladeAnfrage(true), {frisch_warten:true, warm_lauf:lauf || 0,
+                                            kennt:S.liste_kennung || ""})); }
+  catch(e){ return; }
+  if(S.liste_nr !== nr || !b || b.ok === false || b.unveraendert) return;
+  listeMerken(schluessel, b);
+  antwortZeigen(b, schluessel, true, true);
 }
 function antwortZeigen(a, schluessel, frisch, halten){
   const o = S.ordner_liste.find(x => x.name === S.ordner) || {};

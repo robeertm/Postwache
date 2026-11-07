@@ -7,6 +7,25 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.28.0] - 2026-11-07
+
+### Changed
+
+- **"Filed" and "New" are there at the first look too.** The first look into
+  "Filed" searched every folder the watchman had filed into, one after the
+  other — about 3.5 s for one day and almost 8 s for three, on the connection
+  every click waits for; "New" took about 0.6 s. Both views are now worked out
+  ahead, on a connection of their own that cannot write (`EXAMINE`,
+  `BODY.PEEK`): when the page starts and whenever the listening post hears the
+  mailbox change. Opening the view shows that result at once, marked
+  provisional, and the page asks straight back for a run that started after
+  its question — an unchanged list costs a fingerprint, a changed one is
+  redrawn in place. After the page moves, deletes or flags mail, nothing
+  worked out before that is shown as a first frame. If the warm-up fails, the
+  request asks the server itself, as before. Measured on a real mailbox: the
+  first look into "Filed" in about 70 ms (three days: about 100 ms), "New" in
+  about 50 ms, the page with its first rows in 0.15–0.4 s.
+
 ## [5.27.0] - 2026-11-07
 
 ### Changed

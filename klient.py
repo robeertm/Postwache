@@ -825,7 +825,8 @@ _V_SCHLOSS = threading.Lock()
 # served as fresh.
 _KOPF_HALT = {}          # (account, folder, uidvalidity) -> {"zeit", "saetze"}
 _LISTEN_HALT = {}        # (account, folder, filter, search, field, order, dir) -> {"marke", "uids", "echt"}
-_EIN_HALT = {}           # (account, folder) -> {"marke", "schluessel", "funde"}
+_EIN_HALT = {}           # (account, folder, entries) -> {"marke", "schluessel", "funde"}
+EIN_HALT_MAX = 400                  # kept „Filed" findings (folder × period) at most
 _HALT_SCHLOSS = threading.Lock()
 
 
@@ -1806,7 +1807,7 @@ class Briefkasten(W.Postfach if W is not None else object):
             schluessel = tuple(sorted(_ein_schluessel(j) for j in liste))
             marke = self.marke(ordner)
             with _HALT_SCHLOSS:
-                halt = _EIN_HALT.get((self.konto, ordner))
+                halt = _EIN_HALT.get((self.konto, ordner, schluessel))
             if (marke is not None and halt and halt["marke"] == marke
                     and halt["schluessel"] == schluessel):
                 for j in liste:
@@ -1889,10 +1890,14 @@ class Briefkasten(W.Postfach if W is not None else object):
                     funde[_ein_schluessel(j)] = dict(voll[k["uid"]])
             with _HALT_SCHLOSS:
                 if marke is not None:
-                    _EIN_HALT[(self.konto, ordner)] = {
+                    # Per set of entries: „1 day" and „7 days" ask the same
+                    # folder for different mail and must not push each other out.
+                    _EIN_HALT[(self.konto, ordner, schluessel)] = {
                         "marke": marke, "schluessel": schluessel, "funde": funde}
                 else:
-                    _EIN_HALT.pop((self.konto, ordner), None)
+                    _EIN_HALT.pop((self.konto, ordner, schluessel), None)
+                while len(_EIN_HALT) > EIN_HALT_MAX:
+                    _EIN_HALT.pop(next(iter(_EIN_HALT)))
         return [(j, gefunden.get(id(j))) for j in eintraege]
 
     def mail(self, ordner: str, uid: int, bilder: bool = False,
@@ -3046,6 +3051,7 @@ def tu(pf_id: str, aufgabe):
 def verbindungen_schliessen() -> None:
     """Hang up everywhere — for the end of the process and for the test bench."""
     horch_halt()
+    warm_halt()
     with _V_SCHLOSS:
         for e in _VERBINDUNGEN.values():
             if e["pf"] is not None:
@@ -3128,7 +3134,10 @@ def _horch_faden(pf_id: str) -> None:
                     posten["idle"] = pf.kann("IDLE")
                     posten["fehler"] = ""
                 orte = _horch_orte(posten)
-                _horch_messen(pf, posten, orte)
+                if _horch_messen(pf, posten, orte) and posten["runden"]:
+                    # 5.28.0: the mailbox changed — have „New"/„Filed" worked
+                    # out again on the warm-up connection, gathered briefly.
+                    vorwaermen(pf_id, None, spaeter=WARM_NACH_HORCH)
                 posten["runden"] += 1
                 if posten["idle"]:
                     # Read-only, always. The post watches, it does not touch.
@@ -3788,6 +3797,12 @@ def _rollen_ordner(pf_id: str, rolle: str) -> str:
 def lage(pf_id: str) -> dict:
     """Everything the client needs to draw itself once."""
     zug = _zugang(pf_id)
+    # 🔑 5.28.0: „New" and „Filed" start being worked out NOW, on their own
+    # connection, while this one reads the tree — in parallel, not after.
+    try:
+        vorwaermen_beim_start(pf_id)
+    except Exception as e:                              # noqa: BLE001
+        log("Vorwaermer nicht gestartet: %s" % str(e)[:100])
     faehig = {}
     ordner = []
     try:
@@ -3943,7 +3958,7 @@ def auszuege(d: dict) -> dict:
 # fingerprint goes back. Nothing is redrawn, nothing jumps, and the phone does
 # not download forty kilobytes it already holds. The fingerprint is taken over
 # the FRESH answer, so this can never keep an old list on screen.
-KENNUNG_OHNE = ("alle_uids", "alle_posten", "kennung")
+KENNUNG_OHNE = ("alle_uids", "alle_posten", "kennung", "vorlaeufig", "warm_lauf")
 
 
 def _kennung(antwort: dict) -> str:
@@ -3961,7 +3976,7 @@ def _wenn_bekannt(d: dict, antwort: dict) -> dict:
             and antwort.get("alle_posten") is None):
         kurz = {"ok": True, "unveraendert": True, "kennung": kennung}
         for feld in ("ordner", "gesamt", "seite", "seiten", "ordner_gesamt",
-                     "ordner_ungelesen", "einsortiert_heute"):
+                     "ordner_ungelesen", "einsortiert_heute", "vorlaeufig", "warm_lauf"):
             if feld in antwort:
                 kurz[feld] = antwort[feld]
         return kurz
@@ -4017,12 +4032,26 @@ def neu_liste(d: dict) -> dict:
     if zeitraum not in AUSWAHL["neu_zeitraum"]:
         zeitraum = VORGABEN["neu_zeitraum"]
     mit_spam = bool(d.get("spam", einst["neu_spam"]))
-    antwort = tu(pf_id, lambda k: k.neue(zeitraum, mit_spam,
-                                         auszug=bool(einst["vorschautext"])))
+    auszug = bool(einst["vorschautext"])
+    ansicht = ("neu", zeitraum, mit_spam, auszug)
+    warm = _vorgewaermt(pf_id, ansicht, d)
+    if warm is not None:
+        return warm
+    return _wenn_bekannt(d, tu(pf_id, lambda k: _neu_rechnen(k, pf_id, ansicht)))
+
+
+def _neu_rechnen(k, pf_id: str, ansicht: tuple, frisch: bool = False) -> dict:
+    _, zeitraum, mit_spam, auszug = ansicht
+    if frisch:
+        # „New" skips every folder whose tree count says nothing is unread —
+        # so on the warm-up connection the counts are asked first (one
+        # LIST-STATUS), never taken from a tree that might be half a minute old.
+        k.baum(True)
+    antwort = k.neue(zeitraum, mit_spam, auszug=auszug)
     antwort["ok"] = True
     antwort["zeitraum"] = zeitraum
     antwort["einsortiert_heute"] = einsortiert_heute(pf_id)
-    return _wenn_bekannt(d, antwort)
+    return antwort
 
 
 def _journal_fuer(pf_id: str, tage: int) -> list:
@@ -4077,40 +4106,279 @@ def einsortiert(d: dict) -> dict:
     zeitraum = str(d.get("zeitraum") or "t1")
     if zeitraum not in EIN_TAGE:
         zeitraum = "t1"
+    ansicht = ("ein", zeitraum)
+    warm = _vorgewaermt(pf_id, ansicht, d)
+    if warm is not None:
+        return warm
+    return _wenn_bekannt(d, tu(pf_id, lambda k: _ein_rechnen(k, pf_id, ansicht)))
+
+
+def _ein_rechnen(k, pf_id: str, ansicht: tuple, frisch: bool = False) -> dict:
+    zeitraum = ansicht[1]
     eintraege = _journal_fuer(pf_id, EIN_TAGE[zeitraum])
     gekuerzt = len(eintraege) > EIN_GRENZE
     eintraege = eintraege[:EIN_GRENZE]
+    orte = {o["name"]: o for o in k.baum(frisch) if o["waehlbar"]}
+    paare = k.finde_einsortierte(eintraege, orte)
+    mails, ordner = [], set()
+    for j, kopf in paare:
+        ziel = str(j.get("nach") or "")
+        o = orte.get(ziel) or {}
+        if kopf is None:
+            if j.get("_alt"):
+                continue                 # unknown mailbox, and not here
+            satz = {"uid": 0, "weg": True, "von": j.get("absender") or "",
+                    "adresse": (j.get("absender") or "").lower(),
+                    "betreff": j.get("betreff") or "", "zeit": j.get("zeit") or "",
+                    "gelesen": True}
+        else:
+            satz = dict(kopf)
+        satz["ordner"] = ziel
+        satz["ordner_zeige"] = o.get("pfad") or j.get("anzeige") or ziel
+        satz["ordner_kurz"] = o.get("zeige") or j.get("anzeige") or ziel
+        satz["rolle"] = o.get("rolle") or ""
+        satz["einsortiert"] = j.get("zeit") or ""
+        satz["klasse"] = j.get("klasse") or ""
+        satz["von_ordner"] = j.get("von") or ""
+        mails.append(satz)
+        ordner.add(ziel)
+    return {"ok": True, "mails": mails, "gesamt": len(mails),
+            "ordner": len(ordner), "gekuerzt": gekuerzt, "zeitraum": zeitraum,
+            "weg": sum(1 for m in mails if m.get("weg")),
+            "einsortiert_heute": einsortiert_heute(pf_id)}
 
-    def arbeit(k):
-        orte = {o["name"]: o for o in k.baum() if o["waehlbar"]}
-        paare = k.finde_einsortierte(eintraege, orte)
-        mails, ordner = [], set()
-        for j, kopf in paare:
-            ziel = str(j.get("nach") or "")
-            o = orte.get(ziel) or {}
-            if kopf is None:
-                if j.get("_alt"):
-                    continue                 # unknown mailbox, and not here
-                satz = {"uid": 0, "weg": True, "von": j.get("absender") or "",
-                        "adresse": (j.get("absender") or "").lower(),
-                        "betreff": j.get("betreff") or "", "zeit": j.get("zeit") or "",
-                        "gelesen": True}
-            else:
-                satz = dict(kopf)
-            satz["ordner"] = ziel
-            satz["ordner_zeige"] = o.get("pfad") or j.get("anzeige") or ziel
-            satz["ordner_kurz"] = o.get("zeige") or j.get("anzeige") or ziel
-            satz["rolle"] = o.get("rolle") or ""
-            satz["einsortiert"] = j.get("zeit") or ""
-            satz["klasse"] = j.get("klasse") or ""
-            satz["von_ordner"] = j.get("von") or ""
-            mails.append(satz)
-            ordner.add(ziel)
-        return {"ok": True, "mails": mails, "gesamt": len(mails),
-                "ordner": len(ordner), "gekuerzt": gekuerzt, "zeitraum": zeitraum,
-                "weg": sum(1 for m in mails if m.get("weg")),
-                "einsortiert_heute": einsortiert_heute(pf_id)}
-    return _wenn_bekannt(d, tu(pf_id, arbeit))
+
+# ── The warm-up post: „New" and „Filed" before anybody asks (5.28.0) ────────
+# 🔴 MEASURED 07.11.2026: the first look into „Filed" cost ~3 s — 23 folders,
+# each searched and read, one after the other — and „New" 0.4–0.65 s; both on
+# the connection every click waits for. Neither can be made one command.
+#
+# 🔑 So they are worked out AHEAD, on a connection of their OWN that cannot
+# write (`schreiben=False`: EXAMINE, BODY.PEEK), when the page starts and when
+# the listening post hears the mailbox change. A request then gets the last
+# result AT ONCE, marked „provisional" — and the page asks straight back with
+# `frisch_warten`: that request waits (on a condition, never on the click
+# connection's lock) for a run that STARTED after it, and gets the truth or a
+# bare „unchanged". The memory is the first frame, never the answer.
+WARM_HALTEN = 3 * 3600              # a warmed result is offered at most this old
+WARM_LEERLAUF = 300.0               # the warm-up connection closes after this long idle
+WARM_WARTEN = 25.0                  # a request waits this long for a fresh run, then asks itself
+WARM_NACH_HORCH = 1.5               # the listening post's news is gathered this long
+_WARM = {}
+_WARM_SCHLOSS = threading.Lock()
+
+
+def _warm_posten(pf_id: str) -> dict:
+    with _WARM_SCHLOSS:
+        posten = _WARM.get(pf_id)
+        if posten is None:
+            posten = {"wache": threading.Condition(), "auftraege": set(),
+                      "gefragt": {}, "ergebnis": {}, "lauf": 0, "faden": None,
+                      "fehler": "", "nach": 0.0, "aus": False, "gen": 0,
+                      "in_arbeit": set()}
+            _WARM[pf_id] = posten
+        return posten
+
+
+def _warm_rechnen(k, pf_id: str, ansicht: tuple) -> dict:
+    if ansicht[0] == "neu":
+        return _neu_rechnen(k, pf_id, ansicht, frisch=True)
+    return _ein_rechnen(k, pf_id, ansicht, frisch=True)
+
+
+def _warm_faden(pf_id: str) -> None:
+    posten = _warm_posten(pf_id)
+    pf = None
+    try:
+        while True:
+            with posten["wache"]:
+                ende = time.time() + WARM_LEERLAUF
+                while True:
+                    jetzt = time.time()
+                    if posten["aus"]:
+                        return
+                    if posten["auftraege"] and jetzt >= posten["nach"]:
+                        break
+                    if not posten["auftraege"] and jetzt >= ende:
+                        return
+                    bis = posten["nach"] if posten["auftraege"] else ende
+                    posten["wache"].wait(max(0.05, bis - jetzt))
+                auftraege = set(posten["auftraege"])
+                posten["auftraege"].clear()
+                posten["in_arbeit"] = set(auftraege)
+                posten["lauf"] += 1
+                lauf = posten["lauf"]
+                gen = posten["lauf_gen"] = posten["gen"]
+            # 🔴 „New" first: every session starts there and waits for it;
+            # „Filed" (many folders) must never stand in front of it.
+            for ansicht in sorted(auftraege, key=lambda a: (a[0] != "neu", str(a))):
+                ergebnis, fehler = None, ""
+                for _versuch in (1, 2):
+                    try:
+                        if pf is None:
+                            zug = _zugang(pf_id)
+                            if not zug:
+                                raise RuntimeError(txt("a.kein_postfach"))
+                            pf = Briefkasten(zug, False)     # cannot write, by build
+                            pf.__enter__()
+                        ergebnis = _warm_rechnen(pf, pf_id, ansicht)
+                        break
+                    except Exception as e:                  # noqa: BLE001
+                        fehler = str(e)[:140]
+                        log("Vorwaermer: %s" % fehler)
+                        _schliessen(pf)
+                        pf = None
+                with posten["wache"]:
+                    halt = posten["ergebnis"].setdefault(ansicht, {"zeit": 0, "antwort": None})
+                    if ergebnis is not None:
+                        halt.update({"zeit": time.time(), "lauf": lauf, "antwort": ergebnis,
+                                     "gen": gen})
+                    else:
+                        # 🔴 A failed run never leaves an old result looking
+                        # confirmed: whoever waits for it asks the server itself.
+                        halt["fehler_lauf"] = lauf
+                    posten["fehler"] = fehler
+                    posten["in_arbeit"].discard(ansicht)
+                    posten["wache"].notify_all()
+    finally:
+        _schliessen(pf)
+        with _WARM_SCHLOSS:
+            if posten["faden"] is threading.current_thread():
+                posten["faden"] = None
+            nochmal = bool(posten["auftraege"]) and not posten["aus"]
+        if nochmal:                        # work came in while it was closing
+            _warm_start(pf_id, posten)
+
+
+def _warm_start(pf_id: str, posten: dict) -> None:
+    with _WARM_SCHLOSS:
+        faden = posten["faden"]
+        if faden is not None and faden.is_alive():
+            return
+        faden = threading.Thread(target=_warm_faden, args=(pf_id,), daemon=True,
+                                 name="warm-%s" % (pf_id or "-"))
+        posten["faden"] = faden
+    faden.start()
+
+
+def vorwaermen(pf_id: str, ansichten=None, spaeter: float = 0.0) -> None:
+    """Ask the warm-up post to work these views out (default: the ones somebody
+    looked at in the last WARM_HALTEN). Never waits, never touches the click
+    connection."""
+    posten = _warm_posten(pf_id)
+    with posten["wache"]:
+        if ansichten is None:
+            jetzt = time.time()
+            ansichten = [a for a, t in posten["gefragt"].items() if jetzt - t < WARM_HALTEN]
+        if not ansichten:
+            return
+        posten["aus"] = False
+        posten["auftraege"].update(ansichten)
+        if spaeter:
+            posten["nach"] = max(posten["nach"], time.time() + spaeter)
+        posten["wache"].notify_all()
+    _warm_start(pf_id, posten)
+
+
+def warm_veraltet(pf_id: str) -> None:
+    """The page itself changed the mailbox (moved, deleted, flagged) — called
+    AFTER the change: no warm result from before is offered as a first frame
+    any more, it could put back a row the reader has just removed. The next
+    look waits for a fresh run instead."""
+    posten = _warm_posten(pf_id)
+    with posten["wache"]:
+        # 🔴 A generation, not a flag: a run that was already under way while
+        # the page wrote would otherwise clear a flag with data from before.
+        posten["gen"] += 1
+    vorwaermen(pf_id)
+
+
+def vorwaermen_beim_start(pf_id: str) -> None:
+    """The page has just started: „New" (where every session begins) and
+    „Filed" with the views this page uses by default, plus whatever was
+    looked at recently."""
+    einst = einstellungen()
+    zeitraum = einst["neu_zeitraum"] if einst["neu_zeitraum"] in AUSWAHL["neu_zeitraum"] \
+        else VORGABEN["neu_zeitraum"]
+    posten = _warm_posten(pf_id)
+    jetzt = time.time()
+    # All three periods of „Filed": switching from „1 day" to „7 days" must
+    # not cost the first look again. „New" is worked out first (see the run).
+    ansichten = {("neu", zeitraum, bool(einst["neu_spam"]), bool(einst["vorschautext"])),
+                 ("ein", "t1"), ("ein", "t3"), ("ein", "t7")}
+    with posten["wache"]:
+        for a in ansichten:
+            posten["gefragt"].setdefault(a, jetzt)
+        ansichten |= {a for a, t in posten["gefragt"].items() if jetzt - t < WARM_HALTEN}
+    vorwaermen(pf_id, list(ansichten))
+
+
+def _vorgewaermt(pf_id: str, ansicht: tuple, d: dict):
+    """The warm answer for a page that can take one — or None: then the caller
+    asks the server itself, exactly as before 5.28.0.
+
+    Without `frisch_warten`: the last warm result AT ONCE, marked
+    `vorlaeufig`, with the number of the run that will confirm it. With it:
+    wait for that run (or a later one) and answer with its result."""
+    if not d.get("vorlaeufig_ok"):
+        return None
+    posten = _warm_posten(pf_id)
+    with posten["wache"]:
+        posten["gefragt"][ansicht] = time.time()
+        halt = posten["ergebnis"].get(ansicht) or {}
+        frisch = bool(d.get("frisch_warten"))
+        naechster = posten["lauf"] + 1
+        vorlaeufig_ab = None
+        if (not frisch and halt.get("antwort") is not None
+                and halt.get("gen") == posten["gen"]
+                and time.time() - halt["zeit"] < WARM_HALTEN):
+            antwort = dict(halt["antwort"], vorlaeufig=True, warm_lauf=naechster)
+            ziel = None
+        elif (not frisch and ansicht in posten["in_arbeit"]
+              and posten.get("lauf_gen") == posten["gen"]):
+            # Nothing to show yet, but a run is already working on it (the
+            # page start asked for it a moment ago): take THAT run's result as
+            # the first frame — marked provisional, so the page still asks
+            # for the run after it.
+            ziel, vorlaeufig_ab = posten["lauf"], naechster
+        else:
+            try:
+                ziel = int(d.get("warm_lauf") or 0)
+            except (TypeError, ValueError):
+                ziel = 0
+            # Never a run that started BEFORE this question was asked.
+            ziel = naechster if not (0 < ziel <= naechster) else ziel
+    vorwaermen(pf_id, [ansicht])
+    if ziel is None:
+        return _wenn_bekannt(d, antwort)
+    ende = time.time() + WARM_WARTEN
+    with posten["wache"]:
+        while True:
+            halt = posten["ergebnis"].get(ansicht) or {}
+            if halt.get("antwort") is not None and halt.get("lauf", 0) >= ziel:
+                if vorlaeufig_ab:
+                    return _wenn_bekannt(d, dict(halt["antwort"], vorlaeufig=True,
+                                                 warm_lauf=vorlaeufig_ab))
+                return _wenn_bekannt(d, dict(halt["antwort"]))
+            if halt.get("fehler_lauf", 0) >= ziel or time.time() >= ende:
+                return None                # the caller asks the server itself
+            posten["wache"].wait(max(0.05, ende - time.time()))
+
+
+def warm_halt() -> None:
+    """Stop every warm-up post — end of process, and the test bench."""
+    for posten in list(_WARM.values()):
+        with posten["wache"]:
+            posten["aus"] = True
+            posten["auftraege"].clear()
+            posten["gefragt"].clear()
+            posten["ergebnis"].clear()
+            posten["nach"] = 0.0
+            posten["wache"].notify_all()
+    for posten in list(_WARM.values()):
+        faden = posten.get("faden")
+        if faden is not None:
+            faden.join(timeout=3.0)
 
 
 def _bilder_erlaubt(pf_id: str, adresse: str, wunsch) -> bool:
@@ -4195,6 +4463,7 @@ def mail_zeigen(d: dict) -> dict:
         try:
             tu(pf_id, lambda k: k.flagge(ordner, [uid], "\\Seen", True))
             m["gelesen"] = True
+            warm_veraltet(pf_id)
         except Exception as e:
             log("Gelesen-Marke nicht gesetzt: %s" % str(e)[:100])
     # The watchman's opinion — where it would file this sender, and why. That is

@@ -2056,6 +2056,13 @@ KLIENT_AKTIONEN = {
 }
 
 
+# The client actions that change the mailbox — after each, the warmed views
+# („New", „Filed") are stale.
+KLIENT_SCHREIBT = ("klient_flaggen", "klient_verschieben", "klient_loeschen",
+                   "klient_ordner_neu", "klient_ordner_ziehen", "klient_ordner_loeschen",
+                   "klient_wie_wache", "klient_immer_hierhin")
+
+
 def _pf(d: dict) -> str:
     """Which mailbox this request is about. `do_POST` has already chosen it — this
     only passes it on, so that no client action chooses one for itself."""
@@ -2766,7 +2773,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._sende(200, KL.sitzung_beenden(marke),
                                    zusatz=[("Set-Cookie",
                                             KL.keks_setzen("", self._tls()))])
-            return self._sende(200, KLIENT_AKTIONEN[name](d, marke))
+            erg = KLIENT_AKTIONEN[name](d, marke)
+            if name in KLIENT_SCHREIBT:
+                # 5.28.0: what the page just changed must not come back as a
+                # warmed first frame of „New"/„Filed".
+                try:
+                    KL.warm_veraltet(gewaehlt)
+                except Exception:                       # noqa: BLE001
+                    pass
+            return self._sende(200, erg)
         except Exception as e:
             log_fehler(name, e)
             return self._sende(200, {"ok": False, "text": str(e)[:200]})
