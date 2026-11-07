@@ -7,6 +7,14 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.28.2] - 2026-11-07
+
+### Changed
+
+- **The warm-up also runs right after the start**, for every watched mailbox
+  (only where the client is in use), so the first look into "Filed" after an
+  update is not the one that waits. 5.28.1 was built but not promoted.
+
 ## [5.28.1] - 2026-11-07
 
 ### Fixed

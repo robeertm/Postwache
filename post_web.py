@@ -2797,6 +2797,19 @@ def log_fehler(name: str, e: Exception) -> None:
         W.log("Klient %s: %s: %s" % (name, type(e).__name__, str(e)[:160]))
 
 
+def warm_beim_start() -> None:
+    """Warm up every watched mailbox once after the start. Never fatal."""
+    time.sleep(8)                         # the page and the watchman come first
+    try:
+        if KL is None or W is None or not KL.wort_gesetzt():
+            return
+        for f in W.postfaecher() or []:
+            if f.get("an", True):
+                KL.vorwaermen_beim_start(f["id"])
+    except Exception as e:                # noqa: BLE001
+        print("Vorwaermen beim Start ging nicht: %s" % str(e)[:160], flush=True)
+
+
 def takt_faden(sekunden: int) -> None:
     """Give the watchman its own beat instead of waiting for a cron.
 
@@ -2847,6 +2860,14 @@ def main():
         import threading as _th
         import tailscale_zugang as tsz
         _th.Thread(target=tsz.beim_start, args=(BASE, PORT), daemon=True).start()
+    except Exception:
+        pass
+    # 🔑 5.28.2: „New" and „Filed" are worked out once right after the start,
+    #    on the warm-up connection — so the first look after an update is not
+    #    the one that waits. Only where the client is in use (a word is set).
+    try:
+        import threading as _th2
+        _th2.Thread(target=warm_beim_start, daemon=True).start()
     except Exception:
         pass
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
