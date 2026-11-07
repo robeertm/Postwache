@@ -7,6 +7,16 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.28.1] - 2026-11-07
+
+### Fixed
+
+- **"New" no longer waits behind "Filed" in the warm-up.** Right after a
+  start the warm-up works out four views; a confirmation for "New" waited
+  until all of them were done (the first frame was already on screen, but the
+  confirmation could take several seconds). The warm-up now does one view per
+  run, the most urgent first, and looks at its queue again after each.
+
 ## [5.28.0] - 2026-11-07
 
 ### Changed

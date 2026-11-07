@@ -4203,15 +4203,18 @@ def _warm_faden(pf_id: str) -> None:
                         return
                     bis = posten["nach"] if posten["auftraege"] else ende
                     posten["wache"].wait(max(0.05, bis - jetzt))
-                auftraege = set(posten["auftraege"])
-                posten["auftraege"].clear()
+                # 🔴 ONE view per run, the most urgent first, and the queue is
+                # looked at again after each: a „New" asked for while three
+                # periods of „Filed" are being worked out must not wait for
+                # all three (measured: 12 s on a cold start).
+                eine = min(posten["auftraege"], key=lambda a: (a[0] != "neu", str(a)))
+                posten["auftraege"].discard(eine)
+                auftraege = {eine}
                 posten["in_arbeit"] = set(auftraege)
                 posten["lauf"] += 1
                 lauf = posten["lauf"]
                 gen = posten["lauf_gen"] = posten["gen"]
-            # 🔴 „New" first: every session starts there and waits for it;
-            # „Filed" (many folders) must never stand in front of it.
-            for ansicht in sorted(auftraege, key=lambda a: (a[0] != "neu", str(a))):
+            for ansicht in auftraege:
                 ergebnis, fehler = None, ""
                 for _versuch in (1, 2):
                     try:
