@@ -3673,6 +3673,47 @@ def _mime_raten(name: str, angabe: str) -> tuple:
     return haupt, voll, unter
 
 
+SENDEPROTOKOLL = "gesendet_protokoll.jsonl"
+_SCHLUESSEL_MUSTER = re.compile(r"\b[A-Za-z0-9]{3,}(?:-[A-Za-z0-9]{3,}){2,}\b")
+_PROTOKOLL_SCHLOSS = threading.Lock()
+
+
+def _maskiert(text: str) -> str:
+    """Anything that looks like a licence key or a token (groups joined by dashes)
+    becomes a marker. The protocol must stay readable without being a secret."""
+    return _SCHLUESSEL_MUSTER.sub("[maskiert]", text or "")
+
+
+def _sendeprotokoll(msg_id: str, empfaenger: list, betreff: str, roh: bytes,
+                    kopie: str, verwehrt: int, kanal: str) -> None:
+    """🔑 5.29.0: one JSON line per mail that really left — time, Message-ID,
+    recipients, a masked subject, size and SHA-256 of the whole mail, and whether
+    the copy reached the sent folder. NEVER the body: a licence key in a reply is
+    only represented by the hash. Written after the SMTP hand-over, best effort."""
+    try:
+        ordner = _not_ordner()
+        os.makedirs(ordner, exist_ok=True)
+        pfad = os.path.join(ordner, SENDEPROTOKOLL)
+        zeile = json.dumps({
+            "zeit": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "message_id": msg_id, "kanal": kanal,
+            "an": sorted({str(a).lower() for a in empfaenger}),
+            "betreff": _maskiert(betreff)[:200], "bytes": len(roh),
+            "sha256": hashlib.sha256(roh).hexdigest(),
+            "kopie": kopie, "verwehrt": verwehrt}, ensure_ascii=False)
+        with _PROTOKOLL_SCHLOSS:
+            try:
+                if os.path.getsize(pfad) > 2 * 1024 * 1024:
+                    os.replace(pfad, pfad + ".1")
+            except OSError:
+                pass
+            fd = os.open(pfad, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as fh:
+                fh.write(zeile + "\n")
+    except Exception as e:                           # noqa: BLE001
+        log("Sendeprotokoll nicht geschrieben: %s" % str(e)[:100])
+
+
 def senden(d: dict) -> dict:
     """Send — and only then everything that goes with it: the copy into the sent
     folder, the „answered" mark on the original, the draft removed.
@@ -3690,6 +3731,8 @@ def senden(d: dict) -> dict:
     if fehler:
         return {"ok": False, "text": fehler}
     fuer_ablage = msg.as_bytes()
+    msg_id = str(msg.get("Message-Id") or "")
+    betreff_log = str(msg.get("Subject") or "")
     del msg["Bcc"]                  # a blind copy stays blind on the wire
     # 🔴 5.25.2: sending used to leave NO line in the log, neither on success
     #    nor on failure — the error went to the browser and nowhere else. „No
@@ -3722,12 +3765,28 @@ def senden(d: dict) -> dict:
         # Partly delivered is not „sent". Naming who was refused is the whole
         # difference between a report and a green tick.
         nachwort.append(txt("k.teils_verwehrt", wer=", ".join(sorted(verwehrt))[:200]))
-    if einst.get("kopie_gesendet"):
-        ziel = _rollen_ordner(pf_id, "gesendet")
-        if ziel and tu(pf_id, lambda k: k.anhaengen(ziel, fuer_ablage, "(\\Seen)")):
-            nachwort.append(txt("k.kopie_gelegt", o=utf7_dekodieren(ziel)))
-        else:
+    kopie_stand = "aus"
+    # 🔴 5.29.0: a mail that left through the programme door (reply to a licence
+    #    request, job mail) is ALWAYS filed in the sent folder, whatever the page
+    #    setting says — and a failed append is tried three times and then logged
+    #    (it used to vanish silently: no copy, no line, nobody could prove the mail).
+    if einst.get("kopie_gesendet") or d.get("kopie_erzwingen"):
+        kopie_stand = "fehlt"
+        for versuch in (1, 2, 3):
+            try:
+                ziel = _rollen_ordner(pf_id, "gesendet")
+                if ziel and tu(pf_id, lambda k: k.anhaengen(ziel, fuer_ablage, "(\\Seen)")):
+                    kopie_stand = "ok"
+                    nachwort.append(txt("k.kopie_gelegt", o=utf7_dekodieren(ziel)))
+                    break
+            except Exception as e:                   # noqa: BLE001
+                log("Kopie in Gesendet, Versuch %d: %s" % (versuch, _fehler_kurz(e)))
+            time.sleep(0.5 * versuch)
+        log("Kopie in Gesendet: %s" % kopie_stand)
+        if kopie_stand != "ok":
             nachwort.append(txt("k.kopie_fehl_ordner"))
+    _sendeprotokoll(msg_id, empfaenger, betreff_log, fuer_ablage, kopie_stand,
+                    len(verwehrt or {}), str(d.get("kanal") or "seite"))
     quelle = d.get("quelle") or {}
     if quelle.get("uid"):
         try:

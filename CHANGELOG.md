@@ -7,6 +7,18 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.29.0] - 2026-11-10
+
+### Fixed
+- A mail sent through the programme door (reply or job mail) could be missing from the sent folder:
+  the copy depended on the page setting, and a failed append left no log line. The door now always
+  files the copy (`\Seen`), tries three times, and logs every outcome.
+
+### Added
+- Send protocol `state/gesendet_protokoll.jsonl` (mode 0600): per sent mail the time, Message-ID,
+  recipients, a masked subject, size and SHA-256 of the whole mail, and the copy status. Never the
+  body; key-like patterns in the subject are masked.
+
 ## [5.28.2] - 2026-11-07
 
 ### Changed

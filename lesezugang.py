@@ -1119,6 +1119,8 @@ def senden(body: dict) -> dict:
 
     with _F_SCHLOSS:
         _GESENDET.append(time.time())
+    d["kopie_erzwingen"] = True      # 5.29.0: programme door -> copy always in the sent folder
+    d["kanal"] = "lesezugang"
     try:
         erg = KL.senden(d)
     except Exception as e:
