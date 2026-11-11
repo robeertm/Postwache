@@ -382,6 +382,8 @@ body.wahlmodus .fuss{display:none}
 .reihe .txt b{display:block;font-weight:600;font-size:.92rem}
 .reihe .txt span{font-size:.79rem;color:var(--leise);display:block}
 .reihe .stell{flex:0 0 auto;width:9.5rem;max-width:48%}
+.reihe .txt b.v_name{overflow-wrap:anywhere}
+.v_gut{color:var(--ok);font-weight:600}
 .knebel{flex:0 0 auto;position:relative;width:3.1rem;height:1.85rem;border-radius:999px;
   border:1px solid var(--rand);background:var(--film2)}
 .knebel::after{content:"";position:absolute;top:2px;left:2px;width:1.45rem;
@@ -922,6 +924,8 @@ async function allesLaden(){
     S.smtp = l.smtp || {};
     S.pf = l.pf || S.pf;
     S.version = l.version || "";
+    S.schloss = l.schloss || {};
+    S.vertraut = l.vertraut || {};
     S.pro = S.einst.pro_seite || 50;
     if(S.einst.nur_ungelesen && !S.sieb) S.sieb = "ungelesen";
     document.documentElement.style.setProperty("--schrift", (S.einst.schrift || 100) + "%");
@@ -2424,8 +2428,10 @@ function mehrMalen(){
       <input id="m_neu" type="password" autocomplete="new-password"></div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button onclick="wortAendern()">${esc(txt("k.wort_aendern"))}</button>
-      <button onclick="abmelden()">🔒 ${esc(txt("k.abmelden"))}</button>
+      ${(S.schloss || {}).sitzung === false ? "" :
+        `<button onclick="abmelden()">🔒 ${esc(txt("k.abmelden"))}</button>`}
     </div></div>`);
+  gruppen.push(vertrautGruppe());
   /* The way to the wide page — and it STAYS there: the server remembers the
      choice, otherwise the next tap on the link lands back here. */
   gruppen.push(`<div class="gruppe"><h3>${esc(txt("k.ansicht"))}</h3>
@@ -2438,6 +2444,60 @@ function mehrMalen(){
   gruppen.push(`<div class="klein leise" style="text-align:center;padding:.2rem 0 1rem">
     Postwache ${esc(S.version)}</div>`);
   $("#mehrleib").innerHTML = gruppen.join("");
+}
+/* ── Trusted devices ──────────────────────────────────────────────────
+   🔑 The same description as on the wide page: the server decides who „this
+   device" is (local tailscaled), the page only shows it and asks the server
+   to put the CURRENT connection on the list. */
+const V_GRUND = {
+  aus: "k.v_grund_aus", kein_wort: "k.v_grund_kein_wort",
+  kein_tailscale: "k.v_grund_kein_tailscale", tailscale_fehler: "k.v_grund_tailscale_fehler",
+  proxy_ohne_absender: "k.v_grund_proxy_ohne_absender", lokal: "k.v_grund_lokal",
+  unbekannt: "k.v_grund_unbekannt", nicht_gelistet: "k.v_grund_nicht_gelistet"};
+function vertrautGruppe(){
+  const v = S.vertraut || {};
+  if(!v.moeglich) return "";
+  const d = v.dieses || {};
+  let zustand;
+  if(d.vertraut) zustand = `<span class="v_gut">✓ ${esc(txt("k.v_ist_vertraut"))}</span>`;
+  else if(d.gelistet) zustand = esc(txt("k.v_gelistet_aus"));
+  else if(d.id) zustand = esc(txt("k.v_erkannt"));
+  else zustand = esc(txt("k.v_nicht_da", {grund: txt(V_GRUND[d.grund] || "k.v_grund_unbekannt")}));
+  const geraete = (v.geraete || []).map(g => `<div class="reihe">
+      <div class="txt"><b class="v_name">${esc(g.name || g.id)}</b><span>${esc([g.benutzer, g.system,
+        g.seit ? txt("k.v_seit", {zeit: wann(g.seit)}) : ""].filter(Boolean).join(" · "))}</span></div>
+      <button onclick="vertrautTun('weg',{id:'${esc(g.id)}'})">${esc(txt("k.v_entfernen"))}</button>
+    </div>`).join("") || `<div class="reihe"><div class="txt"><span>${esc(txt("k.v_leer"))}</span></div></div>`;
+  return `<div class="gruppe"><h3>${esc(txt("k.g_vertraut"))}</h3>
+    <div class="klein leise">${esc(txt("k.g_vertraut_hilfe"))}</div>
+    <div class="reihe"><div class="txt"><b>${esc(txt("k.v_an"))}</b>
+        <span>${esc(txt("k.v_an_hilfe"))}</span></div>
+      <div class="knebel" role="switch" tabindex="0" aria-checked="${!!v.an}"
+        aria-label="${esc(txt("k.v_an"))}" onclick="vertrautTun('an',{an:${!v.an}})"></div></div>
+    ${v.tailscale ? "" : `<div class="reihe"><div class="txt"><span>${esc(txt("k.v_kein_ts"))}</span></div></div>`}
+    <div class="reihe"><div class="txt"><b class="v_name">${esc(txt("k.v_dieses"))}${d.name ? " · " + esc(d.name) : ""}</b>
+        <span>${zustand}</span>
+        <span>${d.adresse ? esc(txt("k.v_gesehen", {adresse: d.adresse})) : ""}</span></div></div>
+    ${d.id && !d.gelistet ? `<div style="padding:0 0 .7rem"><button class="haupt" style="width:100%"
+        onclick="vertrautTun('dieses',{})">${esc(txt("k.v_hinzu"))}</button></div>` : ""}
+    ${geraete}
+    <div class="feld" style="margin-top:.6rem"><label>${esc(txt("k.v_adressen"))}</label>
+      <input id="v_adressen" value="${esc((v.adressen || []).join(", "))}" inputmode="url"
+        autocapitalize="off" autocorrect="off" placeholder="192.0.2.10"
+        onchange="vertrautTun('adressen',{wert:this.value})">
+      <div class="klein leise" style="margin-top:.25rem">${esc(txt("k.v_adressen_hilfe"))}</div></div>
+    <div class="feld"><label>${esc(txt("k.v_proxys"))}</label>
+      <input id="v_proxys" value="${esc((v.proxys || []).join(", "))}" inputmode="url"
+        autocapitalize="off" autocorrect="off" placeholder="127.0.0.1"
+        onchange="vertrautTun('proxys',{wert:this.value})">
+      <div class="klein leise" style="margin-top:.25rem">${esc(txt("k.v_proxys_hilfe"))}</div></div>
+    </div>`;
+}
+async function vertrautTun(tat, mehr){
+  const r = await sende("klient_vertraut", Object.assign({tat: tat}, mehr || {}));
+  melde(r.text || txt("k.ging_nicht"), !!r.ok);
+  if(r.vertraut) S.vertraut = r.vertraut;
+  mehrMalen();
 }
 async function einstellungSetzen(schluessel, wert){
   const r = await sende("klient_einstellung", {werte:{[schluessel]:wert}});

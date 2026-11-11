@@ -78,6 +78,10 @@ try:
                                      #  5.25.0: one mail's text, and sending)
 except Exception:
     LZ = None
+try:
+    import vertraut as VT            # since 5.30.0: trusted devices skip the door
+except Exception:
+    VT = None
 
 # The client is its own page: it needs the whole window, and the watchman page is
 # a dashboard with a maximum width. One file each, one job each.
@@ -2013,6 +2017,9 @@ KLIENT_AKTIONEN = {
     "klient_lage": lambda d, marke: _klient_lage(d, marke),
     "klient_anmelden": None,          # handled in the request, it sets the cookie
     "klient_abmelden": None,          # the same, it clears it
+    # Since 5.30.0: the trusted-devices list. Handled in the request, because
+    # „this device" is the connection itself. NOT in KLIENT_OFFEN.
+    "klient_vertraut": None,
     "klient_wort": lambda d, marke: KL.wort_setzen(str(d.get("neu") or ""),
                                                    str(d.get("alt") or "")),
     "klient_wort_vergessen": lambda d, marke: KL.notwort_anfordern(),
@@ -2069,13 +2076,19 @@ def _pf(d: dict) -> str:
     return aktives_pf(str((d or {}).get("pf") or ""))
 
 
-def _klient_lage(d: dict, marke: str) -> dict:
+def _klient_lage(d: dict, marke: str, vt: dict | None = None) -> dict:
     """The client's state — in two stages.
 
     🔴 Without a session ONLY the lock: whether a word is set, and nothing about
     the mailbox. Folder names alone would already say a lot about a person.
+    A trusted device counts as a session (`sitzung` tells the two apart, so the
+    page does not offer a „sign out" that would change nothing).
     """
+    vt = vt or {}
     schloss = KL.lage_schloss(marke)
+    schloss["sitzung"] = bool(schloss["an"])
+    schloss["vertraut"] = bool(vt.get("vertraut"))
+    schloss["an"] = schloss["sitzung"] or schloss["vertraut"]
     if not schloss["an"]:
         return {"ok": True, "schloss": schloss, "postfaecher": [],
                 "version": _version()}
@@ -2087,6 +2100,7 @@ def _klient_lage(d: dict, marke: str) -> dict:
     lage["postfaecher"] = [{"id": f["id"], "name": f["name"], "adresse": f["adresse"],
                             "an": bool(f.get("an", True))} for f in pf_liste()]
     lage["schubladen"] = W.schubladen_namen() if W is not None else {}
+    lage["vertraut"] = _vertraut_lage(vt)
     return lage
 
 
@@ -2367,6 +2381,41 @@ class Handler(BaseHTTPRequestHandler):
     def _marke(self) -> str:
         return KL.keks_lesen(self.headers.get("Cookie") or "") if KL else ""
 
+    def _vertrauen(self) -> dict:
+        """Is the device behind this request on the owner's trusted list?
+
+        Asked once per request and kept on the request. 🔴 What it looks at is
+        the CONNECTION (its address and port, resolved by the local tailscaled)
+        and, only from a configured proxy, the proxy's X-Forwarded-For — never
+        a cookie, never a header the browser can set on its own. Anything that
+        goes wrong answers „not trusted": the request then meets the door it
+        always met. See vertraut.py."""
+        vt = getattr(self, "_vt", None)
+        if vt is not None:
+            return vt
+        erg = {"vertraut": False, "weg": "", "adresse": "", "kennung": None,
+               "grund": "aus"}
+        if VT is not None and KL is not None:
+            try:
+                ip, port = (self.client_address or ("", 0))[:2]
+                erg = VT.pruefen(ip, port, self.headers.get_all("X-Forwarded-For") or [],
+                                 wort_gesetzt=KL.wort_gesetzt())
+            except Exception:                   # noqa: BLE001 - failing shut
+                erg = dict(erg, grund="tailscale_fehler")
+        self._vt = erg
+        return erg
+
+    def _frei(self) -> bool:
+        """THE question of the door, for every path behind it: a valid session
+        OR a trusted device. 🔑 One method, asked by the page lock, the client
+        actions and the attachment links alike — a second, private copy of this
+        check would be the one that forgets the other half."""
+        if KL is None:
+            return False
+        if KL.sitzung_gueltig(self._marke()):
+            return True
+        return bool(self._vertrauen().get("vertraut"))
+
     def _gesperrt(self) -> bool:
         """Is the WATCHMAN page locked too? Off by default — whoever puts the page
         on the internet turns it on, and then it applies to the data as well, not
@@ -2379,7 +2428,7 @@ class Handler(BaseHTTPRequestHandler):
                 return False
         except Exception:
             return False
-        return not KL.sitzung_gueltig(self._marke())
+        return not self._frei()
 
     def _umleiten(self, ziel: str):
         self.send_response(302)
@@ -2398,6 +2447,7 @@ class Handler(BaseHTTPRequestHandler):
                                "text/plain; charset=utf-8")
 
     def do_GET(self):
+        self._vt = None                     # trust is asked per request, never carried over
         # 🔴 The path WITHOUT the query part. Before, `self.path` was compared
         #    directly with "/" — every URL with a question mark („?standbild=1“, a
         #    cache buster, an appended referrer parameter) got a 404, and the
@@ -2588,7 +2638,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         if KL is None:
             return self._sende(500, {"fehler": txt("k.klient_fehlt")})
-        if not KL.sitzung_gueltig(self._marke()):
+        if not self._frei():
             return self._sende(401, {"fehler": txt("k.bitte_anmelden"),
                                      "gesperrt": True})
 
@@ -2669,6 +2719,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(inhalt)
 
     def do_POST(self):
+        self._vt = None                     # trust is asked per request, never carried over
         # 🔴 THE READER'S ACTION DOORS COME FIRST, MATCHED ON THE WHOLE PATH.
         #
         # Below, an action is chosen by the LAST path segment only — so
@@ -2751,7 +2802,7 @@ class Handler(BaseHTTPRequestHandler):
         if KL is None:
             return self._sende(500, {"ok": False, "text": txt("k.klient_fehlt")})
         marke = self._marke()
-        if name not in KLIENT_OFFEN and not KL.sitzung_gueltig(marke):
+        if name not in KLIENT_OFFEN and not self._frei():
             return self._sende(200, {"ok": False, "gesperrt": True,
                                      "text": txt("k.bitte_anmelden")})
         adresse = self.client_address[0] if self.client_address else ""
@@ -2773,6 +2824,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._sende(200, KL.sitzung_beenden(marke),
                                    zusatz=[("Set-Cookie",
                                             KL.keks_setzen("", self._tls()))])
+            if name == "klient_lage":
+                return self._sende(200, _klient_lage(d, marke, self._vertrauen()))
+            if name == "klient_vertraut":
+                return self._sende(200, self._vertraut_aktion(d))
             erg = KLIENT_AKTIONEN[name](d, marke)
             if name in KLIENT_SCHREIBT:
                 # 5.28.0: what the page just changed must not come back as a
@@ -2788,6 +2843,62 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             pf_waehlen("")
             klient_merken("")
+
+
+    def _vertraut_aktion(self, d: dict) -> dict:
+        """The trusted-devices list: switch it, add THIS device, take one off,
+        set fixed addresses or trusted proxies. Behind the door like every
+        client action — so only a signed-in (or already trusted) reader gets
+        here.
+
+        🔴 „Add this device" adds what the local tailscaled says about THIS
+        connection. An ID in the request body is never put on the list."""
+        if VT is None:
+            return {"ok": False, "text": txt("k.v_fehlt")}
+        tat = str(d.get("tat") or "")
+        ip, port = (self.client_address or ("", 0))[:2]
+        xff = self.headers.get_all("X-Forwarded-For") or []
+        text, ok = txt("a.gespeichert"), True
+        if tat == "an":
+            VT.schalten(bool(d.get("an")))
+        elif tat == "dieses":
+            k = VT.erkennen(ip, port, xff).get("kennung")
+            if not k or str(k.get("id", "")).startswith("adresse:"):
+                text, ok = txt("k.v_nicht_erkannt"), False
+            else:
+                VT.geraet_hinzu(k)
+        elif tat == "weg":
+            VT.geraet_weg(str(d.get("id") or ""))
+        elif tat in ("adressen", "proxys"):
+            setzen = VT.adressen_setzen if tat == "adressen" else VT.proxys_setzen
+            _s, schlecht = setzen(d.get("wert") or "")
+            if schlecht:
+                text, ok = txt("k.v_adresse_ungueltig",
+                               liste=", ".join(str(x) for x in schlecht[:5])), False
+        elif tat != "lage":
+            return {"ok": False, "text": txt("a.nicht_gefunden")}
+        # Asked again after the change: the answer is what is in effect NOW.
+        self._vt = None
+        return {"ok": ok, "text": text, "vertraut": _vertraut_lage(self._vertrauen())}
+
+
+def _vertraut_lage(vt: dict) -> dict:
+    """What the settings page shows. 🔴 Only behind the door — the list names
+    the owner's machines."""
+    if VT is None:
+        return {"moeglich": False}
+    s = VT.stand()
+    k = vt.get("kennung") or None
+    return {"moeglich": True, "an": s["an"], "geraete": s["geraete"],
+            "adressen": s["adressen"], "proxys": s["proxys"],
+            "tailscale": bool(VT.socket_pfad(s)),
+            "dieses": {"vertraut": bool(vt.get("vertraut")), "weg": vt.get("weg") or "",
+                       "adresse": vt.get("adresse") or "",
+                       "grund": vt.get("grund") or "",
+                       "id": (k or {}).get("id") or "",
+                       "name": (k or {}).get("name") or "",
+                       "gelistet": bool(k) and any(g["id"] == k.get("id")
+                                                   for g in s["geraete"])}}
 
 
 def log_fehler(name: str, e: Exception) -> None:

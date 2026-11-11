@@ -7,6 +7,27 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.30.0] - 2026-11-11
+
+### Added
+- **Trusted devices.** Settings → *Trusted devices* (wide page and phone, all five languages):
+  devices on the list open the mail client without the access word; everybody else still sees the
+  sign-in. Off by default — without setting it up nothing changes.
+- A device is recognised by its **Tailscale identity**, asked from the local tailscaled
+  (`/localapi/v0/whois`) and matched by the node's stable ID. Optionally a few fixed home-network
+  addresses, matched against the connection's real address only. Users are deliberately not an
+  entry type: another machine of the same user may relay traffic for others.
+- Works on all three routes the image sees: straight to the node's tailnet address (the userspace
+  tailscaled re-opens such connections from loopback and names the real peer for that port),
+  through `tailscale serve` (`X-Forwarded-For` is believed only from an explicitly listed proxy,
+  rightmost entry), and never through Docker's port mapping (every device arrives as the gateway).
+- One gate stays one gate: the page lock, every client action and the attachment, image and source
+  links all ask the same check (a session or a trusted device).
+- Failing shut: no Tailscale, an error, a timeout, an unreadable answer, a proxy without a sender, or
+  no access word set — the request meets the sign-in.
+- *Trust this device* puts the identity of the current connection on the list, never an ID from the
+  request. The list lives in `state/vertraut.json` (mode 0600).
+
 ## [5.29.1] - 2026-11-11
 
 ### Changed

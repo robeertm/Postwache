@@ -463,6 +463,13 @@ body[data-blick="lese"] .raum[data-vorschau="aus"] .liste{display:none}
 .reihe{display:flex;align-items:center;gap:.8rem;padding:.5rem 0;
   border-top:1px solid var(--rand)}
 .reihe:first-of-type{border-top:0}
+.v_liste{border-top:1px solid var(--rand)}
+.v_zeile{display:flex;align-items:center;gap:.8rem;padding:.45rem 0;
+  border-bottom:1px solid var(--rand)}
+.v_zeile .txt{flex:1 1 auto;min-width:0}
+.v_zeile .txt b{display:block;font-weight:600;font-size:.87rem;overflow-wrap:anywhere}
+.v_zeile .txt span{display:block;font-size:.78rem;color:var(--leise)}
+.v_gut{color:var(--ok);font-weight:600}
 .reihe .txt{flex:1 1 auto;min-width:0}
 .reihe .txt b{display:block;font-weight:600;font-size:.87rem}
 .reihe .txt span{font-size:.76rem;color:var(--leise)}
@@ -660,7 +667,7 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
       <button class="blank" onclick="hilfeAuf()" data-t-titel="k.tastenhilfe">⌨️</button>
       <button class="blank" onclick="location.href='/?wache=1'"
               data-t-titel="k.zum_waechter">🛡️</button>
-      <button class="blank" onclick="abmelden()" data-t-titel="k.abmelden">🔒</button>
+      <button class="blank" id="kopf_abmelden" onclick="abmelden()" data-t-titel="k.abmelden">🔒</button>
     </div>
   </header>
 
@@ -1098,6 +1105,11 @@ async function allesLaden(frisch){
     S.postfaecher = l.postfaecher || [];
     S.pf = l.pf || S.pf;
     S.version = l.version || "";
+    S.schloss = l.schloss || {};
+    S.vertraut = l.vertraut || {};
+    /* A trusted device without a session has nothing to sign out of — the
+       button would change nothing and come back on the next load. */
+    $("#kopf_abmelden").hidden = !!(S.schloss.vertraut && !S.schloss.sitzung);
     S.smtp = l.smtp || {};
     einstAnwenden();
     if(!S.ordner || !S.ordner_liste.some(o => o.name === S.ordner))
@@ -2946,8 +2958,10 @@ function einstMalen(){
     </div>
     <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">
       <button onclick="wortAendern()">${esc(txt("k.wort_aendern"))}</button>
-      <button onclick="abmelden()">🔒 ${esc(txt("k.abmelden"))}</button>
+      ${(S.schloss || {}).sitzung === false ? "" :
+        `<button onclick="abmelden()">🔒 ${esc(txt("k.abmelden"))}</button>`}
     </div></div>`);
+  gruppen.push(vertrautGruppe());
   /* The way to the phone version — and it stays there, the server remembers the
      choice. Useful on a laptop too: it is the quickest way to see what the page
      looks like on a phone. */
@@ -2961,6 +2975,62 @@ function einstMalen(){
   gruppen.push(`<div class="klein leise" style="text-align:center;padding:.4rem 0 1.5rem">
     Postwache ${esc(S.version)}</div>`);
   $("#einstleib").innerHTML = gruppen.join("");
+}
+/* ── Trusted devices ──────────────────────────────────────────────────────
+   🔑 The page only SHOWS what the server decided. Who „this device" is comes
+   from the local tailscaled on the server, never from anything the page sends;
+   the add button asks the server to put the CURRENT connection on the list. */
+const V_GRUND = {
+  aus: "k.v_grund_aus", kein_wort: "k.v_grund_kein_wort",
+  kein_tailscale: "k.v_grund_kein_tailscale", tailscale_fehler: "k.v_grund_tailscale_fehler",
+  proxy_ohne_absender: "k.v_grund_proxy_ohne_absender", lokal: "k.v_grund_lokal",
+  unbekannt: "k.v_grund_unbekannt", nicht_gelistet: "k.v_grund_nicht_gelistet"};
+function vertrautGruppe(){
+  const v = S.vertraut || {};
+  if(!v.moeglich) return "";
+  const d = v.dieses || {};
+  let zustand;
+  if(d.vertraut) zustand = `<span class="v_gut">✓ ${esc(txt("k.v_ist_vertraut"))}</span>`;
+  else if(d.gelistet) zustand = esc(txt("k.v_gelistet_aus"));
+  else if(d.id) zustand = esc(txt("k.v_erkannt"));
+  else zustand = esc(txt("k.v_nicht_da", {grund: txt(V_GRUND[d.grund] || "k.v_grund_unbekannt")}));
+  const geraete = (v.geraete || []).map(g => `<div class="v_zeile">
+      <div class="txt"><b>${esc(g.name || g.id)}</b><span>${esc([g.benutzer, g.system,
+        g.seit ? txt("k.v_seit", {zeit: wann(g.seit)}) : ""].filter(Boolean).join(" · "))}</span></div>
+      <button onclick="vertrautTun('weg',{id:'${esc(g.id)}'})">${esc(txt("k.v_entfernen"))}</button>
+    </div>`).join("") || `<div class="kleiner leise v_zeile">${esc(txt("k.v_leer"))}</div>`;
+  return `<div class="gruppe"><h3>${esc(txt("k.g_vertraut"))}</h3>
+    <div class="klein leise">${esc(txt("k.g_vertraut_hilfe"))}</div>
+    <div class="reihe"><div class="txt"><b>${esc(txt("k.v_an"))}</b>
+        <span>${esc(txt("k.v_an_hilfe"))}</span></div>
+      <div class="knebel" role="switch" tabindex="0" aria-checked="${!!v.an}"
+        aria-label="${esc(txt("k.v_an"))}" onclick="vertrautTun('an',{an:${!v.an}})"
+        onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();
+          vertrautTun('an',{an:${!v.an}})}"></div></div>
+    ${v.tailscale ? "" : `<div class="kleiner leise" style="padding:.3rem 0">${esc(txt("k.v_kein_ts"))}</div>`}
+    <div class="reihe"><div class="txt"><b>${esc(txt("k.v_dieses"))}${d.name ? " · " + esc(d.name) : ""}</b>
+        <span>${zustand}</span>
+        <span>${d.adresse ? esc(txt("k.v_gesehen", {adresse: d.adresse})) : ""}</span></div>
+      ${d.id && !d.gelistet ? `<button class="haupt" style="flex:0 0 auto;white-space:nowrap"
+        onclick="vertrautTun('dieses',{})">${
+        esc(txt("k.v_hinzu"))}</button>` : ""}</div>
+    <div class="v_liste">${geraete}</div>
+    <div class="feldpaar" style="margin-top:.6rem">
+      <div><label>${esc(txt("k.v_adressen"))}</label>
+        <input id="v_adressen" value="${esc((v.adressen || []).join(", "))}"
+          placeholder="192.0.2.10" onchange="vertrautTun('adressen',{wert:this.value})">
+        <div class="kleiner leise" style="margin-top:.2rem">${esc(txt("k.v_adressen_hilfe"))}</div></div>
+      <div><label>${esc(txt("k.v_proxys"))}</label>
+        <input id="v_proxys" value="${esc((v.proxys || []).join(", "))}"
+          placeholder="127.0.0.1" onchange="vertrautTun('proxys',{wert:this.value})">
+        <div class="kleiner leise" style="margin-top:.2rem">${esc(txt("k.v_proxys_hilfe"))}</div></div>
+    </div></div>`;
+}
+async function vertrautTun(tat, mehr){
+  const r = await sende("klient_vertraut", Object.assign({tat: tat}, mehr || {}));
+  melde(r.text || txt("k.ging_nicht"), !!r.ok);
+  if(r.vertraut) S.vertraut = r.vertraut;
+  if($("#einstschublade").classList.contains("auf")) einstMalen();
 }
 async function einstellungSetzen(schluessel, wert){
   const r = await sende("klient_einstellung", {werte:{[schluessel]:wert}});

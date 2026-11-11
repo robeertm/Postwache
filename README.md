@@ -82,7 +82,7 @@ that will not tell you its hit rate is a claim, not a measurement.
 | ✨ **Everything new, in one view** | Above the inbox: every new mail out of every folder at once, each row saying where it is now. The view the watchman makes necessary — it is the one that moved the mail away. |
 | 📬 **One click from the watchman to the mailbox** | The tab row carries a door to `/post` — a real link that works before any script has run. |
 | 📱 **A version of its own for phones** | Not the wide page made narrow: one sheet at a time, a bar at the bottom, finger targets from 44 px, swipe to archive or delete, long-press to choose several and act on them at once. |
-| 🔒 **A lock in front of the mail** | The client asks for an access word before it shows a single line of a letter. Optionally the watchman page too. |
+| 🔒 **A lock in front of the mail** | The client asks for an access word before it shows a single line of a letter. Optionally the watchman page too — and your own Tailscale devices can be trusted to skip it. |
 | 👂 **New mail arrives by itself** | The page listens (IMAP `IDLE`) instead of asking every minute: measured **0.13 s** from arrival to the top of the list, with nobody pressing anything. One waiting request, one connection at the provider, and it lets go when nobody is looking. |
 | ☀️ **Day and night** | One button, two positions — and night is the default, full stop: the page does not ask your device. The same colours either way — the brown-black night becomes warm paper, and the gold stays gold. |
 | 🗂 **Folders you can actually handle** | Fold a branch or the whole tree with one button, on both surfaces. Drag a folder somewhere else (the column scrolls along while you do), or delete one — and the question carries the number of mails it would take with it. |
@@ -217,6 +217,32 @@ session is an `HttpOnly` cookie; wrong guesses are slowed down from the fifth
 attempt. Attachment links and inline images sit behind the same door — links get
 forwarded, and a link that works without the word is the hole the lock was built
 to close.
+
+**Your own devices can skip the door** — and only those. Under *Settings →
+Trusted devices* you put the laptop and phone you are holding on a list
+(*Trust this device*); from then on they open the client without the word, and
+every other device still meets the sign-in. Off by default.
+
+![Trusted devices](docs/screenshots/39-client-trusted.png)
+
+A device is recognised by its **Tailscale identity**: the Postwache asks the
+local tailscaled who is behind the connection (`/localapi/v0/whois`) and matches
+the node's stable ID — nothing the browser sends is part of that answer, no
+cookie, no header. What that means per route:
+
+| How you open the page | Trusted device recognised? |
+|---|---|
+| The node's Tailscale HTTPS address (`https://postwache.<tailnet>.ts.net`) | Yes — enter `127.0.0.1` as trusted proxy; its `X-Forwarded-For` is believed, nobody else's |
+| The node's own tailnet address (`http://100.x.y.z:8110`) | Yes — the userspace tailscaled names the real peer for each connection it opens |
+| The host's address through Docker's port mapping | No — every device arrives as the bridge gateway, so this route always asks for the word |
+
+Optionally a few fixed home-network addresses, for an installation that sees
+real addresses (host network, a plain install); the settings show which address
+the page sees for the device you are using. Whatever cannot be determined —
+no Tailscale, an error, a timeout, a proxy that names no sender — is treated as
+*not trusted*, and no access word set means no shortcut either. Users are
+deliberately not an entry type: another machine of the same user (a dashboard,
+a reverse proxy) may relay traffic for others.
 
 **Foreign HTML has three walls around it**, each independent of the others: an
 allow list that rebuilds the mail out of what is permitted, a content-security
@@ -507,7 +533,8 @@ two are installed get asked.
 - **The client has a lock**, and it is not optional: without an access word it
   hands out no mail at all. The same word can be required for the watchman page
   as well (a setting, off by default) — and then for its data, not merely its
-  view.
+  view. Trusted devices (off by default) skip the word only when the local
+  Tailscale vouches for them; the list stays in a `0600` file.
 - The watchman page itself has no account. Put the whole thing behind your own
   reverse proxy or a private network (Tailscale, WireGuard) regardless; it is
   built to be reachable only by you.
