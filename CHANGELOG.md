@@ -7,6 +7,11 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.29.1] - 2026-11-11
+
+### Changed
+- **Tailscale in the image is now 1.104.6** (was 1.104.5).
+
 ## [5.29.0] - 2026-11-10
 
 ### Fixed
