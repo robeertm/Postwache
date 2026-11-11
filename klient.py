@@ -900,6 +900,25 @@ def _flaggen_setzen(satz: dict, flaggen: list) -> None:
     satz["geloescht"] = "\\deleted" in flaggen
 
 
+class OrdnerUnbekannt(RuntimeError):
+    """The provider does not know the folder that was asked for — a wrong
+    request, not a fault of the connection. Answered with a 400."""
+
+
+def ordner_bekannt(pf_id: str, ordner: str):
+    """True/False from the folder tree this mailbox's connection already holds,
+    None when there is none to ask. 🔑 Never sends a command: it only reads what
+    was kept, so a request can be refused before it costs a round trip."""
+    eintrag = _VERBINDUNGEN.get(pf_id)
+    pf = (eintrag or {}).get("pf")
+    baum = (getattr(pf, "baum_stand", None) or (0.0, []))[1]
+    if not baum:
+        return None
+    if ordner.upper() == "INBOX":
+        return True
+    return any(o.get("name") == ordner or o.get("pfad") == ordner for o in baum)
+
+
 class Briefkasten(W.Postfach if W is not None else object):
     """The watchman's mailbox, taught what a client needs on top: the tree with
     flags and counts, pages of a folder, single mails, flags, moving, appending.
@@ -960,7 +979,7 @@ class Briefkasten(W.Postfach if W is not None else object):
         typ, dat = self.m.select(self._zitat(ordner), readonly=not schreiben)
         if typ != "OK":
             self.ordner, self.uidvalidity = "", None
-            raise RuntimeError("Ordner nicht wählbar: %s" % ordner)
+            raise OrdnerUnbekannt("Ordner nicht wählbar: %s" % ordner)
         self.ordner, self.schreibend = ordner, bool(schreiben)
         self.uidvalidity = self._uidvalidity_lesen()
         try:

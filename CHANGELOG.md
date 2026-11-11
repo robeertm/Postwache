@@ -7,6 +7,27 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.30.1] - 2026-11-11
+
+### Fixed
+- `GET /api/klient/anhang` without parameters answered HTTP 500 with the provider's raw IMAP error:
+  the default `uid=0` went to the server unchecked. One check behind the gate now runs before any
+  IMAP command: UID (whole number, 1 to 2^32-1), part index (`1`, `2.3`), encoding, Content-ID,
+  folder name (not empty, at most 255 characters, no control characters or backslash) and mailbox
+  (none set up, or explicitly unknown). Result: **400** with a translated message.
+- The same check covers every route of the attachment, image and source-text links and the POST
+  actions that take a UID or a folder. The part index used to be passed straight into
+  `BODY.PEEK[...]`; it is now only accepted as a digit sequence.
+- An unknown folder is refused from the already kept folder tree (no command) or, failing that,
+  from the server's `NO` on SELECT, as a 400 instead of a 500 with provider text.
+- IMAP and connection errors no longer reach the browser verbatim: a general message goes out, the
+  details go to the log.
+- The gate stays the first check: without a session or trusted device the answer is the same 401 /
+  "locked" for valid and invalid requests, so a stranger learns nothing about valid parameters.
+
+### Added
+- Three messages in all five languages.
+
 ## [5.30.0] - 2026-11-11
 
 ### Added

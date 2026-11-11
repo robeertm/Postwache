@@ -2076,6 +2076,92 @@ def _pf(d: dict) -> str:
     return aktives_pf(str((d or {}).get("pf") or ""))
 
 
+# ── 5.30.1: what a client request must look like BEFORE it reaches the mailbox ──
+# 🔴 A missing `uid` used to default to 0 and go to the provider unchecked, which
+#    answered with a protocol error that the page then showed word for word. The
+#    check sits behind the door (the caller asks `_frei()` first, so a foreign
+#    device never learns which parameters would be valid) and BEFORE any IMAP
+#    command: a request that cannot be right never opens a connection.
+UID_HOECHSTENS = 2 ** 32 - 1
+_TEIL_NR = re.compile(r"^\d{1,4}(\.\d{1,4}){0,8}$")
+_KODIERUNG = re.compile(r"^[A-Za-z0-9_-]{0,24}$")
+_STEUERZEICHEN = re.compile(r"[\x00-\x1f\x7f\\]")
+K_UNGUELTIG = "k.eingabe_ungueltig"
+K_ORDNER = "k.ordner_unbekannt"
+K_POSTFACH = "a.kein_postfach"
+
+
+def _uid_ok(wert) -> int:
+    """A UID as a number, or 0 when it is not one. Only whole, positive numbers
+    that fit the protocol's 32 bits count — never a bool, never a float, never a
+    string with anything but digits."""
+    if isinstance(wert, bool):
+        return 0
+    if isinstance(wert, int):
+        n = wert
+    elif isinstance(wert, str) and wert.isascii() and wert.isdigit() and len(wert) <= 10:
+        n = int(wert)
+    else:
+        return 0
+    return n if 0 < n <= UID_HOECHSTENS else 0
+
+
+def _name_ok(name) -> bool:
+    """A folder name that can be put into a command: text, not empty, not
+    absurdly long, no control characters and no backslash."""
+    return (isinstance(name, str) and 0 < len(name) <= 255
+            and not _STEUERZEICHEN.search(name))
+
+
+def _kl_eingabe(pf_wunsch, ordner, uids=None, ziel=None) -> str:
+    """The key of the text to answer with (HTTP 400), or "" when the request is
+    well formed. `uids` = None: this path takes none. No IMAP command is issued
+    here, except that a cached folder tree (no traffic) may say „unknown folder"."""
+    liste = pf_liste()
+    if not liste:
+        return K_POSTFACH
+    if pf_wunsch not in (None, "") and (
+            not isinstance(pf_wunsch, str) or pf_wunsch not in {f["id"] for f in liste}):
+        return K_POSTFACH
+    if not _name_ok(ordner) or (ziel is not None and not _name_ok(ziel)):
+        return K_ORDNER
+    if uids is not None and (not uids or any(not _uid_ok(u) for u in uids)):
+        return K_UNGUELTIG
+    pf = aktives_pf(pf_wunsch or "")
+    for name in (ordner,) + ((ziel,) if ziel is not None else ()):
+        if KL is not None and KL.ordner_bekannt(pf, name) is False:
+            return K_ORDNER
+    return ""
+
+
+def _klient_aktion_eingabe(name: str, d: dict) -> str:
+    """The same check for the POST actions that take a UID or a folder. Returns
+    the text key for a 400, or "" — and "" for every action that takes neither."""
+    if name == "klient_mail":
+        return _kl_eingabe(d.get("pf"), d.get("ordner") or "INBOX", [d.get("uid")])
+    if name in ("klient_flaggen", "klient_verschieben", "klient_loeschen",
+                "klient_wie_wache"):
+        uids = d.get("uids")
+        return _kl_eingabe(d.get("pf"), d.get("ordner") or "INBOX",
+                           uids if isinstance(uids, list) else [],
+                           (d.get("ziel") or "") if name == "klient_verschieben" else None)
+    if name == "klient_auszuege":
+        uids = d.get("uids")
+        if uids is None:
+            uids = []
+        if not isinstance(uids, list):
+            return K_UNGUELTIG
+        if any(not _uid_ok(u) for u in uids):
+            return K_UNGUELTIG
+        return _kl_eingabe(d.get("pf"), d.get("ordner") or "INBOX")
+    if name == "klient_vorlage":
+        uid = d.get("uid")
+        if uid in (None, "", 0, "0"):
+            return ""                       # a new, empty form: no mailbox needed
+        return _kl_eingabe(d.get("pf"), d.get("ordner") or "INBOX", [uid])
+    return ""
+
+
 def _klient_lage(d: dict, marke: str, vt: dict | None = None) -> dict:
     """The client's state — in two stages.
 
@@ -2644,15 +2730,27 @@ class Handler(BaseHTTPRequestHandler):
 
         def hol(name, vor=""):
             return str((abfrage.get(name) or [vor])[0])
-        pf = aktives_pf(hol("pf"))
-        ordner, uid = hol("ordner", "INBOX"), hol("uid", "0")
-        try:
-            uid = int(uid)
-        except ValueError:
-            return self._sende(400, {"fehler": "UID"})
+        # 🔑 Checked after the door and before the mailbox. 5.30.1: a missing or
+        # broken parameter is a 400 with a plain text, never an IMAP command and
+        # never the provider's own words.
+        art = pfad.rsplit("/", 1)[-1]
+        if art not in ("bild", "roh", "anhang"):
+            return self._sende(404, {"fehler": txt("a.nicht_gefunden")})
+        uid = _uid_ok(hol("uid"))
+        ordner = hol("ordner", "INBOX")
+        pf_wunsch = hol("pf")
+        fehler = _kl_eingabe(pf_wunsch, ordner, [uid])
+        if not fehler and art == "bild" and not (
+                0 < len(hol("cid")) <= 500 and not _STEUERZEICHEN.search(hol("cid"))):
+            fehler = K_UNGUELTIG
+        if not fehler and art == "anhang" and (
+                not _TEIL_NR.match(hol("t")) or not _KODIERUNG.match(hol("k"))):
+            fehler = K_UNGUELTIG
+        if fehler:
+            return self._sende(400, {"fehler": txt(fehler)})
+        pf = aktives_pf(pf_wunsch)
         pf_waehlen(pf)
         try:
-            art = pfad.rsplit("/", 1)[-1]
             if art == "bild":
                 typ, roh = KL.bild(pf, ordner, uid, hol("cid"))
                 if not roh:
@@ -2662,7 +2760,7 @@ class Handler(BaseHTTPRequestHandler):
                 roh = KL.roh_text(pf, ordner, uid)
                 return self._sende(200, roh or b"", "text/plain; charset=utf-8")
             if art == "anhang":
-                name, typ, roh = KL.anhang(pf, ordner, uid, hol("t", "1"),
+                name, typ, roh = KL.anhang(pf, ordner, uid, hol("t"),
                                            hol("k"), hol("n", "anhang"))
                 if not roh:
                     return self._sende(404, {"fehler": txt("k.anhang_weg")})
@@ -2681,8 +2779,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return self.wfile.write(roh)
             return self._sende(404, {"fehler": txt("a.nicht_gefunden")})
+        except KL.OrdnerUnbekannt:
+            return self._sende(400, {"fehler": txt(K_ORDNER)})
         except Exception as e:
-            return self._sende(500, {"fehler": str(e)[:200]})
+            # 🔴 Never the provider's words to the browser: a general text out,
+            # the details into the log.
+            log_fehler("datei_" + art, e)
+            return self._sende(500, {"fehler": txt("k.fehler_allgemein")})
         finally:
             pf_waehlen("")
 
@@ -2805,6 +2908,10 @@ class Handler(BaseHTTPRequestHandler):
         if name not in KLIENT_OFFEN and not self._frei():
             return self._sende(200, {"ok": False, "gesperrt": True,
                                      "text": txt("k.bitte_anmelden")})
+        # 5.30.1: after the door, before anything is chosen or opened.
+        fehler = _klient_aktion_eingabe(name, d)
+        if fehler:
+            return self._sende(400, {"ok": False, "text": txt(fehler)})
         adresse = self.client_address[0] if self.client_address else ""
         klient_merken(adresse)
         gewaehlt = aktives_pf(str(d.get("pf") or ""))
@@ -2837,9 +2944,14 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:                       # noqa: BLE001
                     pass
             return self._sende(200, erg)
-        except Exception as e:
+        except KL.OrdnerUnbekannt as e:
             log_fehler(name, e)
-            return self._sende(200, {"ok": False, "text": str(e)[:200]})
+            return self._sende(400, {"ok": False, "text": txt(K_ORDNER)})
+        except Exception as e:
+            # 🔴 5.30.1: the log gets the details, the page a general text — an
+            # IMAP error word for word says too much and helps nobody.
+            log_fehler(name, e)
+            return self._sende(200, {"ok": False, "text": txt("k.fehler_allgemein")})
         finally:
             pf_waehlen("")
             klient_merken("")
