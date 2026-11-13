@@ -41,7 +41,8 @@ import unicodedata
 import zlib
 from datetime import datetime
 
-SCHEMA = 3                          # a different number = the file is rebuilt
+SCHEMA = 4                          # a different number = the file is rebuilt
+                                    # (4 = 5.32.0: the conversation columns)
 DATEI = "suchindex.sqlite"
 STUECK = 40                         # mails per fetch round of the build
 DROSSEL_S = 0.15                    # pause between two rounds — the NAS and the provider breathe
@@ -151,9 +152,12 @@ CREATE TABLE IF NOT EXISTS mails(
     id INTEGER PRIMARY KEY, ordner TEXT NOT NULL, uid INTEGER NOT NULL,
     datum REAL, msgid TEXT, groesse INTEGER, flaggen TEXT, anhang INTEGER,
     kopf TEXT, satz TEXT, roh BLOB, weg INTEGER DEFAULT 0,
+    bezug TEXT DEFAULT '', fbetreff TEXT DEFAULT '', praefix INTEGER DEFAULT 0,
+    teilnehmer TEXT DEFAULT '', zustell INTEGER DEFAULT 0,
     UNIQUE(ordner, uid));
 CREATE INDEX IF NOT EXISTS mails_msgid ON mails(msgid);
 CREATE INDEX IF NOT EXISTS mails_datum ON mails(datum);
+CREATE INDEX IF NOT EXISTS mails_fbetreff ON mails(fbetreff);
 CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(
     betreff, von, an, anhang, text, tokenize='trigram');
 CREATE TABLE IF NOT EXISTS worte(w TEXT PRIMARY KEY);
@@ -285,6 +289,36 @@ def _adressen_text(msg, koepfe) -> str:
     return " ".join(t for t in teile if t)
 
 
+def _vl():
+    import verlauf
+    return verlauf
+
+
+def _faden_felder(satz: dict, msg) -> None:
+    """5.32.0: what the conversation view needs of a header, kept in private
+    keys (never in the row's public record): the reference chain, the subject
+    without „Re:/AW:/Fwd:", whether it was a reply or a forward, the people
+    (From/To/Cc) and whether the provider delivered it (an envelope header)."""
+    V = _vl()
+    satz["_bezug"] = " ".join(V.ids_aus(" ".join(
+        str(msg.get(k) or "") for k in ("In-Reply-To", "References"))))
+    satz["_fbetreff"], satz["_praefix"] = V.betreff_kern(satz.get("betreff") or "")
+    satz["_teilnehmer"] = V.adressen_kopf(msg)
+    satz["_zustell"] = 1 if any(msg.get(k) for k in ZUSTELL) else 0
+
+
+def _faden_spalten(satz: dict, teilnehmer: str) -> tuple:
+    return (satz.get("_bezug") or "", satz.get("_fbetreff") or "",
+            int(satz.get("_praefix") or 0), teilnehmer or "",
+            int(satz.get("_zustell") or 0))
+
+
+def _mehr_flaggen(flaggen: str, satz: dict) -> str:
+    """The flags beyond the five the list knows — `$Forwarded` above all."""
+    mehr = [f for f in (satz.get("_flaggen") or []) if f.startswith("$")]
+    return " ".join(sorted(set(flaggen.split()) | set(mehr))) if mehr else flaggen
+
+
 # ── The build: its own connection, read-only by construction ────────────
 class _Posten:
     def __init__(self, pf_id: str):
@@ -304,6 +338,7 @@ class _Posten:
         self.aufbau_start = 0.0
         self.worte = None               # the vocabulary, loaded once
         self.stand = (0.0, None)        # the health check's counts, briefly kept
+        self.gen = 0                    # 5.32.0: bumped whenever a pass changed rows
 
 
 _POSTEN = {}
@@ -623,6 +658,7 @@ class Abgleich:
             rang.get((baum.get(n) or {}).get("rolle", ""), 2),
             list(baum).index(n) if n in baum else 9999))
         alles_fertig = True
+        veraendert = False
         for name in namen:
             if self.p.halt:
                 return True
@@ -639,8 +675,10 @@ class Abgleich:
                 continue
             fertig = self._ordner_abgleichen(name, m, alt, gruendlich)
             alles_fertig = alles_fertig and fertig
+            veraendert = True
         # Rows that were moved away and found nowhere else: gone for good.
         weg = [r[0] for r in db.execute("SELECT id FROM mails WHERE weg=1")]
+        veraendert = veraendert or bool(weg) or bool(set(bekannt) - set(marken) - ohne_marke)
         for i in range(0, len(weg), 500):
             stueck = weg[i:i + 500]
             platz = ",".join("?" * len(stueck))
@@ -652,10 +690,15 @@ class Abgleich:
             db.execute("INSERT OR REPLACE INTO meta VALUES('aufbau_s', ?)",
                        (str(self.p.aufbau_s),))
         db.commit()
+        if veraendert:
+            # 🔑 5.32.0: the conversation map (verlauf.py) is rebuilt lazily when
+            # this number moves — never on a pass that changed nothing.
+            self.p.gen += 1
         if gruendlich:
             self._pruefen()
             self.db.execute("INSERT OR REPLACE INTO meta VALUES('geheilt', ?)", (_heute(),))
             self.db.commit()
+            self.p.gen += 1
         return alles_fertig
 
     def _ordner_eintragen(self, name, o, m, alt) -> None:
@@ -784,6 +827,8 @@ class Abgleich:
             raise RuntimeError("Koepfe nicht lesbar")
         saetze = KL.Briefkasten._koepfe_lesen(daten)
         roh_kopf = dict(KL._stuecke_je_uid(daten))
+        for u, satz in saetze.items():
+            _faden_felder(satz, W.msg_aus_bytes(roh_kopf.get(u) or b""))
         intern = {}
         for el in daten or []:
             rand = (el[0] if isinstance(el, tuple) else el) or b""
@@ -871,17 +916,27 @@ class Abgleich:
             ("\\seen", satz.get("gelesen")), ("\\flagged", satz.get("markiert")),
             ("\\answered", satz.get("beantwortet")), ("\\draft", satz.get("entwurf")),
             ("\\deleted", satz.get("geloescht"))) if an_))
+        flaggen = _mehr_flaggen(flaggen, satz)
         von = "%s %s" % (satz.get("von") or "", satz.get("adresse") or "")
         kopf = falten("%s %s" % (satz.get("betreff") or "", von))
         oeffentlich = {k: v for k, v in satz.items() if not k.startswith("_")}
         datum = intern or _iso_sekunden(satz.get("zeit"))
+        teilnehmer = satz.get("_teilnehmer") or ""
+        if satz.get("_praefix") == 2 and text:
+            # 🔑 A forward names the original's sender only in its body („From:
+            # …" of the quoted block). Those addresses join the participants, so
+            # a forward without References can still be matched — by people,
+            # not by the subject alone.
+            teilnehmer = _vl().teilnehmer_mit_text(teilnehmer, text)
         cur = db.execute(
             "INSERT INTO mails(ordner, uid, datum, msgid, groesse, flaggen, "
-            "anhang, kopf, satz, roh, weg) VALUES(?,?,?,?,?,?,?,?,?,?,0)",
+            "anhang, kopf, satz, roh, weg, bezug, fbetreff, praefix, teilnehmer, zustell) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)",
             (ordner, uid, datum, satz.get("message_id") or "", satz.get("groesse") or 0,
              flaggen, int(satz.get("anhang") or 0), kopf,
              json.dumps(oeffentlich, ensure_ascii=False),
-             zlib.compress((text or "").encode("utf-8"), 6)))
+             zlib.compress((text or "").encode("utf-8"), 6))
+            + _faden_spalten(satz, teilnehmer))
         rid = cur.lastrowid
         felder = (falten(satz.get("betreff") or ""), falten(von), falten(an),
                   falten(namen), falten(text or ""))
@@ -893,7 +948,8 @@ class Abgleich:
         """A moved (or copied) mail: header from the server, text from the row."""
         db = self.db
         alt_id, weg = vorbild
-        zeile = db.execute("SELECT satz, roh FROM mails WHERE id=?", (alt_id,)).fetchone()
+        zeile = db.execute("SELECT satz, roh, teilnehmer FROM mails WHERE id=?",
+                           (alt_id,)).fetchone()
         fts = db.execute("SELECT betreff, von, an, anhang, text FROM fts WHERE rowid=?",
                          (alt_id,)).fetchone()
         if zeile is None or fts is None:
@@ -906,25 +962,30 @@ class Abgleich:
             ("\\seen", satz.get("gelesen")), ("\\flagged", satz.get("markiert")),
             ("\\answered", satz.get("beantwortet")), ("\\draft", satz.get("entwurf")),
             ("\\deleted", satz.get("geloescht"))) if an_))
+        flaggen = _mehr_flaggen(flaggen, satz)
         oeffentlich = {k: v for k, v in satz.items() if not k.startswith("_")}
         datum = intern or _iso_sekunden(satz.get("zeit"))
         kopf = falten("%s %s %s" % (satz.get("betreff") or "", satz.get("von") or "",
                                     satz.get("adresse") or ""))
+        # The row's participants already carry what its text added (a forward).
+        spalten = _faden_spalten(satz, zeile[2] or satz.get("_teilnehmer") or "")
         if weg:
             # The very row that left: it moves along, the text stays where it is.
             self._platz_machen(ordner, uid, ausser=alt_id)
             db.execute("UPDATE mails SET ordner=?, uid=?, datum=?, flaggen=?, kopf=?, "
-                       "satz=?, weg=0 WHERE id=?",
+                       "satz=?, weg=0, bezug=?, fbetreff=?, praefix=?, teilnehmer=?, "
+                       "zustell=? WHERE id=?",
                        (ordner, uid, datum, flaggen, kopf,
-                        json.dumps(oeffentlich, ensure_ascii=False), alt_id))
+                        json.dumps(oeffentlich, ensure_ascii=False)) + spalten + (alt_id,))
             return
         self._platz_machen(ordner, uid)
         cur = db.execute(
             "INSERT INTO mails(ordner, uid, datum, msgid, groesse, flaggen, "
-            "anhang, kopf, satz, roh, weg) VALUES(?,?,?,?,?,?,?,?,?,?,0)",
+            "anhang, kopf, satz, roh, weg, bezug, fbetreff, praefix, teilnehmer, zustell) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)",
             (ordner, uid, datum, satz.get("message_id") or "", satz.get("groesse") or 0,
              flaggen, int(satz.get("anhang") or 0), kopf,
-             json.dumps(oeffentlich, ensure_ascii=False), zeile[1]))
+             json.dumps(oeffentlich, ensure_ascii=False), zeile[1]) + spalten)
         rid = cur.lastrowid
         db.execute("INSERT INTO fts(rowid, betreff, von, an, anhang, text) "
                    "VALUES(?,?,?,?,?,?)", (rid,) + tuple(fts))

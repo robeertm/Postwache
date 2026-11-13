@@ -2038,6 +2038,10 @@ KLIENT_AKTIONEN = {
     "klient_neu": lambda d, marke: KL.neu_liste(dict(d, pf=_pf(d))),
     "klient_einsortiert": lambda d, marke: KL.einsortiert(dict(d, pf=_pf(d))),
     "klient_mail": lambda d, marke: KL.mail_zeigen(dict(d, pf=_pf(d))),
+    # 5.32.0: the whole conversation of a mail, out of the index — no server
+    # command; and the conversation sizes of the listed mails.
+    "klient_verlauf": lambda d, marke: KL.verlauf(dict(d, pf=_pf(d))),
+    "klient_verlauf_zahlen": lambda d, marke: KL.verlauf_zahlen(dict(d, pf=_pf(d))),
     "klient_flaggen": lambda d, marke: KL.flaggen(dict(d, pf=_pf(d))),
     "klient_verschieben": lambda d, marke: KL.verschieben(dict(d, pf=_pf(d))),
     "klient_loeschen": lambda d, marke: KL.loeschen(dict(d, pf=_pf(d))),
@@ -2137,8 +2141,13 @@ def _kl_eingabe(pf_wunsch, ordner, uids=None, ziel=None) -> str:
 def _klient_aktion_eingabe(name: str, d: dict) -> str:
     """The same check for the POST actions that take a UID or a folder. Returns
     the text key for a 400, or "" — and "" for every action that takes neither."""
-    if name == "klient_mail":
+    if name in ("klient_mail", "klient_verlauf"):
         return _kl_eingabe(d.get("pf"), d.get("ordner") or "INBOX", [d.get("uid")])
+    if name == "klient_verlauf_zahlen":
+        mids = d.get("mids")
+        if not isinstance(mids, list) or any(not isinstance(x, str) for x in mids):
+            return K_UNGUELTIG
+        return _kl_eingabe(d.get("pf"), "INBOX")
     if name in ("klient_flaggen", "klient_verschieben", "klient_loeschen",
                 "klient_wie_wache"):
         uids = d.get("uids")

@@ -7,6 +7,50 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.32.0] - 2026-11-13
+
+### Added
+- **Conversation view for every mail** (wide and phone layout): opening a mail shows every message of
+  its conversation in order, oldest at the top — older messages above the opened mail, newer ones below
+  it, the opened mail kept in view ("this mail · 3/13"). Each message is a card with its direction
+  (received / sent by me / forwarded by me), sender, recipients of own messages, date, folder and the
+  other folders holding the same message (shown once), plus answered/forwarded/attachment marks. Cards
+  open one by one or all at once (three fetched at a time); a message's body is fetched only when it is
+  opened, through the same path as any mail and inside the same three walls (server-side allow-list,
+  the frame's own Content-Security-Policy, sandbox without scripts) — one frame per message.
+- **Quoted text folded**: inside conversation messages the quoted earlier text (`<blockquote>`, "> "
+  lines, "-----Original Message-----") collapses into a "quoted text ▸" toggle (`<details>`, works
+  without scripts inside the sandboxed frame; the page re-measures the frame when it opens).
+- **Built from the search index, no server command**: messages are linked by Message-ID, In-Reply-To
+  and References across every folder (sent, archive, filed folders), JWZ-style, so a missing message in
+  the middle does not break the chain. Trash, spam and drafts are never part of a conversation.
+- **"Probably related"** for mails without reply headers: same subject core (reply/forward prefixes in
+  the common languages, repeated, list tags), a shared person (for forwards also the sender named in the
+  quoted header), within 60 days, and one side is a reply/forward or written by the owner. Such messages
+  are marked visibly, never mixed in silently. Two monthly invoices with the same subject from the same
+  sender are not a conversation, and neither is a stranger's mail with the same subject.
+- **"By me"** means: in the sent folder, or sent from one of the owner's addresses, or from the main
+  address's domain without a delivery header (a filed copy rather than a delivered mail).
+- **List** (folders, New, Filed, search; wide and phone): a speech-bubble count of the messages in the
+  conversation, plus answered and forwarded marks (`$Forwarded`, also when set by other mail programs).
+- **Always current**: while a mail is open the page asks every 15 seconds with its last state (an
+  unchanged conversation costs one word); a new reply, sent from the Postwache or from any other mail
+  program, appears after the index's next comparison without reloading. After sending, the page waits
+  for one comparison.
+- **Read access** `/api/lesezugang/mail`: new field `verlauf` (up to 30 messages, oldest first: time,
+  direction, sender name and domain, subject, folder, probable, this) — same door, no new rights, no
+  full addresses.
+- New texts in all five UI languages.
+
+### Changed
+- **Replies carry the whole chain**: `References` = the original's chain plus its Message-ID,
+  `In-Reply-To` = the original. **Forwarding** sets `References` only and marks the original with
+  **`$Forwarded`** instead of `\Answered`. Only `<…>` message IDs are taken from the request.
+- After every send the index comparison is triggered, so the copy joins the conversation at once.
+- Search index schema 4 (conversation columns): the index file is rebuilt once on first start; the
+  search keeps working on the server meanwhile, as during any first build.
+- The search index file was missing from two legacy install paths; added together with the new module.
+
 ## [5.31.0] - 2026-11-13
 
 ### Added

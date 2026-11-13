@@ -366,6 +366,52 @@ body.wahlmodus .fuss{display:none}
 .anh .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .anh .gr{color:var(--leiser);font-size:.72rem;flex:0 0 auto}
 #brief{width:100%;border:0;background:var(--briefgrund);display:block;min-height:12rem}
+/* ── 5.32.0: the conversation around the open mail ─────────────────── */
+.chip.warnung{color:var(--warnton);border-style:dashed;border-color:#fbbf2455;
+  background:#fbbf2414}
+.vl-leiste{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;
+  padding:.35rem .9rem;border-bottom:1px solid var(--rand);background:var(--film);
+  font-size:.84rem;color:var(--leise);min-height:2.75rem}
+.vl-leiste b{color:var(--text);font-weight:600}
+.vl-leiste .vl-tasten{margin-left:auto}
+.vl-leiste button{font-size:.8rem;padding:.4rem .8rem;min-height:2.75rem}
+.vl-liste{display:flex;flex-direction:column;gap:.5rem;padding:.55rem .6rem}
+.vl-liste:empty{display:none}
+.vl-karte{border:1px solid var(--rand);border-radius:.8rem;background:var(--karte);
+  overflow:hidden;border-left:3px solid var(--rand2);min-width:0}
+.vl-karte.eigen{border-left-color:var(--akzent);background:var(--karte2)}
+.vl-karte.vermutlich{border-style:dashed;border-left-style:solid}
+.vl-kopf{all:unset;box-sizing:border-box;display:grid;width:100%;cursor:pointer;
+  grid-template-columns:.8rem minmax(0,1fr);gap:.2rem .55rem;align-items:center;
+  padding:.55rem .7rem;font-size:.86rem;min-height:2.75rem;
+  -webkit-tap-highlight-color:transparent}
+.vl-kopf:focus-visible{outline:2px solid var(--akzent);outline-offset:-2px}
+.vl-pfeil{color:var(--leiser);font-size:.75rem;transition:transform .15s}
+.vl-karte.auf .vl-pfeil{transform:rotate(90deg)}
+.vl-wer{min-width:0;display:flex;gap:.4rem;align-items:baseline}
+.vl-wer b{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;min-width:0;flex:0 1 auto}
+.vl-wer .vl-an{color:var(--leise);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;min-width:0;flex:1 1 0;font-size:.78rem}
+.vl-zeit{grid-column:2;color:var(--leise);font-size:.74rem}
+.vl-zeile2{grid-column:2;display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;
+  min-width:0}
+.vl-zeile2 .chip{font-size:.7rem;padding:.1rem .5rem}
+.vl-richtung.empfangen{color:var(--info);border-color:#60a5fa55;background:#60a5fa14}
+.vl-richtung.gesendet,.vl-richtung.weitergeleitet{color:var(--akzent)}
+.vl-auszug{grid-column:2;color:var(--leise);font-size:.78rem;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.vl-karte.auf .vl-auszug{display:none}
+.vl-koerper{border-top:1px solid var(--rand)}
+.vl-koerper .anhangreihe{padding:.5rem .7rem 0}
+.vl-koerper iframe{width:100%;border:0;background:var(--briefgrund);display:block;
+  min-height:5rem}
+.vl-fuss{display:flex;gap:.3rem;padding:.3rem .5rem;border-top:1px solid var(--rand);
+  flex-wrap:wrap}
+.vl-fuss button{flex:1 1 auto;font-size:.8rem;padding:.4rem .6rem;min-height:2.75rem}
+.vl-laedt{padding:.8rem;color:var(--leiser);font-size:.82rem}
+.vl-diese{padding:.2rem .9rem 0}
+.z .zeichen .vl-zahl{font-size:.72rem;color:var(--leise);white-space:nowrap}
 .tatleiste{flex:0 0 auto;display:flex;gap:.3rem;padding:.4rem .5rem;
   padding-bottom:calc(.4rem + var(--unten));border-top:1px solid var(--rand);
   background:var(--schleier);backdrop-filter:blur(12px)}
@@ -1442,16 +1488,19 @@ function listeMalen(){
   }
   $("#zeilen").innerHTML = listeKopf() + S.mails.map((m, i) => zeileHtml(m, i)).join("");
   $("#mehrknopf").hidden = S.seite >= S.seiten;
+  verlaufZahlenSpaeter();
 }
 function zeileHtml(m, i){
   const zeichen = [
     m.markiert ? '<span class="stern">★</span>' : "",
-    m.beantwortet ? "<span>↩</span>" : "",
+    (VL.zahlen[m.message_id] >= 2) ? vlZahlHtml(VL.zahlen[m.message_id]) : "",
+    m.beantwortet ? '<span title="' + esc(txt("k.beantwortet_titel")) + '">↩</span>' : "",
+    m.weitergeleitet ? '<span title="' + esc(txt("k.weitergeleitet_titel")) + '">➦</span>' : "",
     m.anhang ? "<span>📎</span>" : "",
     !m.gelesen ? '<span class="punkt"></span>' : ""
   ].filter(Boolean).join("");
   const gewaehlt = S.gewaehlt.has(wahlSchluessel(m));
-  return `<div class="zeile" data-uid="${m.uid}">
+  return `<div class="zeile" data-uid="${m.uid}" data-i="${i}">
     <div class="wischen"><span class="links">📦</span><span class="rechts">🗑️</span></div>
     <div class="z ${m.gelesen ? "" : "neu"} ${gewaehlt ? "gewaehlt" : ""} ${m.weg ? "fort" : ""}"
          role="button" tabindex="0"
@@ -1875,6 +1924,7 @@ async function mailOeffnen(uid, ordner){
   }
   S.offen = m;
   mailMalen();
+  verlaufLaden(false);
   const inListe = S.mails.find(x => x.uid === uid);
   if(m.gelesen && inListe && !inListe.gelesen){ inListe.gelesen = true; listeMalen(); }
   const nach = Number(S.einst.gelesen_nach);
@@ -1922,7 +1972,10 @@ function mailMalen(){
       <span class="nm">${esc(x.n)}</span><span class="gr">${esc(gr(x.b))}</span></a>`;
   }).join("");
   $("#mailrumpf").innerHTML = `
-    <div class="wer">
+    <div class="vl-leiste" id="verlaufleiste" hidden></div>
+    <div class="vl-liste" id="verlaufvor"></div>
+    <div id="vldiese"></div>
+    <div class="wer" id="mailwer">
       <span class="kreis" style="background:${farbe(m.adresse)}"
         >${esc(initialen(m.von, m.adresse))}</span>
       <div class="txt"><b>${esc(m.von || m.adresse)}</b>
@@ -1937,7 +1990,9 @@ function mailMalen(){
     ${anhaenge ? `<div class="anhangreihe">${anhaenge}</div>` : ""}
     <iframe id="brief" title="${esc(txt("k.brief"))}"
       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-      srcdoc="${esc(m.rahmen || "")}" onload="briefHoehe()"></iframe>`;
+      srcdoc="${esc(m.rahmen || "")}" onload="briefHoehe()"></iframe>
+    <div class="vl-liste" id="verlaufnach"></div>`;
+  verlaufMalen(false);
   $("#tatleiste").innerHTML = [
     `<button onclick="verfassen('antwort',${m.uid})"
        aria-label="${esc(txt("k.antworten"))}">↩</button>`,
@@ -1965,6 +2020,214 @@ function briefHoehe(){
     }catch(e){ f.style.height = "60vh"; }
   };
   messen(); setTimeout(messen, 350); setTimeout(messen, 1200);
+}
+/* ── 5.32.0: the conversation — every message, oldest on top ───────────
+   The skeleton comes from the index; a message's body is fetched when it is
+   opened, through the same door and the same walls as every mail: the server's
+   allow-list, the frame's own CSP and the sandbox without scripts. The quoted
+   copies inside a message fold away — the messages they quote stand right above. */
+const VL = {schl:"", stand:"", liste:[], auf:new Set(), inhalt:{}, uhr:null, zahlen:{},
+            zahl_frage:null, zahl_zeit:0, gekuerzt:0};
+function vlKey(n){ return n.message_id || (n.ordner + "|" + n.uid); }
+function vlOffenSchl(){ return S.offen ? offenOrdner() + "|" + S.offen.uid : ""; }
+async function verlaufLaden(frisch){
+  const m = S.offen;
+  if(!m) return;
+  const schl = vlOffenSchl();
+  if(VL.schl !== schl){
+    VL.schl = schl; VL.stand = ""; VL.liste = []; VL.auf = new Set(); VL.inhalt = {};
+  }
+  let g;
+  try{
+    g = await sende("klient_verlauf", {ordner:offenOrdner(), uid:m.uid,
+      message_id:m.message_id || "", stand:frisch ? "" : VL.stand, frisch:frisch ? 1 : 0});
+  }catch(e){ return; }
+  if(VL.schl !== schl || !g || !g.ok || g.gleich) return;
+  const erstes = !VL.stand;
+  VL.stand = g.stand || "";
+  VL.liste = g.nachrichten || [];
+  VL.gekuerzt = g.gekuerzt || 0;
+  verlaufMalen(erstes);
+  clearTimeout(VL.uhr);
+  VL.uhr = setTimeout(verlaufTakt, 15000);
+}
+/* Kept up to date while the mail is open (page visible, mail view showing). */
+async function verlaufTakt(){
+  clearTimeout(VL.uhr);
+  if(!S.offen || vlOffenSchl() !== VL.schl) return;
+  if(!document.hidden && S.blick === "mail") await verlaufLaden(false);
+  VL.uhr = setTimeout(verlaufTakt, 15000);
+}
+function vlRichtung(n){
+  const t = txt({empfangen:"k.verlauf_r_empfangen", gesendet:"k.verlauf_r_gesendet",
+    weitergeleitet:"k.verlauf_r_weitergeleitet"}[n.richtung] || "k.verlauf_r_empfangen");
+  const ic = n.richtung === "empfangen" ? "↘" : (n.richtung === "weitergeleitet" ? "➦" : "↗");
+  return `<span class="chip vl-richtung ${esc(n.richtung)}">${ic} ${esc(t)}</span>`;
+}
+function vlChips(n){
+  const c = [vlRichtung(n)];
+  c.push(`<span class="chip" title="${esc(n.pfad || n.zeige)}">📁 ${esc(
+    (n.ordner || "").toUpperCase() === "INBOX" ? txt("k.posteingang") : n.zeige)}</span>`);
+  if((n.auch || []).length)
+    c.push(`<span class="chip">${esc(txt("k.verlauf_auch", {o:n.auch.join(", ")}))}</span>`);
+  if(n.vermutlich)
+    c.push(`<span class="chip warnung" title="${esc(txt("k.verlauf_vermutlich_grund"))}">≈ ${
+      esc(txt("k.verlauf_vermutlich"))}</span>`);
+  if(n.beantwortet) c.push(`<span class="chip" title="${esc(txt("k.beantwortet_titel"))}">↩</span>`);
+  if(n.weitergeleitet) c.push(`<span class="chip" title="${esc(txt("k.weitergeleitet_titel"))}">➦</span>`);
+  if(n.anhang) c.push(`<span class="chip" title="${esc(txt("k.anhang"))}">📎 ${n.anhang}</span>`);
+  return c.join("");
+}
+function vlKarte(n, i){
+  const k = vlKey(n), auf = VL.auf.has(k);
+  const eigen = n.richtung !== "empfangen";
+  /* „to me" under every received message says nothing — only my own say to whom. */
+  const an = (n.richtung !== "empfangen" && n.an) ? txt("k.verlauf_an", {an:n.an}) : "";
+  return `<div class="vl-karte ${eigen ? "eigen" : ""} ${n.vermutlich ? "vermutlich" : ""} ${auf ? "auf" : ""}"
+      data-vl="${i}">
+    <button class="vl-kopf" onclick="verlaufUm(${i})" aria-expanded="${auf}">
+      <span class="vl-pfeil">▸</span>
+      <span class="vl-wer"><b>${esc(n.von || n.adresse)}</b><span class="vl-an">${esc(an)}</span></span>
+      <span class="vl-zeit">${esc(langesDatum(n.zeit))}</span>
+      <span class="vl-zeile2">${vlChips(n)}</span>
+      <span class="vl-auszug">${esc(n.auszug || n.betreff || "")}</span>
+    </button>
+    ${auf ? `<div class="vl-koerper" id="vlk${i}">${vlKoerper(n, i)}</div>` : ""}
+  </div>`;
+}
+function vlKoerper(n, i){
+  const m = VL.inhalt[vlKey(n)];
+  if(!m) return `<div class="vl-laedt"><span class="laedt"></span> ${esc(txt("k.verlauf_laedt"))}</div>`;
+  if(m.fehler) return `<div class="vl-laedt">${esc(m.fehler)}</div>`;
+  const anh = (m.anhaenge || []).map(x => {
+    const url = "/api/klient/anhang?pf=" + encodeURIComponent(S.pf) +
+      "&ordner=" + encodeURIComponent(n.ordner) + "&uid=" + n.uid +
+      "&t=" + encodeURIComponent(x.t) + "&k=" + encodeURIComponent(x.k) +
+      "&n=" + encodeURIComponent(x.n);
+    const ic = x.art === "bild" ? "🖼️" : (x.art === "dokument" ? "📄" : "📎");
+    return `<a class="anh" href="${esc(url)}" download="${esc(x.n)}"><span>${ic}</span>
+      <span class="nm">${esc(x.n)}</span><span class="gr">${esc(gr(x.b))}</span></a>`;
+  }).join("");
+  return `${anh ? `<div class="anhangreihe">${anh}</div>` : ""}
+    <iframe title="${esc(txt("k.brief"))}"
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      srcdoc="${esc(m.rahmen || "")}" onload="rahmenHoehe(this)"></iframe>
+    <div class="vl-fuss">
+      <button class="blank" onclick="verfassen('antwort',${n.uid},'${escJs(n.ordner)}')">↩ ${esc(txt("k.antworten"))}</button>
+      <button class="blank" onclick="verfassen('weiter',${n.uid},'${escJs(n.ordner)}')">➦ ${esc(txt("k.weiterleiten"))}</button>
+      <button class="blank" onclick="mailOeffnen(${n.uid},'${escJs(n.ordner)}')">↗ ${esc(txt("k.verlauf_oeffnen"))}</button>
+    </div>`;
+}
+function verlaufMalen(erstes){
+  const vor = $("#verlaufvor"), nach = $("#verlaufnach"), leiste = $("#verlaufleiste");
+  if(!vor || !nach || !leiste) return;
+  const liste = VL.liste;
+  if(liste.length < 2){
+    vor.innerHTML = nach.innerHTML = leiste.innerHTML = "";
+    leiste.hidden = true;
+    const d = $("#vldiese"); if(d) d.innerHTML = "";
+    return;
+  }
+  const hier = Math.max(0, liste.findIndex(n => n.aktuell));
+  const vermutlich = liste.filter(n => n.vermutlich).length;
+  const alleAuf = liste.every((n, i) => i === hier || VL.auf.has(vlKey(n)));
+  leiste.hidden = false;
+  leiste.innerHTML = `<span>💬 <b>${esc(txt("k.verlauf_titel", {n:liste.length}))}</b></span>
+    ${vermutlich ? `<span class="chip warnung" title="${esc(txt("k.verlauf_vermutlich_grund"))}">≈ ${
+      vermutlich} ${esc(txt("k.verlauf_vermutlich"))}</span>` : ""}
+    ${VL.gekuerzt ? `<span>${esc(txt("k.verlauf_gekuerzt", {n:VL.gekuerzt}))}</span>` : ""}
+    <span class="vl-tasten"><button onclick="verlaufAlle(${!alleAuf})">${
+      esc(txt(alleAuf ? "k.verlauf_alle_zu" : "k.verlauf_alle_auf"))}</button></span>`;
+  vor.innerHTML = liste.slice(0, hier).map((n, i) => vlKarte(n, i)).join("");
+  nach.innerHTML = liste.slice(hier + 1).map((n, j) => vlKarte(n, hier + 1 + j)).join("");
+  const d = $("#vldiese");
+  if(d){
+    const n = liste[hier];
+    d.innerHTML = `<div class="bahn vl-diese">${vlRichtung(n)}
+      <span class="chip">${esc(txt("k.verlauf_diese"))} · ${hier + 1}/${liste.length}</span>
+      ${n.vermutlich ? `<span class="chip warnung" title="${esc(txt("k.verlauf_vermutlich_grund"))}">≈ ${
+        esc(txt("k.verlauf_vermutlich"))}</span>` : ""}</div>`;
+  }
+  /* 🔑 The open mail stays where the eye is: older messages above it, scrolled
+     past, with the end of the last one still peeking in. */
+  if(erstes && hier > 0){
+    const sc = $("#mailrumpf"), kopf = $("#mailwer");
+    if(sc && kopf) sc.scrollTop += kopf.getBoundingClientRect().top - sc.getBoundingClientRect().top - 96;
+  }
+}
+async function verlaufUm(i){
+  const n = VL.liste[i];
+  if(!n) return;
+  const k = vlKey(n);
+  if(VL.auf.has(k)) VL.auf.delete(k); else VL.auf.add(k);
+  verlaufMalen(false);
+  if(VL.auf.has(k) && !VL.inhalt[k]){ await vlInhaltHolen(n); verlaufMalen(false); }
+}
+async function vlInhaltHolen(n){
+  const k = vlKey(n), schl = VL.schl;
+  let m;
+  try{ m = await sende("klient_mail", {ordner:n.ordner, uid:n.uid, hell:istHell(), zitate_falten:1}); }
+  catch(e){ m = null; }
+  if(VL.schl !== schl) return;
+  if(m && m.ok){
+    if(m.verlegt && m.uid && m.ordner){ n.ordner = m.ordner; n.uid = m.uid; }
+    VL.inhalt[k] = m;
+    if(m.gelesen) n.gelesen = true;
+  }else VL.inhalt[k] = {fehler:(m && m.text) || txt("k.verlauf_ging_nicht")};
+}
+async function verlaufAlle(auf){
+  const hier = VL.liste.findIndex(n => n.aktuell);
+  VL.liste.forEach((n, i) => { if(i !== hier){ if(auf) VL.auf.add(vlKey(n)); else VL.auf.delete(vlKey(n)); } });
+  verlaufMalen(false);
+  if(!auf) return;
+  /* Three at a time — ten letters must not queue up behind each other. */
+  const offen = VL.liste.filter((n, i) => i !== hier && !VL.inhalt[vlKey(n)]);
+  const arbeiter = Array.from({length:3}, async () => {
+    while(offen.length){ await vlInhaltHolen(offen.shift()); verlaufMalen(false); }
+  });
+  await Promise.all(arbeiter);
+}
+/* The frame's height, measured like the main letter's — and measured again when
+   a folded quote inside it is opened (the parent listens: the frame itself may
+   run no script). */
+function rahmenHoehe(f){
+  const messen = () => {
+    try{
+      const d = f.contentDocument;
+      if(!d || !d.body) return;
+      f.style.height = Math.max(80, d.body.scrollHeight + 6) + "px";
+    }catch(e){ f.style.height = "50vh"; }
+  };
+  messen();
+  setTimeout(messen, 350);
+  setTimeout(messen, 1200);
+  try{ f.contentDocument.addEventListener("toggle", () => setTimeout(messen, 0), true); }catch(e){}
+}
+/* The list: how many messages a row's conversation has — asked once per set of
+   rows, out of the index, after the rows are drawn. */
+function verlaufZahlenSpaeter(){
+  /* The numbers grow when somebody answers — kept for half a minute. */
+  if(Date.now() - VL.zahl_zeit > 30000){ VL.zahlen = {}; VL.zahl_zeit = Date.now(); }
+  clearTimeout(VL.zahl_frage);
+  VL.zahl_frage = setTimeout(verlaufZahlenHolen, 120);
+}
+async function verlaufZahlenHolen(){
+  const mids = [...new Set(S.mails.map(m => m.message_id).filter(x => x && !(x in VL.zahlen)))];
+  if(!mids.length) return;
+  let a;
+  try{ a = await sende("klient_verlauf_zahlen", {mids:mids.slice(0, 600)}); }catch(e){ return; }
+  if(!a || !a.ok) return;
+  mids.forEach(x => { VL.zahlen[x] = (a.zahlen || {})[x] || 0; });
+  for(const el of document.querySelectorAll("#zeilen .zeile")){
+    const m = S.mails[Number(el.dataset.i)];
+    const n = m && VL.zahlen[m.message_id];
+    const z = el.querySelector(".zeichen");
+    if(n >= 2 && z && !z.querySelector(".vl-zahl"))
+      z.insertAdjacentHTML("afterbegin", vlZahlHtml(n));
+  }
+}
+function vlZahlHtml(n){
+  return `<span class="vl-zahl" title="${esc(txt("k.verlauf_zahl_titel", {n:n}))}">💬 ${n}</span>`;
 }
 function mailNachbar(d){
   const i = S.mails.findIndex(m => m.uid === S.uid);
@@ -2286,8 +2549,8 @@ async function sucheLos(){
 
 <script>
 /* ── Writing ───────────────────────────────────────────────────────────── */
-async function verfassen(art, uid){
-  const v = await sende("klient_vorlage", {art:art, ordner:ordnerVon(uid), uid:uid || 0});
+async function verfassen(art, uid, ordner){
+  const v = await sende("klient_vorlage", {art:art, ordner:ordner || ordnerVon(uid), uid:uid || 0});
   if(!v || !v.ok) return melde((v && v.text) || txt("k.ging_nicht"), false);
   S.brief = {art:art, quelle:v.quelle || null, in_antwort_auf:v.in_antwort_auf || "",
              anhaenge:[], uebernahme:(v.anhaenge || []).map(a =>
@@ -2400,6 +2663,7 @@ async function senden(){
     ["#s_an", "#s_kopie", "#s_betreff", "#s_text"].forEach(id => $(id).value = "");
     blick("liste");
     await allesLaden();
+    if(S.offen){ VL.zahlen = {}; verlaufLaden(true); }
   }
 }
 async function entwurfSpeichern(){

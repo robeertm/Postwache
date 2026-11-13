@@ -63,6 +63,10 @@ try:
     import suchindex as SI       # 5.31.0: the local search index
 except Exception:                # without it the search asks the server, as before
     SI = None
+try:
+    import verlauf as VL         # 5.32.0: the conversation of every mail, from the index
+except Exception:                # without it a mail is shown alone, as before
+    VL = None
 
 KLIENT_STAND = "klient.json"        # access word + lock, 0600
 KLIENT_EINST = "klient_einst.json"  # view settings, harmless
@@ -1618,6 +1622,9 @@ class Briefkasten(W.Postfach if W is not None else object):
                 "beantwortet": "\\answered" in flaggen,
                 "entwurf": "\\draft" in flaggen,
                 "geloescht": "\\deleted" in flaggen,
+                # 5.32.0: forwarded (by this or any other mail program)
+                "weitergeleitet": "$forwarded" in flaggen,
+                "_flaggen": flaggen,
                 "message_id": (msg.get("Message-Id") or "").strip(),
                 "strang": _strang_schluessel(msg),
                 "abmelden": bool((msg.get("List-Unsubscribe") or "").strip()),
@@ -2008,6 +2015,7 @@ class Briefkasten(W.Postfach if W is not None else object):
             "zeit": _zeitpunkt(msg.get("Date", "")),
             "message_id": (msg.get("Message-Id") or "").strip(),
             "in_antwort_auf": (msg.get("In-Reply-To") or "").strip(),
+            "referenzen": " ".join((msg.get("References") or "").split())[:4000],
             "abmelden": _abmeldeweg(msg.get("List-Unsubscribe") or ""),
             "gelesen": "\\seen" in flaggen, "markiert": "\\flagged" in flaggen,
             "beantwortet": "\\answered" in flaggen, "entwurf": "\\draft" in flaggen,
@@ -2917,6 +2925,46 @@ def text_zu_html(text: str) -> str:
     return re.sub(r"(?m)^(--\s*)$", r'<span class="pw-sig">\1</span>', ganz, count=1)
 
 
+_ZITAT_TAG = re.compile(r"<(/?)blockquote\b[^>]*>", re.I)
+_ZITAT_MARKE = re.compile(
+    r"-{2,}\s*(?:Original Message|Urspr(?:ü|&uuml;|ue)ngliche Nachricht|Message d'origine|"
+    r"Messaggio originale|Mensaje original)\s*-{2,}", re.I)
+
+
+def zitate_falten(inhalt: str, zusammenfassung: str) -> str:
+    """Every top-level quote (`<blockquote>`) — or, without one, everything from
+    an „-----Original Message-----" line on — becomes a closed `<details>`.
+    Works without a script, so it works in the sandboxed frame."""
+    auf = '<details class="pw-falt"><summary>%s</summary>' % _html.escape(zusammenfassung)
+    raus, pos, tiefe, gefaltet = [], 0, 0, False
+    for t in _ZITAT_TAG.finditer(inhalt or ""):
+        if not t.group(1):
+            if tiefe == 0:
+                raus.append(inhalt[pos:t.start()])
+                raus.append(auf)
+                pos = t.start()
+                gefaltet = True
+            tiefe += 1
+        elif tiefe > 0:
+            tiefe -= 1
+            if tiefe == 0:
+                raus.append(inhalt[pos:t.end()])
+                raus.append("</details>")
+                pos = t.end()
+    if tiefe > 0:                      # an unclosed quote runs to the end
+        raus.append(inhalt[pos:])
+        raus.append("</details>")
+        pos = len(inhalt)
+    raus.append(inhalt[pos:])
+    ganz = "".join(raus)
+    if gefaltet:
+        return ganz
+    t = _ZITAT_MARKE.search(ganz)
+    if t and ganz.rfind("<", 0, t.start()) <= ganz.rfind(">", 0, t.start()):
+        return ganz[:t.start()] + auf + ganz[t.start():] + "</details>"
+    return ganz
+
+
 def _verlinken(s: str) -> str:
     def ersetze(t):
         url = t.group(0)
@@ -2995,9 +3043,16 @@ def rahmen(inhalt: str, bilder: bool, dunkel: bool = True) -> str:
         '.pw-sig{color:%s}'
         'blockquote{margin:.5rem 0;padding:.1rem 0 .1rem .8rem;'
         'border-left:2px solid %s55;color:%s}'
+        # 5.32.0: a folded quote inside a conversation
+        'details.pw-falt{margin:.6rem 0}'
+        'details.pw-falt>summary{cursor:pointer;color:%s;font-size:.85em;'
+        'list-style:none;display:inline-block;padding:.15rem .55rem;'
+        'border:1px solid %s55;border-radius:999px}'
+        'details.pw-falt>summary::-webkit-details-marker{display:none}'
+        'details.pw-falt[open]>summary{margin-bottom:.3rem}'
         '</style></head><body>%s</body></html>'
         % (politik, "dark" if dunkel else "light", grund, schrift, akzent, akzent,
-           akzent, akzent, leise, leise, akzent, leise, inhalt))
+           akzent, akzent, leise, leise, akzent, leise, leise, akzent, inhalt))
 
 
 # ── One warm connection per mailbox ──────────────────────────────────────
@@ -3503,7 +3558,11 @@ def vorlage(d: dict) -> dict:
         "ok": True, "art": art, "an": an, "kopie": kopie, "betreff": betreff,
         "text": text, "von": von,
         "in_antwort_auf": m.get("message_id") or "",
-        "quelle": {"ordner": ordner, "uid": uid},
+        # 🔑 5.32.0: the source carries the kind and the whole chain. The page
+        # hands `quelle` back unchanged, so a reply gets the full References
+        # (the original's chain + its own id) and a forward gets $Forwarded.
+        "quelle": {"ordner": ordner, "uid": uid, "art": art,
+                   "referenzen": _kette(m.get("referenzen") or "", m.get("message_id") or "")},
         # Forwarding without the attachment is the classic complaint. They are
         # offered, ticked on, and fetched from the server only when sending.
         "anhaenge": (m.get("anhaenge") or []) if art == "weiter" else [],
@@ -3658,10 +3717,19 @@ def _brief_bauen(d: dict, pf_id: str, einst: dict) -> tuple:
     msg["Date"] = email.utils.formatdate(localtime=True)
     bereich = (von or s.get("adresse") or "@localhost").split("@")[-1]
     msg["Message-Id"] = email.utils.make_msgid(domain=bereich)
-    bezug = str(d.get("in_antwort_auf") or "").strip()
-    if bezug:
-        msg["In-Reply-To"] = bezug
-        msg["References"] = bezug
+    bezug = _ids_text(str(d.get("in_antwort_auf") or ""), 1)
+    quelle = d.get("quelle") if isinstance(d.get("quelle"), dict) else {}
+    kette = _ids_text(str(quelle.get("referenzen") or ""), 40)
+    if bezug and bezug not in kette.split():
+        kette = (kette + " " + bezug).strip()
+    if bezug or kette:
+        # 🔑 5.32.0: a reply names its parent (In-Reply-To) and the whole chain
+        # (References) — every mail program then sorts it into the same
+        # conversation. A forward is a new letter: only References, no
+        # In-Reply-To (what the common mail programs do as well).
+        if bezug and str(quelle.get("art") or "") != "weiter":
+            msg["In-Reply-To"] = bezug
+        msg["References"] = kette or bezug
     # 🔑 A mail program names itself. Not vanity: when something arrives
     # malformed somewhere, this line is the first clue as to who built it.
     msg["X-Mailer"] = "Postwache %s" % (W._version() if W is not None else "")
@@ -3696,6 +3764,25 @@ def _brief_bauen(d: dict, pf_id: str, einst: dict) -> tuple:
         msg.add_attachment(roh, maintype=typ, subtype=unter,
                            filename=str(u.get("n") or "datei")[:200])
     return msg, _nur_adressen(an + kopie + blind), ""
+
+
+def _ids_text(roh: str, hoechstens: int) -> str:
+    """Message-Ids out of a client-supplied text — only `<…>` tokens without
+    blanks, so nothing but ids can reach a header line."""
+    ids = re.findall(r"<[^<>\s]{1,250}>", roh or "")
+    if len(ids) > hoechstens:
+        ids = ids[:1] + ids[-(hoechstens - 1):] if hoechstens > 1 else ids[-1:]
+    return " ".join(ids)
+
+
+def _kette(referenzen: str, eigene_id: str) -> str:
+    """The References of a reply: the original's chain plus the original."""
+    ids = re.findall(r"<[^<>\s]{1,250}>", referenzen or "")
+    eigen = re.findall(r"<[^<>\s]{1,250}>", eigene_id or "")
+    for e in eigen[:1]:
+        if e not in ids:
+            ids.append(e)
+    return _ids_text(" ".join(ids), 40)
 
 
 def _mime_raten(name: str, angabe: str) -> tuple:
@@ -3825,13 +3912,18 @@ def senden(d: dict) -> dict:
             nachwort.append(txt("k.kopie_fehl_ordner"))
     _sendeprotokoll(msg_id, empfaenger, betreff_log, fuer_ablage, kopie_stand,
                     len(verwehrt or {}), str(d.get("kanal") or "seite"))
-    quelle = d.get("quelle") or {}
+    quelle = d.get("quelle") if isinstance(d.get("quelle"), dict) else {}
     if quelle.get("uid"):
+        # 🔑 5.32.0: a forward is marked forwarded ($Forwarded, the keyword every
+        # common mail program reads), a reply answered.
+        marke = "$Forwarded" if str(quelle.get("art") or "") == "weiter" else "\\Answered"
         try:
             tu(pf_id, lambda k: k.flagge(str(quelle.get("ordner") or "INBOX"),
-                                         [int(quelle["uid"])], "\\Answered", True))
+                                         [int(quelle["uid"])], marke, True))
         except Exception as e:
             log("Antwort-Marke nicht gesetzt: %s" % str(e)[:100])
+    if SI is not None:
+        SI.anstossen(pf_id)        # 5.32.0: the copy joins the conversation at once
     if d.get("entwurf_uid"):
         entwuerfe = _rollen_ordner(pf_id, "entwuerfe")
         if entwuerfe:
@@ -4704,6 +4796,10 @@ def mail_zeigen(d: dict) -> dict:
             text = _html.unescape(re.sub(r"<[^>]+>", " ", m.get("html") or ""))
             text = re.sub(r"[ \t]{2,}", " ", re.sub(r"\n{3,}", "\n\n", text))
         inhalt = '<div class="pw-text">%s</div>' % text_zu_html(text)
+    if d.get("zitate_falten"):
+        # 5.32.0: inside a conversation every earlier message is shown anyway —
+        # the quoted copy of it folds away.
+        inhalt = zitate_falten(inhalt, txt("k.zitat_zeigen"))
     m["ansicht"] = ansicht
     m["bilder"] = bilder
     # 🔑 The letter is a document of its own inside the frame, with its own
@@ -4729,6 +4825,40 @@ def mail_zeigen(d: dict) -> dict:
     if einst["wache_grund"]:
         m["wache"] = wache_urteil(pf_id, m.get("adresse") or "")
     return m
+
+
+def verlauf(d: dict) -> dict:
+    """5.32.0: the conversation of one mail — header data from the index, no
+    server command. `stand` from the last answer: unchanged → `gleich`.
+    `frisch` (after sending): wait for one comparison first, so the copy that
+    just reached the sent folder is part of the answer."""
+    pf_id = str(d.get("pf") or "")
+    ordner = str(d.get("ordner") or "INBOX")
+    uid = int(d.get("uid") or 0)
+    msgid = str(d.get("message_id") or "")[:300]
+    if VL is None or SI is None or not SI.eingeschaltet():
+        return {"ok": True, "im_index": False, "nachrichten": []}
+    SI.lebenszeichen(pf_id)
+    if d.get("frisch"):
+        SI.abgleich_abwarten(pf_id, 6.0)
+    g = VL.geruest(pf_id, ordner, uid, msgid)
+    if not g.get("im_index") and VL.ordner_fertig(pf_id, ordner):
+        # A mail that arrived after the last comparison of a finished folder:
+        # one comparison, once (a folder still being built is not waited for).
+        if SI.abgleich_abwarten(pf_id, 3.0):
+            g = VL.geruest(pf_id, ordner, uid, msgid)
+    if d.get("stand") and g.get("stand") == str(d.get("stand")):
+        return {"ok": True, "gleich": True, "stand": g["stand"], "im_index": g.get("im_index")}
+    return g
+
+
+def verlauf_zahlen(d: dict) -> dict:
+    """5.32.0: how many messages each listed mail's conversation has (≥ 2)."""
+    pf_id = str(d.get("pf") or "")
+    mids = [str(x)[:300] for x in (d.get("mids") or []) if isinstance(x, str)][:600]
+    if VL is None:
+        return {"ok": True, "zahlen": {}}
+    return {"ok": True, "zahlen": VL.zahlen(pf_id, mids)}
 
 
 def _verlegt(pf_id: str, ordner: str, uid: int):

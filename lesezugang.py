@@ -163,6 +163,7 @@ SENDEN_BETREFF_MAX = 300        # longest subject the caller may write
 SENDEN_JE_STUNDE = 30           # most sends through this door per hour
 KORB_FRIST = 600                # seconds the trash folder's name is remembered
 KURZ = 300                      # longest excerpt handed out
+VERLAUF_MAX = 30                # 5.32.0: messages of a conversation handed out (newest)
 STAND_FRIST = 120               # seconds before the read/unread state is refreshed
 STAND_WARTEN = 4.0              # how long a first request waits for that state
 BREMSE_N, BREMSE_S = 10, 60     # wrong tokens per minute before the door slows down
@@ -996,7 +997,32 @@ def mail(abfrage: dict) -> dict:
         "antwort_an": ", ".join(_antwort_an(m)),
         "antwort_betreff": KL._betreff_praefix(m.get("betreff") or "", KL.txt("k.re")),
         "antwort_von": KL.antwortadresse(m, haupt) if haupt else "",
+        # 5.32.0: the conversation this mail belongs to — header data only,
+        # names and domains like everywhere behind this door.
+        "verlauf": _verlauf(pid, ordner, m),
     }
+
+
+def _verlauf(pid: str, ordner: str, m: dict) -> list:
+    """Oldest first, at most the newest VERLAUF_MAX. Out of the index, no
+    server command; [] without an index."""
+    if getattr(KL, "VL", None) is None:
+        return []
+    try:
+        liste = KL.VL.kurz(pid, ordner, int(m.get("uid") or 0), m.get("message_id") or "")
+    except Exception:                                 # noqa: BLE001
+        return []
+    raus = []
+    for n in liste[-VERLAUF_MAX:]:
+        name, domain = _person(n.get("von") or "", n.get("adresse") or "")
+        raus.append({
+            "zeit": n.get("zeit") or "", "richtung": n.get("richtung") or "",
+            "von_name": name, "von_domain": domain,
+            "betreff": (n.get("betreff") or "")[:SENDEN_BETREFF_MAX],
+            "ordner": _anzeige(n.get("ordner") or ""),
+            "vermutlich": bool(n.get("vermutlich")), "diese": bool(n.get("aktuell")),
+        })
+    return raus
 
 
 # ── Sending: reply, forward, new — only what the owner approved ─────────────

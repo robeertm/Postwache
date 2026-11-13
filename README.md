@@ -166,6 +166,19 @@ runs, the page says how far it is and searches the unfinished folders on the
 server as before — never silently fewer hits. Trash and spam are indexed but
 only searched when you switch them on.
 
+**Every mail comes with its conversation.** Open a mail and every message of
+the conversation stands in order above and below it — your own replies and
+forwards included, wherever they ended up: the sent folder, an archive, or a
+filed folder (mail sent from a phone often lands there rather than in "Sent").
+The conversation is linked from the search index by Message-ID, In-Reply-To and
+References across all folders, without asking the provider, in a few
+milliseconds. Mails without reply headers join only with the same subject, a
+shared person and a time window — and are marked "probably related", never
+mixed in silently. Quoted text inside the conversation is folded away, every
+message gets its own sandboxed frame, and the list shows how many messages a
+conversation has. Replies carry the full References chain; forwarding sets
+`$Forwarded`.
+
 **A folder is there when you click it.** A folder you have already seen is drawn
 at once from the page's memory, and the server is asked in the same breath; when
 nothing changed it answers with a fingerprint and nothing is redrawn. Behind it,
