@@ -475,6 +475,18 @@ def _zahl(werte: dict, name: str, lo: int, hi: int, vorgabe: int) -> int:
         return vorgabe
 
 
+def _index_treffer(pid: str, suche: str, grenze) -> set:
+    """Message-Ids the search index finds for the word since `grenze` — the
+    trash left out, as everywhere in this door. Empty when there is no index."""
+    try:
+        import suchindex as SI
+        if not SI.bereit(pid):
+            return set()
+        return SI.msgids_fuer(pid, suche, seit=grenze.timestamp())
+    except Exception:
+        return set()
+
+
 def mails(abfrage: dict) -> dict:
     """`abfrage` is what `urllib.parse.parse_qs` made of the query."""
     suche = ((abfrage.get("suche") or [""])[0] or "").strip()[:80]
@@ -488,6 +500,11 @@ def mails(abfrage: dict) -> dict:
         pid = pf["id"]
         eintraege = []
         alle = _koepfe(pid)
+        # 🔑 5.31.0: with a search word the index is asked too — it knows the
+        # TEXT of every mail, and fragments, umlauts and typos as the page does.
+        # A mail it finds counts as a hit even when the word is not in the
+        # subject or the sender. Without an index: the old way, unchanged.
+        im_index = _index_treffer(pid, suche, grenze) if suche else set()
         # 🔴 The trash is not the reader's: a mail the watchman filed there is
         #    not listed, and the trash folder is never handed to `_stand`.
         korb = _korb(pid) if alle else ""
@@ -504,7 +521,8 @@ def mails(abfrage: dict) -> dict:
                 continue
             k = e.get("kopf") or {}
             if wort and wort not in W.normal(" ".join((k.get("betreff") or "", k.get("name") or "",
-                                                         k.get("adresse") or ""))):
+                                                         k.get("adresse") or ""))) \
+                    and (k.get("message_id") or "").strip() not in im_index:
                 continue
             eintraege.append((wann, e))
         gesamt += len(eintraege)

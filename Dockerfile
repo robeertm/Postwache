@@ -40,7 +40,7 @@ ARG TARGETARCH
 # Stattdessen bewacht `probe_tailscale.py` diese Zeile: er fragt
 # pkgs.tailscale.com nach der stabilen Fassung und wird ROT, wenn hier eine
 # aeltere steht. So faellt das Nachziehen am Tor auf, nicht beim Benutzer.
-ARG TAILSCALE_VERSION=1.104.6
+ARG TAILSCALE_VERSION=1.104.7
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends curl ca-certificates; \
     curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${TARGETARCH}.tgz" \
@@ -56,7 +56,7 @@ RUN set -eux; \
 WORKDIR /app
 COPY postwache.py post_web.py post_web.html VERSION ollama_einrichten.py umbau.py \
      umzug.py klient.py post_klient.html post_mobil.html tailscale_zugang.py \
-     lesezugang.py vertraut.py /app/
+     lesezugang.py vertraut.py suchindex.py /app/
 # The language files belong to the program, not to the state. Without them the
 # page shows its keys instead of text — and nothing reports that.
 COPY locales /app/locales

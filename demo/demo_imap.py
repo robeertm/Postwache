@@ -211,6 +211,23 @@ def _teil(roh: bytes, was: str) -> bytes:
     return b""
 
 
+def _bauplan(roh: bytes) -> str:
+    """BODYSTRUCTURE of a demo mail: plain text, or text + one PDF."""
+    kopf, _, rumpf = roh.partition(b"\r\n\r\n")
+    grenze = re.search(rb'boundary="([^"]+)"', kopf)
+    if not grenze:
+        return ('("TEXT" "PLAIN" ("CHARSET" "utf-8") NIL NIL "8BIT" %d %d NIL NIL NIL NIL)'
+                % (len(rumpf), rumpf.count(b"\n")))
+    text, pdf = _teil(roh, "1"), _teil(roh, "2")
+    name = re.search(rb'filename="([^"]+)"', rumpf)
+    name = name.group(1).decode("utf-8", "replace") if name else "anhang.pdf"
+    return ('(("TEXT" "PLAIN" ("CHARSET" "utf-8") NIL NIL "8BIT" %d %d NIL NIL NIL NIL)'
+            '("APPLICATION" "PDF" ("NAME" "%s") NIL NIL "7BIT" %d NIL '
+            '("ATTACHMENT" ("FILENAME" "%s")) NIL NIL) "MIXED" ("BOUNDARY" "%s") NIL NIL NIL)'
+            % (len(text), text.count(b"\n"), name, len(pdf), name,
+               grenze.group(1).decode("ascii", "replace")))
+
+
 def _passt(n: "Nachricht", kriterien: list) -> bool:
     """Die Suchkriterien, die der Klient schickt — und nur die. Mehrere
     hintereinander gelten zusammen (UND), wie bei einem echten Server."""
@@ -444,8 +461,9 @@ class Sitzung(socketserver.StreamRequestHandler):
             if m not in self._gewaehlt(menge):
                 continue
             felder = []
-            if "UID" in gewollt.upper():
-                felder.append("UID %d" % m.uid)
+            # A UID FETCH answer always carries the UID (RFC 3501 6.4.8),
+            # asked for or not — the blueprint question asks only BODYSTRUCTURE.
+            felder.append("UID %d" % m.uid)
             if "FLAGS" in gewollt.upper():
                 felder.append("FLAGS (%s)" % " ".join(sorted(m.flaggen)))
             if "INTERNALDATE" in gewollt.upper():
@@ -453,6 +471,10 @@ class Sitzung(socketserver.StreamRequestHandler):
                               % m.datum.strftime("%d-%b-%Y %H:%M:%S %z"))
             if "RFC822.SIZE" in gewollt.upper():
                 felder.append("RFC822.SIZE %d" % len(m.roh))
+            if "BODYSTRUCTURE" in gewollt.upper():
+                # 5.31.0: the blueprint, so the search index can read the text
+                # part (and only that) exactly as on a real server.
+                felder.append("BODYSTRUCTURE " + _bauplan(m.roh))
             koerper = re.search(r"BODY(?:\.PEEK)?\[([^\]]*)\](?:<(\d+)\.(\d+)>)?",
                                 gewollt, re.I)
             if not koerper:

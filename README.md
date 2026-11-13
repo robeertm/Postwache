@@ -78,7 +78,7 @@ that will not tell you its hit rate is a claim, not a measurement.
 | 🌍 **Five languages** | German, English, Spanish, French, Italian — one click, and that includes the messages it sends when nobody is looking. |
 | ↩️ **Everything is reversible** | Every move is journalled. One click puts a mail back; one click puts them all back. |
 | 🛑 **Two emergency stops** | A file on disk, and a switch in Home Assistant. Either one alone stops it. |
-| ✉️ **A full mail client** | Folder tree, list, preview pane, search across every folder, a “Filed” view of what the watchman put where, reply, forward, attachments, drafts, sending. Some thirty settings, from where the preview sits to when a mail counts as read. Every row shows the first words of the letter — fetched in pieces, one request per shape, and still `BODY.PEEK`. |
+| ✉️ **A full mail client** | Folder tree, list, preview pane, search across every folder from a local full-text index (word fragments, umlauts, typos), a “Filed” view of what the watchman put where, reply, forward, attachments, drafts, sending. Some thirty settings, from where the preview sits to when a mail counts as read. Every row shows the first words of the letter — fetched in pieces, one request per shape, and still `BODY.PEEK`. |
 | ✨ **Everything new, in one view** | Above the inbox: every new mail out of every folder at once, each row saying where it is now. The view the watchman makes necessary — it is the one that moved the mail away. |
 | 📬 **One click from the watchman to the mailbox** | The tab row carries a door to `/post` — a real link that works before any script has run. |
 | 📱 **A version of its own for phones** | Not the wide page made narrow: one sheet at a time, a bar at the bottom, finger targets from 44 px, swipe to archive or delete, long-press to choose several and act on them at once. |
@@ -146,6 +146,25 @@ listener, so a tab left open at night holds nothing at the provider until
 morning. A server without `IDLE` is asked politely every 20 seconds instead.
 Nothing is ever redrawn under your hands: a selection, an open window, a focused
 field or a search all hold the list still, while the folder counts keep moving.
+
+**Search answers from a local index.** Every mail of every folder — subject,
+sender, recipients, body text, attachment names — sits in a full-text index on
+the server's disk (SQLite FTS5, trigram tokenizer, one file per mailbox, mode
+0600). A search no longer asks the provider folder by folder: it answers in
+milliseconds while you type. Any three letters in a row are enough (a fragment
+in the middle of a word finds the word), case and umlauts do not matter
+(ä = ae = a, ß = ss), and when the exact words find nothing, similar words from
+the index's own vocabulary step in for a typo — the page says so. Several words
+must all occur, in any field; `from:`, `subject:`, `to:`, `text:`,
+`attachment:` and `folder:` narrow it down, but free text needs no syntax.
+Hits with the words in subject or sender come first, newest first, each with
+its folder and the matching piece of text marked. The index is built and kept
+current on its own read-only connection (`EXAMINE`, `BODY.PEEK`); one
+LIST-STATUS command compares every folder, moved mails keep their text, and a
+nightly pass heals what a comparison might have missed. While the first build
+runs, the page says how far it is and searches the unfinished folders on the
+server as before — never silently fewer hits. Trash and spam are indexed but
+only searched when you switch them on.
 
 **A folder is there when you click it.** A folder you have already seen is drawn
 at once from the page's memory, and the server is asked in the same breath; when

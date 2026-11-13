@@ -59,6 +59,10 @@ try:
     import postwache as W        # ONE source for drawers, rules and IMAP parsing
 except Exception:                # the client must not take the page down with it
     W = None
+try:
+    import suchindex as SI       # 5.31.0: the local search index
+except Exception:                # without it the search asks the server, as before
+    SI = None
 
 KLIENT_STAND = "klient.json"        # access word + lock, 0600
 KLIENT_EINST = "klient_einst.json"  # view settings, harmless
@@ -1275,9 +1279,13 @@ class Briefkasten(W.Postfach if W is not None else object):
         schluessel = {"datum": b"DATE", "von": b"FROM", "betreff": b"SUBJECT",
                       "groesse": b"SIZE"}.get(sortierung, b"DATE")
         if self.kann("SORT"):
-            folge = b"(" + (b"REVERSE " if umgekehrt else b"") + schluessel + b")"
+            # 🔴 The sort criteria go as TEXT: newer Python releases (3.14.x)
+            # quote the SORT arguments themselves and fail on bytes there
+            # („can only concatenate str"), silently costing the server sort.
+            folge = ("(" + ("REVERSE " if umgekehrt else "") + schluessel.decode("ascii")
+                     + ")")
             try:
-                typ, dat = self.m.uid("SORT", folge, b"UTF-8", *kriterien)
+                typ, dat = self.m.uid("SORT", folge, "UTF-8", *kriterien)
                 if typ == "OK":
                     roh = b" ".join(x for x in (dat or []) if x)
                     return [int(x) for x in roh.split()], True
@@ -1731,16 +1739,25 @@ class Briefkasten(W.Postfach if W is not None else object):
                     raus[int(u.group(1))] = _intern_sekunden(d.group(1) if d else "")
         return raus
 
-    def treffer_ueberall(self, sieb: str, suche: str, feld: str) -> dict:
+    def treffer_ueberall(self, sieb: str, suche: str, feld: str, nur=None,
+                         mit_korb: bool = False, abbruch=None) -> dict:
         """Every hit in every folder, newest first, as (seconds, folder, uid).
 
         Still `EXAMINE`: searching changes nothing. A folder the server refuses
-        is skipped and logged, never the reason for an empty answer."""
+        is skipped and logged, never the reason for an empty answer.
+        `nur` (5.31.0): only these folders — the ones the index has not
+        finished yet."""
         kriterien = self._kriterien(sieb, suche, feld)
         funde, gesamt = [], 0
         for o in self.baum():
-            if not o["waehlbar"] or o["rolle"] in ("papierkorb", "spam"):
+            if not o["waehlbar"]:
                 continue
+            if nur is not None and o["name"] not in nur:
+                continue
+            if nur is None and not mit_korb and o["rolle"] in ("papierkorb", "spam"):
+                continue
+            if abbruch is not None and abbruch():
+                break
             try:
                 self.waehle(o["name"])
                 uids = self._suchen(kriterien)
@@ -3157,6 +3174,8 @@ def _horch_faden(pf_id: str) -> None:
                     # 5.28.0: the mailbox changed — have „New"/„Filed" worked
                     # out again on the warm-up connection, gathered briefly.
                     vorwaermen(pf_id, None, spaeter=WARM_NACH_HORCH)
+                    if SI is not None:
+                        SI.anstossen(pf_id)
                 posten["runden"] += 1
                 if posten["idle"]:
                     # Read-only, always. The post watches, it does not touch.
@@ -3881,6 +3900,8 @@ def lage(pf_id: str) -> dict:
         vorwaermen_beim_start(pf_id)
     except Exception as e:                              # noqa: BLE001
         log("Vorwaermer nicht gestartet: %s" % str(e)[:100])
+    if SI is not None:
+        SI.lebenszeichen(pf_id)            # 5.31.0: the index keeps up while the page is open
     faehig = {}
     ordner = []
     try:
@@ -3930,10 +3951,21 @@ def liste(d: dict) -> dict:
     #    search or with a filter on, „everything" means every HIT, not the whole
     #    folder.
     alle_uids = bool(d.get("alle_uids"))
+    if SI is not None:
+        SI.lebenszeichen(pf_id)
+    mit_korb = bool(d.get("mit_korb"))
     if suche and d.get("ueberall"):
         return _liste_ueberall(pf_id, ordner, sieb, suche, feld, sortierung,
                                richtung, pro, seite, alle_uids,
-                               bool(d.get("blaettern")), bool(einst["vorschautext"]))
+                               bool(d.get("blaettern")), bool(einst["vorschautext"]),
+                               mit_korb=mit_korb, rest=bool(d.get("rest")))
+    if suche and sortierung == "datum":
+        # 🔑 5.31.0: a search in ONE folder is answered by the index too — once
+        # that folder is completely in it. Otherwise the server, as before.
+        antwort = _aus_index(pf_id, ordner, sieb, suche, feld, richtung, pro, seite,
+                             alle_uids, False, False, nur=ordner)
+        if antwort is not None:
+            return _wenn_bekannt(d, antwort)
 
     def arbeit(k):
         # 🔑 5.27.0: the mark FIRST, before any data — see `Briefkasten.marke`.
@@ -4069,16 +4101,24 @@ _SUCH_HALT = {}
 
 
 def _liste_ueberall(pf_id, ordner, sieb, suche, feld, sortierung, richtung, pro,
-                    seite, alle_uids, blaettern, auszug) -> dict:
+                    seite, alle_uids, blaettern, auszug, mit_korb=False,
+                    rest=False) -> dict:
     """One page of a search across every folder — the answer has the shape of
     `liste()`, plus where the hits are."""
-    schluessel = (sieb, suche, feld)
+    # 5.31.0: across folders the index answers (its order: best hits first,
+    # newest first inside each group — across folders only the date ever
+    # meant anything, see `k.such_nur_datum`).
+    antwort = _aus_index(pf_id, ordner, sieb, suche, feld, richtung, pro, seite,
+                         alle_uids, mit_korb, rest, blaettern=blaettern)
+    if antwort is not None:
+        return antwort
+    schluessel = (sieb, suche, feld, mit_korb)
 
     def arbeit(k):
         halt = _SUCH_HALT.get(pf_id)
         if not (blaettern and halt and halt["schluessel"] == schluessel
                 and time.time() - halt["zeit"] < SUCHE_HALTEN):
-            halt = dict(k.treffer_ueberall(sieb, suche, feld),
+            halt = dict(k.treffer_ueberall(sieb, suche, feld, mit_korb=mit_korb),
                         schluessel=schluessel, zeit=time.time())
             _SUCH_HALT[pf_id] = halt
         treffer = halt["treffer"]
@@ -4100,6 +4140,125 @@ def _liste_ueberall(pf_id, ordner, sieb, suche, feld, sortierung, richtung, pro,
             "mails": k.koepfe_ueberall(teil, halt["orte"], auszug=auszug),
         }
     return tu(pf_id, arbeit)
+
+
+_REST_SCHLOSS = {}
+_REST_NR = {}
+
+
+class RestVeraltet(RuntimeError):
+    """A newer search of the same mailbox has started its own server pass."""
+
+
+def _rest_suchen(pf_id, sieb, suche, feld, nur, mit_korb) -> dict:
+    """The server pass over the folders the index has not finished — on its
+    OWN read-only connection. 🔴 Not on the page's connection: during the first
+    build this can take as long as the old search did, and no click may wait
+    behind it. One such pass per mailbox at a time — and a pass whose search
+    has been overtaken by a newer one (live search while typing) stops at the
+    next folder instead of holding the line for the word that counts."""
+    schloss = _REST_SCHLOSS.setdefault(pf_id, threading.Lock())
+    with _V_SCHLOSS:
+        nr = _REST_NR[pf_id] = _REST_NR.get(pf_id, 0) + 1
+
+    def veraltet():
+        return _REST_NR.get(pf_id) != nr
+    with schloss:
+        if veraltet():
+            raise RestVeraltet()
+        zug = _zugang(pf_id)
+        if not zug:
+            raise RuntimeError(txt("a.kein_postfach"))
+        k = Briefkasten(zug, schreiben=False)
+        k.__enter__()
+        try:
+            erg = k.treffer_ueberall(sieb, suche, feld, nur=nur, mit_korb=mit_korb,
+                                     abbruch=veraltet)
+        finally:
+            _schliessen(k)
+        if veraltet():
+            raise RestVeraltet()
+        return erg
+
+
+# ── 5.31.0: the answer out of the index ─────────────────────────────────
+# 🔑 Nothing in here talks to the server unless the index has not finished a
+# folder yet — then exactly those folders are searched there, on the page's
+# second question (`rest`), and their hits join the list. The page is told how
+# far the index is, so „fewer hits" can never happen silently.
+def _aus_index(pf_id, ordner, sieb, suche, feld, richtung, pro, seite, alle_uids,
+               mit_korb, rest, nur="", blaettern=False):
+    if SI is None or not SI.bereit(pf_id):
+        return None
+    try:
+        abd = SI.abdeckung(pf_id, mit_korb=mit_korb, ordner=nur)
+        if nur and not abd["fertig"]:
+            return None                       # that folder: the server, as before
+        if not nur and abd["mails"] == 0:
+            return None                       # nothing in it yet: the old way entirely
+        erg = SI.suchen(pf_id, suche, feld, sieb, ordner=nur, mit_korb=mit_korb)
+    except Exception as e:                    # noqa: BLE001
+        log("Suchindex nicht nutzbar: %s" % str(e)[:120])
+        return None
+    treffer = [list(t) + [0] for t in erg["treffer"]]   # [datum, ordner, uid, id, -]
+    imap_orte, rest_gesucht, veraltet = {}, False, False
+    if abd["offen"] and rest and not nur:
+        schluessel = (sieb, suche, feld, mit_korb, "rest", tuple(sorted(abd["offen"])))
+        halt = _SUCH_HALT.get(pf_id)
+        if not (blaettern and halt and halt["schluessel"] == schluessel
+                and time.time() - halt["zeit"] < SUCHE_HALTEN):
+            try:
+                halt = dict(_rest_suchen(pf_id, sieb, suche, feld, set(abd["offen"]), mit_korb),
+                            schluessel=schluessel, zeit=time.time())
+                _SUCH_HALT[pf_id] = halt
+            except RestVeraltet:
+                # A newer search is on its way; the page draws only that one.
+                halt, veraltet = None, True
+    if abd["offen"] and rest and not nur and halt is not None:
+        drin = {(t[1], t[2]) for t in treffer}
+        treffer += [[d, o, u, None, 0] for d, o, u in halt["treffer"] if (o, u) not in drin]
+        imap_orte = halt["orte"]
+        rest_gesucht = True
+    if richtung == "auf":
+        treffer.sort(key=lambda t: (t[0] or 0, t[2]))
+    n = len(treffer)
+    seiten = max(1, (n + pro - 1) // pro)
+    nr = min(seite, seiten)
+    teil = treffer[(nr - 1) * pro:nr * pro]
+    aus_idx = SI.saetze(pf_id, [t[3] for t in teil if t[3] is not None], erg["begriffe"])
+    vom_server = [(t[0], t[1], t[2]) for t in teil if t[3] is None]
+    server_saetze = {}
+    if vom_server:
+        for satz in tu(pf_id, lambda k: k.koepfe_ueberall(vom_server, imap_orte,
+                                                          auszug=True)):
+            server_saetze[(satz["ordner"], satz["uid"])] = satz
+    mails = []
+    for t in teil:
+        satz = aus_idx.get(t[3]) if t[3] is not None else server_saetze.get((t[1], t[2]))
+        if satz is not None:
+            mails.append(satz)
+    hinweis = {"anteil": abd["anteil"], "offen": len(abd["offen"]),
+               "rest": rest_gesucht, "veraltet": veraltet, "ms": erg["ms"],
+               "unscharf": erg["unscharf"][:8]}
+    antwort = {
+        "ok": True, "ordner": ordner, "gesamt": n, "seite": nr, "seiten": seiten,
+        "pro_seite": pro, "sortiert": True, "index": hinweis,
+        "alle_uids": None, "mails": mails,
+    }
+    if nur:
+        with SI._Leser(pf_id) as db:
+            r = db.execute("SELECT messages, unseen FROM ordner WHERE name=?",
+                           (nur,)).fetchone()
+        antwort.update({"ordner_gesamt": int((r or (0, 0))[0] or 0),
+                        "ordner_ungelesen": int((r or (0, 0))[1] or 0),
+                        "alle_uids": [t[2] for t in treffer] if alle_uids else None,
+                        "auszug_fehlt": [], "uidvalidity": None})
+    else:
+        antwort.update({
+            "ueberall": True, "in_ordnern": len({t[1] for t in treffer}),
+            "treffer_gesamt": n, "gekuerzt": False,
+            "alle_posten": [[t[1], t[2]] for t in treffer] if alle_uids else None})
+    return antwort
 
 
 def neu_liste(d: dict) -> dict:
@@ -4372,6 +4531,8 @@ def warm_veraltet(pf_id: str) -> None:
         # the page wrote would otherwise clear a flag with data from before.
         posten["gen"] += 1
     vorwaermen(pf_id)
+    if SI is not None:
+        SI.anstossen(pf_id)         # 5.31.0: the index follows at once
 
 
 def vorwaermen_beim_start(pf_id: str) -> None:
@@ -4500,7 +4661,23 @@ def mail_zeigen(d: dict) -> dict:
     # pass, and with the setting on „always" it was paid on every single mail.
     vorab = (None if wunsch is None and einstellungen()["bilder"] == "bekannte"
              else _bilder_erlaubt(pf_id, "", wunsch))
-    m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=bool(vorab)))
+    unbekannt = None
+    try:
+        m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=bool(vorab)))
+    except OrdnerUnbekannt as e:
+        m, unbekannt = {}, e
+    if not m:
+        # 🔑 5.31.0: a hit from the index names folder and UID as they were at
+        # the last comparison. A mail moved since (by the watchman, by another
+        # program) is looked for by its Message-Id after a fresh comparison.
+        neu = _verlegt(pf_id, ordner, uid)
+        if neu is not None:
+            ordner, uid = neu
+            m = tu(pf_id, lambda k: k.mail(ordner, uid, bilder=bool(vorab)))
+            if m:
+                m["verlegt"] = True
+    if not m and unbekannt is not None:
+        raise unbekannt                     # a wrong folder stays a 400 (5.30.1)
     if not m:
         return {"ok": False, "text": txt("k.mail_weg")}
     bilder = vorab if vorab is not None else _bilder_erlaubt(
@@ -4552,6 +4729,20 @@ def mail_zeigen(d: dict) -> dict:
     if einst["wache_grund"]:
         m["wache"] = wache_urteil(pf_id, m.get("adresse") or "")
     return m
+
+
+def _verlegt(pf_id: str, ordner: str, uid: int):
+    """(folder, uid) where the mail the index knew at (ordner, uid) is now."""
+    if SI is None or not SI.bereit(pf_id):
+        return None
+    ort = SI.ort_fuer(pf_id, ordner, uid)
+    if not ort.get("msgid"):
+        return None
+    SI.abgleich_abwarten(pf_id, 8.0)
+    for o, u in SI.wo_jetzt(pf_id, ort["msgid"], ort.get("groesse") or 0):
+        if (o, u) != (ordner, uid):
+            return o, u
+    return None
 
 
 def wache_urteil(pf_id: str, adresse: str) -> dict:

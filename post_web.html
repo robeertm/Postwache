@@ -1070,6 +1070,7 @@ async function dokSuche(){
     </div>` : "";
   z.innerHTML = (r.gesamt > tr.length
       ? `<div class="leise klein">${txt("dok.treffer", {gesamt: r.gesamt, n: tr.length})}</div>` : "")
+    + (tr[0].unscharf ? `<div class="leise klein">${txt("dok.aehnlich")}</div>` : "")
     + leiste
     + tr.map(e => {
     const liste = e.dateien_gezeigt || e.dateien || [];

@@ -2049,10 +2049,39 @@ def dokumente_suchen(idx: dict, frage: str = "", art: str = "dokument",
     sender, the name, the subject, the file name or the folder. Several words
     must ALL occur, but not next to each other — „telekom pdf“ and „pdf telekom“
     find the same thing."""
-    worte = [normal(w) for w in re.split(r"\s+", frage or "") if w.strip()]
+    # 🔑 5.31.0: the same folding as the search index (ä = ae = a, ß = ss) and,
+    # when the exact words find nothing, the same tolerance for a typo — one
+    # rule for every search field of the page.
+    try:
+        import suchindex as _si
+        falte = _si.falten
+    except Exception:                        # noqa: BLE001
+        _si, falte = None, normal
+    worte = [falte(w) for w in re.split(r"\s+", frage or "") if w.strip()]
     # Once for the whole search: which file — attached to WHICHEVER mail — is
     # already in DocuSort?
     zwillinge = ds_zwillinge(idx)
+    erg = _dokumente_durchgang(idx, worte, art, von, bis, falte, zwillinge, None)
+    if not erg and worte and _si is not None:
+        nah = {}
+
+        def unscharf(w, heuhaufen):
+            for t in set(re.findall(r"[a-z0-9]{3,}", heuhaufen)):
+                schl = (w, t)
+                if schl not in nah:
+                    nah[schl] = (len(w) >= 4 and abs(len(t) - len(w)) <= 2
+                                 and _si._aehnlich(w, t, _si._erlaubt(w)) <= _si._erlaubt(w))
+                if nah[schl]:
+                    return True
+            return False
+        erg = _dokumente_durchgang(idx, worte, art, von, bis, falte, zwillinge, unscharf)
+        for e in erg:
+            e["unscharf"] = True
+    erg.sort(key=lambda e: str(e.get("datum") or ""), reverse=True)
+    return {"gesamt": len(erg), "treffer": erg[:grenze]}
+
+
+def _dokumente_durchgang(idx, worte, art, von, bis, falte, zwillinge, unscharf) -> list:
     treffer = []
     for schluessel, e in (idx.get("eintraege") or {}).items():
         dateien = e.get("dateien") or []
@@ -2065,14 +2094,15 @@ def dokumente_suchen(idx: dict, frage: str = "", art: str = "dokument",
             continue
         if bis and d and d > bis:
             continue
-        heuhaufen = normal(" ".join([
+        heuhaufen = falte(" ".join([
             str(e.get("adresse") or ""), str(e.get("name") or ""),
             str(e.get("betreff") or ""), str(e.get("ordner") or ""),
             " ".join(str(f.get("n") or "") for f in (e.get("dateien") or [])),
             " ".join(endung(str(f.get("n") or "")).lstrip(".")
                      for f in (e.get("dateien") or [])),
         ]))
-        if worte and not all(w in heuhaufen for w in worte):
+        if worte and not all(w in heuhaufen or (unscharf is not None and unscharf(w, heuhaufen))
+                             for w in worte):
             continue
         # 🔑 Whether a file can still be handed over is decided by the SERVER —
         # at the same place that also decides the handover itself. The page only
@@ -2101,8 +2131,7 @@ def dokumente_suchen(idx: dict, frage: str = "", art: str = "dokument",
         # later for saying „hand this to DocuSort“.
         treffer.append(dict(e, schluessel=schluessel, dateien_gezeigt=gezeigt,
                             gebbar=any(f["gebbar"] for f in gezeigt)))
-    treffer.sort(key=lambda e: str(e.get("datum") or ""), reverse=True)
-    return {"gesamt": len(treffer), "treffer": treffer[:grenze]}
+    return treffer
 
 
 # ── Handover to DocuSort ──────────────────────────────────────

@@ -7,6 +7,67 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.31.0] - 2026-11-13
+
+### Added
+- **Local search index**: one SQLite file per mailbox in the state folder (mode 0600), FTS5 with the
+  trigram tokenizer, so any three characters in a row are searchable: "invo" finds "invoice", a
+  fragment in the middle of a word finds the word. Indexed: subject, sender (name and address),
+  recipients, Cc, Reply-To, delivery address headers, folder, date, the **body text** (the HTML part
+  turned into text where there is one, otherwise the plain part; up to 100,000 characters per mail),
+  **attachment names** and the content of small text and HTML attachments.
+- **Folding**: case does not matter, umlauts match their transcription and the bare vowel
+  (ä = ae = a), ß = ss, accents are ignored. Query and index are folded the same way.
+- **Typo tolerance**: when the exact words find (almost) nothing, a second stage swaps misspelled
+  words for similar words from the index's own vocabulary (edit distance 1, or 2 for longer words,
+  to a piece of a word). The page says which similar words were used.
+- Several words must all occur, each in any field; "quoted phrases"; optional prefixes `from:`,
+  `subject:`, `to:`, `text:`, `attachment:`, `folder:` (also in the other UI languages). Free text
+  needs no syntax.
+- **Ranking**: hits with every word in subject or sender first, then hits with some of them, then
+  body-only hits; newest first inside each group. Every hit names its folder, shows the matching
+  piece of text with the hit marked, and marks the subject.
+- **Built on its own read-only connection** (`EXAMINE`, `BODY.PEEK`, it cannot set `\Seen`), throttled,
+  inbox and sent first, newest first within a folder, resumable after a restart.
+- **Always current**: one command (LIST-STATUS with UIDVALIDITY, UIDNEXT, MESSAGES, HIGHESTMODSEQ)
+  compares every folder, every 15 seconds while the page is in use, every 5 minutes otherwise, and at
+  once after every action of the page, every run of the watchman and every change the listening post
+  hears. Flags via CONDSTORE `CHANGEDSINCE`; moved mails are recognised by Message-ID and size, so their
+  text is not fetched again; deletions, UIDVALIDITY changes, renamed and deleted folders. Servers
+  without LIST-STATUS or CONDSTORE are supported (STATUS per folder, full flag fetch).
+- **Nightly full comparison** (from 03:40, once a day, never during the first build): every folder
+  without the mark shortcut, missing texts fetched again, the file checked; a damaged file is thrown
+  away and rebuilt. A failure is logged and shown in the health check.
+- **Everywhere the search field is**: "All folders" and "This folder only" (once that folder is
+  complete in the index), wide and phone layouts, "load more" and "select all" through the same request
+  description, the read-only API (`/api/lesezugang/mails?suche=` now also finds words in the body), and
+  the documents search (same folding, typo stage).
+- **Live search while typing** (250 ms debounce, from two characters; Enter searches at once; an
+  emptied field ends the search).
+- **Trash and spam** are indexed but left out by default, with a switch to include them.
+- **Honest while building**: index hits at once plus "Index x % — the rest is still being searched",
+  then the old server search runs automatically for the unfinished folders only (on its own connection,
+  no click waits for it) and the hits are merged. Never silently fewer hits.
+- **Stale UID**: a hit whose mail was moved since the last comparison still opens: the index catches up
+  and finds it again by Message-ID; the page takes over the new folder and UID.
+- `/api/gesundheit` reports the index state (mails, folders, build percentage, age of the last
+  comparison, build duration, file size), counts only.
+- `POSTWACHE_SUCHINDEX=0` switches the index off (search as before).
+- New messages in all five languages.
+
+### Fixed
+- While the index was still being built, a search first showed only the hits of the finished folders
+  and the page looked done for a moment before the server pass for the remaining folders started.
+  The server pass now starts at once and the page keeps loading until it is in; an older pass that a
+  newer search overtakes stops early.
+- A folder left out of the server's status answer is asked on its own and otherwise stays "not
+  finished" (searched on the server) instead of disappearing from the coverage.
+- `UID SORT` arguments are passed as text, so the server-side sort also works with newer Python
+  releases that quote these arguments themselves.
+
+### Changed
+- Tailscale in the image 1.104.7.
+
 ## [5.30.1] - 2026-11-11
 
 ### Fixed

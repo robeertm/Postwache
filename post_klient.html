@@ -354,6 +354,9 @@ body.zieht .z,body.zieht .o{cursor:grabbing}
 .z .zeichen{grid-column:4;grid-row:2;display:flex;gap:.28rem;font-size:.74rem;
   color:var(--leise);align-items:center;justify-self:end}
 /* Line 3: the first words of the letter itself, across the full width. */
+.suchhinweis{padding:.35rem .9rem;border-bottom:1px solid var(--rand);line-height:1.4}
+/* Search hits: a quiet marker that reads on light and dark, no change of metrics. */
+.z mark{background:rgba(224,164,88,.30);color:inherit;border-radius:2px;padding:0;margin:0}
 .z .aus{grid-column:3/5;grid-row:3;font-size:.79rem;color:var(--leiser);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.45}
 .z.neu .von,.z.neu .bet{font-weight:700}
@@ -641,11 +644,13 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
     <div class="suchfeld">
       <span class="leise" aria-hidden="true">🔍</span>
       <input id="suche" data-t-platzhalter="k.suchen"
+             oninput="sucheTippt(event)" oncompositionend="sucheTippt(event)"
              onkeydown="if(event.key==='Enter')sucheLos();if(event.key==='Escape')sucheLeeren()">
       <select id="suchort" onchange="if($('#suche').value)sucheLos()"
               data-t-titel="k.such_wo">
         <option value="ueberall" data-t="k.such_alle_ordner"></option>
         <option value="hier" data-t="k.such_dieser_ordner"></option>
+        <option value="ueberall_korb" data-t="k.such_alle_ordner_korb"></option>
       </select>
       <select id="suchfeld" onchange="if($('#suche').value)sucheLos()">
         <option value="alle" data-t="k.feld_alle"></option>
@@ -731,6 +736,7 @@ kbd{font:600 .72rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
         </div>
       </div>
       <div class="rollen" id="rollen">
+        <div class="suchhinweis kleiner leise" id="suchhinweis" hidden></div>
         <div class="zeilen" id="zeilen"></div>
         <div class="leer" id="listeleer" hidden></div>
       </div>
@@ -919,6 +925,9 @@ function esc(s){ return String(s == null ? "" : s)
 const S = {
   pf:"", ordner:"INBOX", seite:1, sieb:"", suche:"", feld:"alle",
   ueberall:true,           // a search asks EVERY folder unless told otherwise
+  mit_korb:false,          // ... and only with the switch also trash + spam
+  rest:false,              // this search already asks the server for the unindexed rest
+  index:null,              // the `index` object of the last search answer
   neu_art:"",              // "" = „New", "ein" = „Filed" — both lists out of many folders
   ein_zeitraum:"t1", ein_heute:0,
   sortierung:"datum", richtung:"ab", pro:50,
@@ -1319,7 +1328,7 @@ async function ordnerWaehlen(name){
   S.neu = false; S.aus_neu = false; S.neu_art = "";
   /* Clicking a folder during a search everywhere narrows the search to it —
      the word stays, the place changes. That is what the click says. */
-  if(trefferUeberall()){ S.ueberall = false; $("#suchort").value = "hier"; }
+  if(trefferUeberall()){ S.ueberall = false; S.rest = false; $("#suchort").value = "hier"; }
   S.ordner = name; S.seite = 1; S.gewaehlt.clear(); S.uid = 0; S.offen = null;
   leseLeeren();
   ordnerMalen();
@@ -1334,7 +1343,8 @@ async function neuWaehlen(){
   S.neu = true; S.aus_neu = false; S.neu_art = "";
   /* „New" is one glance at what came in — it does not search. A word left in
      the field would claim a filter that is not there. */
-  if(S.suche){ $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true; }
+  if(S.suche){ $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true;
+    S.rest = false; S.index = null; S.such_schluessel = ""; }
   S.seite = 1; S.gewaehlt.clear(); S.uid = 0; S.offen = null;
   leseLeeren();
   ordnerMalen();
@@ -1355,7 +1365,8 @@ async function neuWaehlen(){
    action already knows how to deal with rows from many folders. */
 async function einsortiertWaehlen(){
   S.neu = true; S.aus_neu = false; S.neu_art = "ein";
-  if(S.suche){ $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true; }
+  if(S.suche){ $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true;
+    S.rest = false; S.index = null; S.such_schluessel = ""; }
   S.seite = 1; S.gewaehlt.clear(); S.uid = 0; S.offen = null;
   leseLeeren();
   ordnerMalen();
@@ -1499,7 +1510,7 @@ const UNTERWEGS = new Map();       // key -> pending answer (prefetch or load)
 let VORAB_UHR = 0;
 function listenSchluessel(art){
   if(S.neu) return [S.pf, S.neu_art === "ein" ? "ein:" + S.ein_zeitraum : "neu"].join("\u0000");
-  if(trefferUeberall()) return "";            // hits everywhere have their own hold
+  if(trefferUeberall() || S.suche) return ""; // hits have no hold: the index answers fast
   return [S.pf, S.ordner, S.sieb || "", S.suche || "", S.feld || "", S.sortierung || "",
           S.richtung || "", S.pro || "", S.seite || 1].join("\u0000");
 }
@@ -1508,7 +1519,14 @@ function listeAnfrage(blaettern){
     ? (S.neu_art === "ein" ? {zeitraum:S.ein_zeitraum, vorlaeufig_ok:true} : {vorlaeufig_ok:true})
     : {ordner:S.ordner, seite:S.seite, sieb:S.sieb, suche:S.suche, feld:S.feld,
        sortierung:S.sortierung, richtung:S.richtung, pro_seite:S.pro,
-       ueberall:trefferUeberall(), blaettern:!!blaettern, auszug_spaeter:true};
+       ueberall:trefferUeberall(), blaettern:!!blaettern, auszug_spaeter:true,
+       ...suchZusatz()};
+}
+/* What only a search adds to the ONE list request: trash + spam, and the
+   server-side pass over folders the index has not finished. */
+function suchZusatz(){
+  if(S.neu || !S.suche) return {};
+  return {mit_korb:!!(S.ueberall && S.mit_korb), rest:!!S.rest};
 }
 function listeMerken(schluessel, a){
   if(!schluessel || !a || a.ok === false || a.unveraendert) return;
@@ -1558,6 +1576,7 @@ async function ladeListe(frisch, blaettern){
   if(!a || a.ok === false){ melde((a && a.text) || txt("k.ging_nicht"), false); return; }
   if(a.unveraendert){
     if(halt) halt.zeit = Date.now();
+    if(S.suche && S.rest && S.index) S.index = Object.assign({}, S.index, {rest:true});
     if(typeof a.einsortiert_heute === "number" && a.einsortiert_heute !== S.ein_heute){
       S.ein_heute = a.einsortiert_heute; ordnerMalen(); }
     ordnerZahlAktualisieren(a.ordner_gesamt, a.ordner_ungelesen);
@@ -1566,6 +1585,17 @@ async function ladeListe(frisch, blaettern){
     /* Drawn over a first frame: the reader may have scrolled in it already —
        the place they are at stays. */
     antwortZeigen(a, schluessel, gezeigt ? r.scrollTop : (frisch ? 0 : stand));
+    /* An incomplete index never passes for the whole truth: ask again, once
+       per search, with the server pass for the folders it has not finished. */
+    const ix = a.index;
+    if(!S.neu && S.suche && ix && ix.offen > 0 && !ix.rest && !S.rest){
+      /* 🔴 AT ONCE, in the same breath (5.31.0, found on the gate): a pause
+         here left the page idle with only the indexed folders' hits on screen —
+         „done" with fewer hits, the 5.19.0 mistake. The page stays loading until
+         the rest is in; a newer search makes the server drop the older pass. */
+      S.rest = true; S.liste_kennung = "";
+      await ladeListe(false, !!blaettern);
+    }
   }
   if(a.vorlaeufig) await bestaetigen(nr, schluessel, a.warm_lauf);
 }
@@ -1606,6 +1636,7 @@ function antwortZeigen(a, schluessel, scroll){
     S.such_gekuerzt = !!a.gekuerzt;
     S.treffer_gesamt = a.treffer_gesamt || 0;
   }
+  S.index = (!S.neu && S.suche && a.index) ? a.index : null;
   if(typeof a.einsortiert_heute === "number" && a.einsortiert_heute !== S.ein_heute){
     S.ein_heute = a.einsortiert_heute; ordnerMalen(); }
   listeMalen();
@@ -1727,7 +1758,27 @@ function haftungAnwenden(){
   S.liste_kennung = "";
 }
 
+/* The honest line above search hits: how much of the mailbox the index has
+   covered, and which similar words stood in for a missing exact hit. */
+function suchHinweisText(){
+  const ix = S.index;
+  if(S.neu || !S.suche || !ix) return "";
+  const teile = [];
+  if(ix.offen > 0){
+    const p = Math.round((ix.anteil || 0) * 100);
+    teile.push(txt(ix.rest ? "k.index_rest_fertig" : "k.index_rest_laeuft", {p:p}));
+  }
+  if((ix.unscharf || []).length) teile.push(txt("k.such_aehnlich", {w:ix.unscharf.join(", ")}));
+  return teile.join(" · ");
+}
+/* Segments [[text, isHit], ...] -> escaped HTML with <mark> around the hits. */
+function fundHtml(segmente){
+  return segmente.map(([t, treffer]) =>
+    treffer ? "<mark>" + esc(t) + "</mark>" : esc(t)).join("");
+}
 function listeMalen(){
+  const hin = $("#suchhinweis"), hinText = suchHinweisText();
+  if(hin){ hin.textContent = hinText; hin.hidden = !hinText; }
   const z = $("#zeilen"), leer = $("#listeleer");
   if(!S.mails.length){
     z.innerHTML = "";
@@ -1777,10 +1828,12 @@ function listeMalen(){
             >${esc(initialen(m.von, m.adresse))}</span>
       <span class="von" title="${esc(m.adresse)}">${esc(wer)}</span>
       <span class="wann">${esc(wann(m.zeit))}</span>
-      <span class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</span>
+      <span class="bet">${(m.betreff_fund && m.betreff_fund.length)
+        ? fundHtml(m.betreff_fund) : esc(m.betreff || txt("k.ohne_betreff"))}</span>
       <span class="zeichen">${ort}${zeichen}</span>
-      ${(!eng && S.einst.vorschautext && dritte) ? `<span class="aus">${
-        esc(dritte)}</span>` : ""}
+      ${(!eng && ((S.einst.vorschautext && dritte) || (m.fund && m.fund.length && !m.weg)))
+        ? `<span class="aus">${
+        (m.fund && m.fund.length && !m.weg) ? fundHtml(m.fund) : esc(dritte)}</span>` : ""}
     </div>`;
   }).join("");
   spanneMalen();
@@ -1802,6 +1855,7 @@ function ordnerKurz(m){
 }
 function zweitzeile(m){
   if(m.weg) return "⚠︎ " + txt("k.ein_weg_kurz");   // filed there, no longer there
+  if(m.fund && m.fund.length) return m.fund.map(x => x[0]).join("");
   if(m.auszug) return m.auszug;
   /* 5.27.0: the excerpt is on its way — keep its line, empty, so nothing
      moves when it arrives. */
@@ -1930,10 +1984,9 @@ async function alleImOrdner(){
   }
   const knopf = $("#alle_ordner");
   if(knopf) knopf.disabled = true;
-  const r = await sende("klient_liste", {ordner:S.ordner, seite:S.seite,
-      sieb:S.sieb, suche:S.suche, feld:S.feld, sortierung:S.sortierung,
-      richtung:S.richtung, pro_seite:S.pro, alle_uids:true,
-      ueberall:trefferUeberall(), blaettern:true});
+  /* The ONE request description, never a second hand-built one. */
+  const r = await sende("klient_liste", Object.assign(listeAnfrage(true),
+      {alle_uids:true, auszug_spaeter:false}));
   if(knopf) knopf.disabled = false;
   /* Across folders the answer is (folder, number) pairs — a number alone would
      tick the mail with that number in the folder that happens to be open. */
@@ -2354,10 +2407,26 @@ async function richtungDrehen(){
    🔑 Now a search asks EVERY folder unless „this folder" is chosen, and every
    hit says where it lives. Searching from „New" leaves it for the hits, and
    clearing the search goes back there. */
+/* Live search: typing asks after a short pause, from two characters on. Enter
+   asks at once; an emptied field ends the search like the ✕. */
+let SUCHUHR = 0;
+function sucheTippt(ev){
+  clearTimeout(SUCHUHR);
+  if(ev && (ev.isComposing || (ev.originalEvent && ev.originalEvent.isComposing))) return;
+  const t = $("#suche").value.trim();
+  if(!t){ if(S.suche) sucheLeeren(); return; }
+  if(t.length < 2) return;
+  SUCHUHR = setTimeout(sucheLos, 250);
+}
 async function sucheLos(){
+  clearTimeout(SUCHUHR);
   S.suche = $("#suche").value.trim();
   S.feld = $("#suchfeld").value;
-  S.ueberall = $("#suchort").value !== "hier";
+  const ort = $("#suchort").value;
+  S.ueberall = ort !== "hier";
+  S.mit_korb = ort === "ueberall_korb";
+  const such = [S.suche, S.feld, ort].join("\u0000");
+  if(such !== S.such_schluessel){ S.rest = false; S.index = null; S.such_schluessel = such; }
   if(!S.suche && S.aus_neu) return sucheLeeren();     // an emptied field ends it
   if(S.suche && S.neu){ S.neu = false; S.aus_neu = true; }
   S.seite = 1; S.gewaehlt.clear();
@@ -2366,7 +2435,9 @@ async function sucheLos(){
   await ladeListe(true);
 }
 async function sucheLeeren(){
+  clearTimeout(SUCHUHR);
   $("#suche").value = ""; S.suche = ""; $("#suche_x").hidden = true;
+  S.rest = false; S.index = null; S.such_schluessel = "";
   S.seite = 1; S.gewaehlt.clear();
   if(S.aus_neu) return neuWaehlen();
   ordnerMalen();
@@ -2397,6 +2468,15 @@ async function mailOeffnen(uid, ordner){
   if(!m || !m.ok){
     $("#lese").innerHTML = `<div class="leer"><div>${esc((m && m.text) || txt("k.ging_nicht"))}</div></div>`;
     return;
+  }
+  /* 🔑 5.31.0: the index named a place the mail has left. The server found it
+     again — from here on this row and every follow-up action use the NEW place. */
+  if(m.verlegt && m.uid && m.ordner){
+    const alt = S.mails.find(x => x.uid === uid && (x.ordner || S.ordner) === S.uid_ordner);
+    if(alt){ alt.uid = m.uid; alt.ordner = m.ordner; }
+    S.uid = uid = m.uid; S.uid_ordner = m.ordner;
+    haftungMerken();
+    listeMalen();
   }
   S.offen = m;
   leseMalen();

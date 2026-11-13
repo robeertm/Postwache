@@ -252,6 +252,9 @@ body.wahlmodus .fuss{display:none}
 .z.neu .von,.z.neu .bet{font-weight:700}
 .z .bet{grid-column:2;grid-row:2;font-size:.88rem;min-width:0;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;opacity:.95}
+/* Search hits: a quiet marker that reads on light and dark, no change of metrics. */
+.z mark{background:rgba(224,164,88,.30);color:inherit;border-radius:2px;padding:0;margin:0}
+.suchhinweis{padding:.45rem .95rem;line-height:1.4}
 .z .aus{grid-column:2;grid-row:3;font-size:.76rem;color:var(--leiser);min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .z .rand{grid-column:3;grid-row:1/4;display:flex;flex-direction:column;
@@ -589,6 +592,7 @@ label{display:block;font-size:.78rem;color:var(--leise);margin:0 0 .25rem}
   <div class="kopf">
     <button class="blank" onclick="blick('liste')" data-t-titel="k.zurueck">‹</button>
     <input id="suche" data-t-platzhalter="k.suchen" autocomplete="off"
+           oninput="sucheTippt(event)" oncompositionend="sucheTippt(event)"
            onkeydown="if(event.key==='Enter')sucheLos()" style="margin:0">
     <button class="blank" onclick="sucheLos()">🔍</button>
   </div>
@@ -758,6 +762,9 @@ function escJs(s){ return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'"); }
 const S = {
   pf:"", ordner:"INBOX", seite:1, sieb:"", suche:"", feld:"alle", pro:50,
   ueberall:true,           // a search asks EVERY folder unless told otherwise
+  mit_korb:false,          // ... and only with the chip also trash + spam
+  rest:false,              // this search already asks the server for the unindexed rest
+  index:null,              // the `index` object of the last search answer
   neu_art:"",              // "" = „New", "ein" = „Filed" — both lists out of many folders
   ein_zeitraum:"t1", ein_heute:0,
   mails:[], uid:0, offen:null, ordner_liste:[], rollen:{}, einst:{}, faehig:{},
@@ -1155,7 +1162,7 @@ const LISTEN_ZEIGEN_MS = 15 * 60 * 1000;
 const UNTERWEGS = new Map();       // key -> pending answer
 function listenSchluessel(){
   if(S.neu) return [S.pf, S.neu_art === "ein" ? "ein:" + S.ein_zeitraum : "neu"].join("\u0000");
-  if(trefferUeberall()) return "";
+  if(trefferUeberall() || S.suche) return "";   // hits have no hold: the index answers fast
   return [S.pf, S.ordner, S.sieb || "", S.suche || "", S.suche ? S.feld : "alle",
           S.pro || ""].join("\u0000");
 }
@@ -1204,9 +1211,13 @@ async function ladeListe(frisch){
                           : "klient_liste", anfrage);
   }catch(e){ return; }
   if(S.liste_nr !== nr) return;                 // a newer request owns the list
-  if(!a || a.ok === false) return melde((a && a.text) || txt("k.ging_nicht"), false);
+  if(!a || a.ok === false){
+    if(S.suche && !S.neu) suchtrefferMalen();
+    return melde((a && a.text) || txt("k.ging_nicht"), false);
+  }
   if(a.unveraendert){
     if(halt) halt.zeit = Date.now();
+    if(S.suche && S.rest && S.index) S.index = Object.assign({}, S.index, {rest:true});
     if(typeof a.einsortiert_heute === "number" && a.einsortiert_heute !== S.ein_heute){
       S.ein_heute = a.einsortiert_heute; ordnerMalen(); }
     if(!S.neu){
@@ -1217,6 +1228,17 @@ async function ladeListe(frisch){
   }else{
     listeMerken(schluessel, a);
     antwortZeigen(a, schluessel, frisch, !!gezeigt);
+    /* An incomplete index never passes for the whole truth: ask again, once
+       per search, with the server pass for the folders it has not finished. */
+    const ix = a.index;
+    if(!S.neu && S.suche && frisch && ix && ix.offen > 0 && !ix.rest && !S.rest){
+      /* 🔴 AT ONCE, in the same breath (5.31.0, found on the gate): a pause
+         here left the page idle with only the indexed folders' hits on screen —
+         „done" with fewer hits, the 5.19.0 mistake. The page stays loading until
+         the rest is in; a newer search makes the server drop the older pass. */
+      S.rest = true; S.liste_kennung = "";
+      await ladeListe(true);
+    }
   }
   if(a.vorlaeufig) await bestaetigen(nr, schluessel, a.warm_lauf);
 }
@@ -1259,7 +1281,9 @@ function antwortZeigen(a, schluessel, frisch, halten){
   if(o.name && typeof a.ordner_gesamt === "number"){
     o.gesamt = a.ordner_gesamt; o.ungelesen = a.ordner_ungelesen; }
   S.in_ordnern = a.in_ordnern || 0;
+  S.index = (S.suche && a.index) ? a.index : null;
   listeMalen();
+  if(S.suche && frisch) suchtrefferMalen();
   fussMalen();
   if(frisch && !halten) $("#rollen").scrollTop = 0;
 }
@@ -1316,7 +1340,13 @@ function vorab(name){
 function listeAnfrage(mehr){
   return Object.assign({ordner:S.ordner, seite:1, sieb:S.sieb, suche:S.suche || "",
     feld:S.suche ? S.feld : "alle", pro_seite:S.pro,
-    ueberall:trefferUeberall()}, mehr || {});
+    ueberall:trefferUeberall()}, suchZusatz(), mehr || {});
+}
+/* What only a search adds to the ONE list request: trash + spam, and the
+   server-side pass over folders the index has not finished. */
+function suchZusatz(){
+  if(S.neu || !S.suche) return {};
+  return {mit_korb:!!(S.ueberall && S.mit_korb), rest:!!S.rest};
 }
 function trefferUeberall(){ return !S.neu && !!S.suche && S.ueberall; }
 async function mehrLaden(){
@@ -1369,6 +1399,24 @@ function haftungAnwenden(){
 
 /* Above the rows: in „Filed" the period, in „New" the way to „Filed" — it
    sits where the question arises, right where a read mail has just gone. */
+/* The honest line above search hits: how much of the mailbox the index has
+   covered, and which similar words stood in for a missing exact hit. */
+function suchHinweisHtml(){
+  const ix = S.index;
+  if(S.neu || !S.suche || !ix) return "";
+  const teile = [];
+  if(ix.offen > 0){
+    const p = Math.round((ix.anteil || 0) * 100);
+    teile.push(txt(ix.rest ? "k.index_rest_fertig" : "k.index_rest_laeuft", {p:p}));
+  }
+  if((ix.unscharf || []).length) teile.push(txt("k.such_aehnlich", {w:ix.unscharf.join(", ")}));
+  return teile.length ? `<div class="suchhinweis kleiner leise">${esc(teile.join(" · "))}</div>` : "";
+}
+/* Segments [[text, isHit], ...] -> escaped HTML with <mark> around the hits. */
+function fundHtml(segmente){
+  return segmente.map(([t, treffer]) =>
+    treffer ? "<mark>" + esc(t) + "</mark>" : esc(t)).join("");
+}
 function listeKopf(){
   if(S.neu && S.neu_art === "ein")
     return `<div class="suchchips" id="einchips">${[["t1","k.o_seit_gestern"],
@@ -1378,7 +1426,7 @@ function listeKopf(){
   if(S.neu && S.ein_heute)
     return `<button class="blank einweg" id="ein_knopf" onclick="einsortiertWaehlen()"
       >${esc(txt("k.ein_heute", {n:S.ein_heute}))}</button>`;
-  return "";
+  return suchHinweisHtml();
 }
 function listeMalen(){
   if(!S.mails.length){
@@ -1419,8 +1467,10 @@ function zeileHtml(m, i){
         <span class="zeichen">${(S.neu || trefferUeberall()) && m.ordner_kurz
           ? `<span class="ort">${m.einsortiert ? "→ " : ""}📁 ${esc(ordnerKurz(m))}</span>`
           : ""}${zeichen}</span></span>
-      <span class="bet">${esc(m.betreff || txt("k.ohne_betreff"))}</span>
-      <span class="aus">${esc(dritteZeile(m))}</span>
+      <span class="bet">${(m.betreff_fund && m.betreff_fund.length)
+        ? fundHtml(m.betreff_fund) : esc(m.betreff || txt("k.ohne_betreff"))}</span>
+      <span class="aus">${(m.fund && m.fund.length && !m.weg)
+        ? fundHtml(m.fund) : esc(dritteZeile(m))}</span>
     </div></div>`;
 }
 
@@ -1815,6 +1865,14 @@ async function mailOeffnen(uid, ordner){
       esc((m && m.text) || txt("k.ging_nicht"))}</div>`;
     return;
   }
+  /* 🔑 5.31.0: the index named a place the mail has left. The server found it
+     again — from here on this row and every follow-up action use the NEW place. */
+  if(m.verlegt && m.uid && m.ordner){
+    const alt = S.mails.find(x => x.uid === uid && (x.ordner || S.ordner) === (ordner || S.ordner));
+    if(alt){ alt.uid = m.uid; alt.ordner = m.ordner; }
+    S.uid = uid = m.uid;
+    haftungMerken();
+  }
   S.offen = m;
   mailMalen();
   const inListe = S.mails.find(x => x.uid === uid);
@@ -2145,11 +2203,12 @@ function suchchipsMalen(){
   const felder = [["alle","k.feld_alle"],["von","k.feld_von"],["betreff","k.feld_betreff"],
                   ["an","k.feld_an"],["text","k.feld_text"]];
   const o = S.ordner_liste.find(x => x.name === S.ordner);
-  const orte = [[true, "🗂 " + txt("k.such_alle_ordner")],
-                [false, "📁 " + (o ? ordnerName(o) : txt("k.such_dieser_ordner"))]];
-  $("#suchchips").innerHTML = orte.map(([v, name]) =>
-    `<button class="${S.ueberall === v ? "an" : ""}" data-ort="${v ? "ueberall" : "hier"}"
-      onclick="S.ueberall=${v};suchchipsMalen();if($('#suche').value)sucheLos()"
+  const orte = [["ueberall", "🗂 " + txt("k.such_alle_ordner"), S.ueberall && !S.mit_korb],
+                ["hier", "📁 " + (o ? ordnerName(o) : txt("k.such_dieser_ordner")), !S.ueberall],
+                ["korb", "🗑 " + txt("k.such_korb_kurz"), S.ueberall && S.mit_korb]];
+  $("#suchchips").innerHTML = orte.map(([v, name, an]) =>
+    `<button class="${an ? "an" : ""}" data-ort="${v}"
+      onclick="S.ueberall=${v !== "hier"};S.mit_korb=${v === "korb"};suchchipsMalen();if($('#suche').value)sucheLos()"
       >${esc(name)}</button>`).join("")
     + '<span class="trenner" aria-hidden="true"></span>'
     + felder.map(([v, k]) =>
@@ -2158,36 +2217,70 @@ function suchchipsMalen(){
 }
 /* Ends a search without loading anything — the caller decides what comes next. */
 function sucheEnde(){
-  S.suche = ""; S.aus_neu = false;
+  clearTimeout(SUCHUHR);
+  S.suche = ""; S.aus_neu = false; S.rest = false; S.index = null; S.such_schluessel = "";
   const f = $("#suche"); if(f) f.value = "";
   const t = $("#suchtreffer"); if(t) t.innerHTML = "";
 }
+/* Live search: typing asks after a short pause, from two characters on. Enter
+   asks at once; an emptied field ends the search. */
+let SUCHUHR = 0;
+function sucheTippt(ev){
+  clearTimeout(SUCHUHR);
+  if(ev && ev.isComposing) return;
+  const t = $("#suche").value.trim();
+  if(!t){ if(S.suche) sucheBeenden(); return; }
+  if(t.length < 2) return;
+  SUCHUHR = setTimeout(sucheLos, 250);
+}
+/* The field was emptied: back to what the search came from, the sheet stays. */
+function sucheBeenden(){
+  const ausNeu = S.aus_neu;
+  S.liste_nr = (S.liste_nr || 0) + 1;       // a slow answer must not draw any more
+  sucheEnde();
+  if(ausNeu) S.neu = true;
+  S.mails = [];
+  $("#suchtreffer").innerHTML = "";
+  ordnerMalen();
+  ladeListe(true);
+}
+function suchtrefferMalen(){
+  const t = $("#suchtreffer");
+  if(!t || !S.suche || S.neu) return;
+  const hinweis = suchHinweisHtml();
+  if(!S.mails.length){
+    t.innerHTML = hinweis + `<div class="leerraum"><div>
+      <span class="gross">🔍</span>${esc(txt("k.nichts_gefunden"))}</div></div>`;
+    return;
+  }
+  /* 🔴 The hits are the list's own rows, drawn WITH their number — without it a
+     tap found no mail and opened nothing. */
+  t.innerHTML =
+    `<div class="gruppentitel">${esc(txt("k.spanne", {von:1,
+       bis:Math.min(S.gesamt, S.mails.length), n:S.gesamt})
+       + (trefferUeberall() ? " · " + txt("k.such_in_ordnern", {o:S.in_ordnern || 0}) : ""))}</div>`
+    + hinweis
+    + S.mails.map((m, i) => zeileHtml(m, i)).join("")
+    + (S.seiten > 1 ? `<button class="blank suchmehr" onclick="blick('liste')"
+         >${esc(txt("k.such_alle_zeigen", {n:S.gesamt}))}</button>` : "");
+}
 async function sucheLos(){
+  clearTimeout(SUCHUHR);
   S.suche = $("#suche").value.trim();
+  const such = [S.suche, S.feld, S.ueberall, S.mit_korb].join("\u0000");
+  if(such !== S.such_schluessel){ S.rest = false; S.index = null; S.such_schluessel = such; }
   if(!S.suche){
     if(S.aus_neu) return neuWaehlen();
     return;
   }
   if(S.neu){ S.neu = false; S.aus_neu = true; }
   wahlAus();
-  S.seite = 1; S.uid = 0; S.offen = null; S.mails = [];
+  S.seite = 1; S.uid = 0; S.offen = null;
   ordnerMalen();
-  $("#suchtreffer").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
-  await ladeListe(true);
-  if(!S.mails.length){
-    $("#suchtreffer").innerHTML = `<div class="leerraum"><div>
-      <span class="gross">🔍</span>${esc(txt("k.nichts_gefunden"))}</div></div>`;
-    return;
-  }
-  /* 🔴 The hits are the list's own rows, drawn WITH their number — without it a
-     tap found no mail and opened nothing. */
-  $("#suchtreffer").innerHTML =
-    `<div class="gruppentitel">${esc(txt("k.spanne", {von:1,
-       bis:Math.min(S.gesamt, S.mails.length), n:S.gesamt})
-       + (trefferUeberall() ? " · " + txt("k.such_in_ordnern", {o:S.in_ordnern || 0}) : ""))}</div>`
-    + S.mails.map((m, i) => zeileHtml(m, i)).join("")
-    + (S.seiten > 1 ? `<button class="blank suchmehr" onclick="blick('liste')"
-         >${esc(txt("k.such_alle_zeigen", {n:S.gesamt}))}</button>` : "");
+  /* Typing keeps the rows already on screen until the answer replaces them. */
+  if(!$("#suchtreffer").children.length)
+    $("#suchtreffer").innerHTML = `<div class="leerraum"><span class="laedt"></span></div>`;
+  await ladeListe(true);       // draws the hits itself — only the latest request may
 }
 </script>
 

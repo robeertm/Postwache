@@ -2558,7 +2558,8 @@ class Handler(BaseHTTPRequestHandler):
         # This one answers the only question a health check may ask: is the
         # server there? No state, no subprocess, no lock.
         if pfad.rstrip("/") == "/api/gesundheit":
-            return self._sende(200, {"ok": True, "fassung": _version()})
+            return self._sende(200, {"ok": True, "fassung": _version(),
+                                     "suchindex": suchindex_stand()})
         # 🔑 The read-only door has its OWN key (a bearer token, see
         #    lesezugang.py) and stands in front of the page lock on purpose: the
         #    page lock is for people, this is for one program that may read the
@@ -3020,6 +3021,20 @@ def log_fehler(name: str, e: Exception) -> None:
         W.log("Klient %s: %s: %s" % (name, type(e).__name__, str(e)[:160]))
 
 
+def suchindex_stand() -> dict:
+    """5.31.0: how far the search index is — counts only, never content.
+    Never the reason for a failing health check."""
+    try:
+        si = getattr(KL, "SI", None) if KL is not None else None
+        if si is None or W is None:
+            return {"an": False}
+        raus = {pf["id"]: si.stand(pf["id"]) for pf in (W.postfaecher() or [])
+                if pf.get("an", True)}
+        return raus if len(raus) != 1 else dict(next(iter(raus.values())))
+    except Exception as e:                # noqa: BLE001
+        return {"fehler": type(e).__name__}
+
+
 def warm_beim_start() -> None:
     """Warm up every watched mailbox once after the start. Never fatal."""
     time.sleep(8)                         # the page and the watchman come first
@@ -3031,6 +3046,15 @@ def warm_beim_start() -> None:
                 KL.vorwaermen_beim_start(f["id"])
     except Exception as e:                # noqa: BLE001
         print("Vorwaermen beim Start ging nicht: %s" % str(e)[:160], flush=True)
+    # 🔑 5.31.0: the search index is built and kept on its own read-only
+    #    connection from the start on — the first search must not be the one
+    #    that waits for it.
+    try:
+        time.sleep(4)
+        if getattr(KL, "SI", None) is not None:
+            KL.SI.alle_starten()
+    except Exception as e:                # noqa: BLE001
+        print("Suchindex nicht gestartet: %s" % str(e)[:160], flush=True)
 
 
 def takt_faden(sekunden: int) -> None:
@@ -3052,6 +3076,13 @@ def takt_faden(sekunden: int) -> None:
                     W.main()
             except Exception as e:
                 print("Waechterlauf fehlgeschlagen: %s" % str(e)[:200], flush=True)
+            # 5.31.0: the watchman may have filed mail — the index follows now,
+            # not at its next beat.
+            try:
+                if KL is not None and getattr(KL, "SI", None) is not None:
+                    KL.SI.anstossen()
+            except Exception:
+                pass
             # The gap measured from the END of the run, not the start: a run that
             # takes longer than the interval must not overtake itself.
             time.sleep(max(5.0, sekunden - (time.time() - t0)))
