@@ -62,6 +62,10 @@ UNSCHARF_AB = 3                     # fewer exact hits than this → the toleran
 WORTE_JE_BEGRIFF = 12               # similar words tried per misspelled term at most
 AUSSCHNITT = 70                     # characters of context around a hit
 HEILEN_UM = (3, 40)                 # the nightly full comparison, local time
+DB_FEHLER_MAX = 3                   # 5.32.1: this many index-file errors in a row → file put aside
+DB_DEFEKT = ("no such column", "no such table", "has no column", "malformed",
+             "not a database", "corrupt", "disk image", "no such module")
+BEISEITE_PAUSE_S = 86400.0          # the file is put aside at most once a day
 ZUSTELL = ("X-Envelope-To", "X-Original-To", "Envelope-To", "Delivered-To")
 
 # ── Folding: one spelling for everything that means the same ─────────────
@@ -165,8 +169,16 @@ CREATE VIRTUAL TABLE IF NOT EXISTS worte_fts USING fts5(w, tokenize='trigram');
 """
 
 
-def _oeffnen(datei: str) -> sqlite3.Connection:
-    """Open (and if needed create) the file — 0600 before the first byte."""
+def _datei_entfernen(datei: str) -> None:
+    for endung in ("", "-wal", "-shm"):
+        try:
+            os.remove(datei + endung)
+        except OSError:
+            pass
+
+
+def _frisch(datei: str) -> sqlite3.Connection:
+    """A connection to `datei` — created empty, 0600 before the first byte."""
     if not os.path.exists(datei):
         fd = os.open(datei, os.O_RDWR | os.O_CREAT, 0o600)
         os.close(fd)
@@ -175,24 +187,62 @@ def _oeffnen(datei: str) -> sqlite3.Connection:
     except OSError:
         pass
     db = sqlite3.connect(datei, timeout=10, check_same_thread=False)
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA synchronous=NORMAL")
-    db.execute("PRAGMA busy_timeout=10000")
-    db.executescript(TABELLEN)
-    stand = db.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
-    if stand is None:
-        db.execute("INSERT OR REPLACE INTO meta VALUES('schema', ?)", (str(SCHEMA),))
-        db.commit()
-    elif stand[0] != str(SCHEMA):
+    try:
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA synchronous=NORMAL")
+        db.execute("PRAGMA busy_timeout=10000")
+    except Exception:
+        db.close()
+        raise
+    return db
+
+
+def _fremdes_layout(db) -> bool:
+    """True when the file holds data of another layout: a schema number that is
+    not ours, tables but no number at all, or no database at all."""
+    try:
+        db.execute("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)")
+        stand = db.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
+        if stand is not None:
+            return stand[0] != str(SCHEMA)
+        andere = db.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name<>'meta' "
+            "AND name NOT LIKE 'sqlite_%'").fetchone()[0]
+        return andere > 0
+    except sqlite3.DatabaseError as e:
+        # not a database / malformed: throw it away — but a LOCKED file is only busy
+        return not any(m in str(e).lower() for m in ("locked", "busy"))
+
+
+def _oeffnen(datei: str) -> sqlite3.Connection:
+    """Open (and if needed create) the file — 0600 before the first byte.
+
+    🔴 5.32.1: the schema number is read BEFORE a single table is created. The
+    old order (`CREATE … IF NOT EXISTS` first, compare afterwards) tripped over
+    the first index on a column the old file did not have, so the rebuild branch
+    was never reached for a file of the previous layout."""
+    for _versuch in range(2):
+        db = None
+        try:
+            db = _frisch(datei)
+            fremd = _fremdes_layout(db)
+        except sqlite3.DatabaseError as e:
+            if any(m in str(e).lower() for m in ("locked", "busy")):
+                raise
+            fremd = True                       # „file is not a database" and the like
+        if not fremd:
+            break
         # 🔴 A file of another layout is not migrated, it is rebuilt — a copy
         # can always be made again, a half-migrated one lies.
-        db.close()
-        for endung in ("", "-wal", "-shm"):
-            try:
-                os.remove(datei + endung)
-            except OSError:
-                pass
-        return _oeffnen(datei)
+        if db is not None:
+            db.close()
+        _leser_vergessen(datei)
+        _datei_entfernen(datei)
+    else:
+        raise sqlite3.DatabaseError("index file could not be rebuilt")
+    db.executescript(TABELLEN)
+    db.execute("INSERT OR REPLACE INTO meta VALUES('schema', ?)", (str(SCHEMA),))
+    db.commit()
     for endung in ("-wal", "-shm"):
         try:
             os.chmod(datei + endung, 0o600)
@@ -202,26 +252,49 @@ def _oeffnen(datei: str) -> sqlite3.Connection:
 
 
 # Reader connections — a small pool, one caller at a time per connection.
+# 🔴 5.32.1: every connection remembers WHICH file it was opened on (device +
+# inode). A file that was rebuilt or put aside is a new file; a pooled
+# connection on the old one would read a deleted file forever.
 _LESER = {}
 _LESER_SCHLOSS = threading.Lock()
+
+
+def _datei_marke(datei: str):
+    try:
+        st = os.stat(datei)
+        return (st.st_dev, st.st_ino)
+    except OSError:
+        return None
 
 
 class _Leser:
     def __init__(self, pf_id: str):
         self.pf_id = pf_id
         self.db = None
+        self.marke = None
 
     def __enter__(self):
         datei = pfad(self.pf_id)
-        with _LESER_SCHLOSS:
-            frei = _LESER.setdefault(datei, [])
-            self.db = frei.pop() if frei else None
-        if self.db is None:
-            if not os.path.exists(datei):
-                raise FileNotFoundError(datei)
-            self.db = sqlite3.connect(datei, timeout=10, check_same_thread=False)
-            self.db.execute("PRAGMA busy_timeout=10000")
         self.datei = datei
+        marke = _datei_marke(datei)
+        while True:
+            with _LESER_SCHLOSS:
+                frei = _LESER.setdefault(datei, [])
+                eintrag = frei.pop() if frei else None
+            if eintrag is None:
+                break
+            if eintrag[1] == marke:
+                self.db, self.marke = eintrag
+                return self.db
+            try:
+                eintrag[0].close()                  # on the old file: let go
+            except Exception:
+                pass
+        if marke is None:
+            raise FileNotFoundError(datei)
+        self.marke = marke                          # taken BEFORE the connect
+        self.db = sqlite3.connect(datei, timeout=10, check_same_thread=False)
+        self.db.execute("PRAGMA busy_timeout=10000")
         return self.db
 
     def __exit__(self, typ, wert, tb):
@@ -229,7 +302,7 @@ class _Leser:
             with _LESER_SCHLOSS:
                 frei = _LESER.setdefault(self.datei, [])
                 if len(frei) < 4:
-                    frei.append(self.db)
+                    frei.append((self.db, self.marke))
                     return False
         try:
             self.db.close()
@@ -240,9 +313,9 @@ class _Leser:
 
 def _leser_vergessen(datei: str) -> None:
     with _LESER_SCHLOSS:
-        for db in _LESER.pop(datei, []):
+        for eintrag in _LESER.pop(datei, []):
             try:
-                db.close()
+                eintrag[0].close()
             except Exception:
                 pass
 
@@ -339,6 +412,9 @@ class _Posten:
         self.worte = None               # the vocabulary, loaded once
         self.stand = (0.0, None)        # the health check's counts, briefly kept
         self.gen = 0                    # 5.32.0: bumped whenever a pass changed rows
+        self.db_fehler = 0              # 5.32.1: index-file errors of the same kind in a row
+        self.beiseite_um = 0.0          # 5.32.1: when the file was last put aside
+        self.beiseite_n = 0
 
 
 _POSTEN = {}
@@ -455,6 +531,7 @@ def _faden(p: _Posten) -> None:
             if p.fehler:
                 _log("Suchindex %s: wieder in Ordnung" % p.pf_id)
             p.fehler, p.fehler_seit, pause_fehler = "", 0.0, 30.0
+            p.db_fehler = 0
             if gruendlich:
                 p.heilung = {"datum": _heute(), "ok": True, "fehler": ""}
             with p.lauf_bedingung:
@@ -480,6 +557,13 @@ def _faden(p: _Posten) -> None:
                 kasten = None
             warte = pause_fehler
             pause_fehler = min(600.0, pause_fehler * 2)
+            if _datei_fehler(e):
+                p.db_fehler += 1
+                if p.db_fehler >= DB_FEHLER_MAX and _beiseite(p):
+                    p.db_fehler = 0
+                    warte, pause_fehler = DROSSEL_S, 30.0   # build the new file at once
+            else:
+                p.db_fehler = 0              # the provider or the network, not the file
             continue
         aktiv = time.time() - p.aktiv < AKTIV_FENSTER_S
         warte = TAKT_AKTIV_S if aktiv else TAKT_RUHE_S
@@ -490,6 +574,49 @@ def _faden(p: _Posten) -> None:
             kasten = None
     if kasten is not None:
         KL._schliessen(kasten)
+
+
+def _datei_fehler(e: Exception) -> bool:
+    """An error that says the index FILE is the problem (a column that is not
+    there, a damaged page) — not a busy file, not the provider, not the network."""
+    if not isinstance(e, sqlite3.DatabaseError):
+        return False
+    t = str(e).lower()
+    return any(m in t for m in DB_DEFEKT)
+
+
+def _beiseite(p: _Posten) -> bool:
+    """🔑 5.32.1 self-healing: the keeper failed on the file several times in a
+    row. Put it aside (one copy `.defekt`, 0600) and let the next pass build a
+    new one. At most once a day — a file that is broken again right after a
+    fresh build is a bug to see in the health check, not a loop to spin in."""
+    if p.beiseite_um and time.time() - p.beiseite_um < BEISEITE_PAUSE_S:
+        return False
+    datei = pfad(p.pf_id)
+    _leser_vergessen(datei)
+    try:
+        if os.path.exists(datei):
+            os.replace(datei, datei + ".defekt")
+            try:
+                os.chmod(datei + ".defekt", 0o600)
+            except OSError:
+                pass
+        for endung in ("-wal", "-shm"):
+            try:
+                os.remove(datei + endung)
+            except OSError:
+                pass
+    except OSError as e:
+        _log("Suchindex %s: Datei konnte nicht beiseitegelegt werden (%s)" %
+             (p.pf_id, type(e).__name__))
+        return False
+    p.beiseite_um = time.time()
+    p.beiseite_n += 1
+    p.worte = None
+    p.aufbau_start, p.aufbau_s = 0.0, None
+    p.stand = (0.0, None)
+    _log("Suchindex %s: Datei fehlerhaft, beiseitegelegt — wird neu aufgebaut" % p.pf_id)
+    return True
 
 
 def _heute() -> str:
@@ -1107,11 +1234,7 @@ class Abgleich:
             datei = pfad(self.p.pf_id)
             self.db.close()
             _leser_vergessen(datei)
-            for endung in ("", "-wal", "-shm"):
-                try:
-                    os.remove(datei + endung)
-                except OSError:
-                    pass
+            _datei_entfernen(datei)
             self.db = _oeffnen(datei)
 
 
@@ -1598,6 +1721,8 @@ def _stand(pf_id: str, p) -> dict:
         if p.fehler:
             raus["fehler"] = p.fehler.split(":")[0]
             raus["fehler_seit_s"] = round(time.time() - p.fehler_seit)
+        if p.beiseite_n:
+            raus["beiseite"] = p.beiseite_n
         if p.heilung.get("ok") is not None:
             raus["heilung"] = {"datum": p.heilung["datum"], "ok": p.heilung["ok"]}
     return raus

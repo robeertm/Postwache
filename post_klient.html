@@ -1473,9 +1473,9 @@ function gewaehlteMails(){
    tick on page 1 was silently dropped the moment page 2 was open, and „select
    everything in this folder" would have acted on the visible fifty. The key
    already carries folder AND number; nothing else is needed. */
-function posten(uids){
+function posten(uids, ordner){
   if(uids && uids.length)
-    return uids.map(u => ({ordner: ordnerVon(u), uid: u}));
+    return uids.map(u => ({ordner: ordner || ordnerVon(u), uid: u}));
   return [...S.gewaehlt].map(k => {
     const i = k.indexOf("\u0000");
     return {ordner: k.slice(0, i), uid: parseInt(k.slice(i + 1), 10)};
@@ -2077,8 +2077,8 @@ function wahlLeisteMalen(){
    twelve rows on screen can live in six folders, and a single `S.ordner` would
    have flagged, moved or deleted the wrong mail in five of them. ONE place
    answers it: `nachOrdnern()`. */
-async function stapel(was, an, uids){
-  const liste = posten(uids);
+async function stapel(was, an, uids, ordner){
+  const liste = posten(uids, ordner);
   if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
   let gut = true, fertig = 0;
   for(const [ordner, teil] of nachOrdnern(liste)){
@@ -2099,6 +2099,8 @@ async function stapel(was, an, uids){
      many anyway. */
   const bet = new Set(liste.map(p => p.ordner + "\u0000" + p.uid));
   S.mails.forEach(m => { if(bet.has(wahlSchluessel(m))) m[was] = an; });
+  /* The conversation under the open mail knows its letters by folder + number too. */
+  VL.liste.forEach(n => { if(bet.has(n.ordner + "\u0000" + n.uid)) n[was] = an; });
   S.liste_kennung = "";
   if(S.offen && bet.has(wahlSchluessel(S.offen))) S.offen[was] = an;
   listeMalen();
@@ -2500,6 +2502,7 @@ function leseLeeren(){
 async function mailOeffnen(uid, ordner){
   if(!uid) return melde(txt("k.ein_weg"), false);   // filed, but no longer there
   clearTimeout(S.lesemarke);
+  vlMarkenLoeschen();
   S.uid = uid;
   S.uid_ordner = ordner || ordnerVon(uid);
   haftungMerken();
@@ -2535,10 +2538,18 @@ async function mailOeffnen(uid, ordner){
   /* „Mark as read after N seconds" — the timer belongs to the PAGE, because only
      it knows whether the mail is still open. It is cleared on every change of
      mail, otherwise a glance at four mails marks all four. */
+  S.lesemarke = lesemarkeStarten(m.gelesen, S.uid_ordner, uid, () => S.uid === uid);
+}
+/* 🔑 5.32.1: ONE road for „mark as read after N seconds" — the main letter and
+   every unfolded letter of the conversation use it, so the setting means the
+   same everywhere. Returns the timer (or null: setting off / already read).
+   `offen()` says whether the letter is still the one in front of the reader.
+   The folder is passed on: a letter of the conversation may live in another
+   folder, and the same number exists in every folder. */
+function lesemarkeStarten(schon_gelesen, ordner, uid, offen){
   const nach = Number(S.einst.gelesen_nach);
-  if(nach > 0 && !m.gelesen)
-    S.lesemarke = setTimeout(() => { if(S.uid === uid) stapel("gelesen", true, [uid]); },
-                             nach * 1000);
+  if(!(nach > 0) || schon_gelesen) return null;
+  return setTimeout(() => { if(offen()) stapel("gelesen", true, [uid], ordner); }, nach * 1000);
 }
 function leseMalen(){
   const m = S.offen;
@@ -2680,7 +2691,7 @@ function leseKopfMalen(){
    walls as every mail: the server's allow-list, the frame's own CSP and the
    sandbox without scripts. The quoted copies inside a message fold away —
    the messages they quote stand right above. */
-const VL = {schl:"", stand:"", liste:[], auf:new Set(), inhalt:{}, uhr:null, zahlen:{},
+const VL = {schl:"", stand:"", liste:[], auf:new Set(), inhalt:{}, uhr:null, zahlen:{}, marken:{},
             zahl_frage:null};
 function vlKey(n){ return n.message_id || (n.ordner + "|" + n.uid); }
 function vlOffenSchl(){ return S.offen ? (S.offen.ordner || offenOrdner()) + "|" + S.offen.uid : ""; }
@@ -2690,6 +2701,7 @@ async function verlaufLaden(frisch){
   const schl = vlOffenSchl();
   if(VL.schl !== schl){
     VL.schl = schl; VL.stand = ""; VL.liste = []; VL.auf = new Set(); VL.inhalt = {};
+    vlMarkenLoeschen();
   }
   let g;
   try{
@@ -2816,7 +2828,22 @@ async function verlaufUm(i){
   const k = vlKey(n);
   if(VL.auf.has(k)) VL.auf.delete(k); else VL.auf.add(k);
   verlaufMalen(false);
+  if(!VL.auf.has(k)) vlMarkeLoeschen(k);
+  else if(VL.inhalt[k]) vlMarkeStarten(n);
   if(VL.auf.has(k) && !VL.inhalt[k]){ await vlInhaltHolen(n); verlaufMalen(false); }
+}
+/* The „read after N seconds" timers of unfolded letters, by letter. A timer
+   belongs to a letter that is UNFOLDED in the conversation of the open mail:
+   folding it again, or opening another mail, cancels it. */
+function vlMarkeLoeschen(k){ clearTimeout(VL.marken[k]); delete VL.marken[k]; }
+function vlMarkenLoeschen(){ Object.keys(VL.marken).forEach(vlMarkeLoeschen); }
+function vlMarkeStarten(n){
+  const k = vlKey(n), schl = VL.schl, m = VL.inhalt[k];
+  vlMarkeLoeschen(k);
+  if(!m || m.fehler) return;
+  const t = lesemarkeStarten(n.gelesen || m.gelesen, n.ordner, n.uid,
+                             () => VL.schl === schl && VL.auf.has(k));
+  if(t) VL.marken[k] = t;
 }
 async function vlInhaltHolen(n){
   const k = vlKey(n), schl = VL.schl;
@@ -2828,13 +2855,15 @@ async function vlInhaltHolen(n){
     if(m.verlegt && m.uid && m.ordner){ n.ordner = m.ordner; n.uid = m.uid; }
     VL.inhalt[k] = m;
     if(m.gelesen) n.gelesen = true;
+    if(VL.auf.has(k)) vlMarkeStarten(n);
   }else VL.inhalt[k] = {fehler:(m && m.text) || txt("k.verlauf_ging_nicht")};
 }
 async function verlaufAlle(auf){
   const hier = VL.liste.findIndex(n => n.aktuell);
   VL.liste.forEach((n, i) => { if(i !== hier){ if(auf) VL.auf.add(vlKey(n)); else VL.auf.delete(vlKey(n)); } });
   verlaufMalen(false);
-  if(!auf) return;
+  if(!auf){ vlMarkenLoeschen(); return; }
+  VL.liste.forEach((n, i) => { if(i !== hier && VL.inhalt[vlKey(n)]) vlMarkeStarten(n); });
   /* Three at a time — ten letters must not queue up behind each other, and
      must not hit the mailbox all at once either. */
   const offen = VL.liste.filter((n, i) => i !== hier && !VL.inhalt[vlKey(n)]);

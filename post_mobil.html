@@ -1624,9 +1624,9 @@ function gewaehlteMails(){
    stand in the selection and only the loaded ones are on screen. Filtered
    through `S.mails` the action would have caught exactly those and left the
    rest quietly lying. The key carries folder AND number. */
-function posten(uids){
+function posten(uids, ordner){
   if(uids && uids.length)
-    return uids.map(u => ({ordner: ordnerVon(u), uid: u}));
+    return uids.map(u => ({ordner: ordner || ordnerVon(u), uid: u}));
   return [...S.gewaehlt].map(k => {
     const i = k.indexOf("\u0000");
     return {ordner: k.slice(0, i), uid: parseInt(k.slice(i + 1), 10)};
@@ -1897,6 +1897,7 @@ async function siebUm(){
 async function mailOeffnen(uid, ordner){
   if(!uid) return melde(txt("k.ein_weg"), false);
   clearTimeout(S.lesemarke);
+  vlMarkenLoeschen();
   S.uid = uid;
   haftungMerken();
   blick("mail");
@@ -1927,10 +1928,16 @@ async function mailOeffnen(uid, ordner){
   verlaufLaden(false);
   const inListe = S.mails.find(x => x.uid === uid);
   if(m.gelesen && inListe && !inListe.gelesen){ inListe.gelesen = true; listeMalen(); }
+  S.lesemarke = lesemarkeStarten(m.gelesen, m.ordner || ordner || offenOrdner(), uid, () => S.uid === uid);
+}
+/* 🔑 5.32.1: ONE road for „mark as read after N seconds" — the main letter and
+   every unfolded letter of the conversation use it. Returns the timer (or null:
+   setting off / already read). The folder is passed on: a letter of the
+   conversation may live in another folder. */
+function lesemarkeStarten(schon_gelesen, ordner, uid, offen){
   const nach = Number(S.einst.gelesen_nach);
-  if(nach > 0 && !m.gelesen)
-    S.lesemarke = setTimeout(() => { if(S.uid === uid) stapel("gelesen", true, [uid]); },
-                             nach * 1000);
+  if(!(nach > 0) || schon_gelesen) return null;
+  return setTimeout(() => { if(offen()) stapel("gelesen", true, [uid], ordner); }, nach * 1000);
 }
 function mailMalen(){
   const m = S.offen;
@@ -2026,7 +2033,7 @@ function briefHoehe(){
    opened, through the same door and the same walls as every mail: the server's
    allow-list, the frame's own CSP and the sandbox without scripts. The quoted
    copies inside a message fold away — the messages they quote stand right above. */
-const VL = {schl:"", stand:"", liste:[], auf:new Set(), inhalt:{}, uhr:null, zahlen:{},
+const VL = {schl:"", stand:"", liste:[], auf:new Set(), inhalt:{}, uhr:null, zahlen:{}, marken:{},
             zahl_frage:null, zahl_zeit:0, gekuerzt:0};
 function vlKey(n){ return n.message_id || (n.ordner + "|" + n.uid); }
 function vlOffenSchl(){ return S.offen ? offenOrdner() + "|" + S.offen.uid : ""; }
@@ -2036,6 +2043,7 @@ async function verlaufLaden(frisch){
   const schl = vlOffenSchl();
   if(VL.schl !== schl){
     VL.schl = schl; VL.stand = ""; VL.liste = []; VL.auf = new Set(); VL.inhalt = {};
+    vlMarkenLoeschen();
   }
   let g;
   try{
@@ -2161,7 +2169,21 @@ async function verlaufUm(i){
   const k = vlKey(n);
   if(VL.auf.has(k)) VL.auf.delete(k); else VL.auf.add(k);
   verlaufMalen(false);
+  if(!VL.auf.has(k)) vlMarkeLoeschen(k);
+  else if(VL.inhalt[k]) vlMarkeStarten(n);
   if(VL.auf.has(k) && !VL.inhalt[k]){ await vlInhaltHolen(n); verlaufMalen(false); }
+}
+/* The „read after N seconds" timers of unfolded letters, by letter: folding the
+   letter again, or opening another mail, cancels them. */
+function vlMarkeLoeschen(k){ clearTimeout(VL.marken[k]); delete VL.marken[k]; }
+function vlMarkenLoeschen(){ Object.keys(VL.marken).forEach(vlMarkeLoeschen); }
+function vlMarkeStarten(n){
+  const k = vlKey(n), schl = VL.schl, m = VL.inhalt[k];
+  vlMarkeLoeschen(k);
+  if(!m || m.fehler) return;
+  const t = lesemarkeStarten(n.gelesen || m.gelesen, n.ordner, n.uid,
+                             () => VL.schl === schl && VL.auf.has(k));
+  if(t) VL.marken[k] = t;
 }
 async function vlInhaltHolen(n){
   const k = vlKey(n), schl = VL.schl;
@@ -2173,13 +2195,15 @@ async function vlInhaltHolen(n){
     if(m.verlegt && m.uid && m.ordner){ n.ordner = m.ordner; n.uid = m.uid; }
     VL.inhalt[k] = m;
     if(m.gelesen) n.gelesen = true;
+    if(VL.auf.has(k)) vlMarkeStarten(n);
   }else VL.inhalt[k] = {fehler:(m && m.text) || txt("k.verlauf_ging_nicht")};
 }
 async function verlaufAlle(auf){
   const hier = VL.liste.findIndex(n => n.aktuell);
   VL.liste.forEach((n, i) => { if(i !== hier){ if(auf) VL.auf.add(vlKey(n)); else VL.auf.delete(vlKey(n)); } });
   verlaufMalen(false);
-  if(!auf) return;
+  if(!auf){ vlMarkenLoeschen(); return; }
+  VL.liste.forEach((n, i) => { if(i !== hier && VL.inhalt[vlKey(n)]) vlMarkeStarten(n); });
   /* Three at a time — ten letters must not queue up behind each other. */
   const offen = VL.liste.filter((n, i) => i !== hier && !VL.inhalt[vlKey(n)]);
   const arbeiter = Array.from({length:3}, async () => {
@@ -2267,8 +2291,8 @@ function nachOrdnern(liste){
       raus.push([ordner, uids.slice(i, i + STAPEL_STUECK)]);
   return raus;
 }
-async function stapel(was, an, uids){
-  const liste = posten(uids);
+async function stapel(was, an, uids, ordner){
+  const liste = posten(uids, ordner);
   if(!liste.length) return melde(txt("k.nichts_gewaehlt"), false);
   uids = liste.map(p => p.uid);
   let gut = true;
@@ -2280,9 +2304,14 @@ async function stapel(was, an, uids){
       o.ungelesen = Math.max(0, (o.ungelesen || 0) + (an ? -teil.length : teil.length));
   }
   if(!gut) return;
-  S.mails.forEach(m => { if(uids.includes(m.uid)) m[was] = an; });
+  /* 🔴 5.32.1: with an explicit folder only rows of THAT folder are meant — the
+     same number exists in every folder. */
+  const hier = (m) => !ordner || (m.ordner || S.ordner) === ordner;
+  S.mails.forEach(m => { if(uids.includes(m.uid) && hier(m)) m[was] = an; });
+  /* The conversation under the open mail: its letters know folder + number. */
+  VL.liste.forEach(n => { if(uids.includes(n.uid) && (!ordner || n.ordner === ordner)) n[was] = an; });
   S.liste_kennung = "";
-  if(S.offen && uids.includes(S.offen.uid)){ S.offen[was] = an; mailMalen(); }
+  if(S.offen && uids.includes(S.offen.uid) && hier(S.offen)){ S.offen[was] = an; mailMalen(); }
   if(S.wahl) wahlAus(); else listeMalen();
   fussMalen();
 }

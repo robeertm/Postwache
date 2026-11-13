@@ -7,6 +7,32 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.32.1] - 2026-11-13
+
+### Fixed
+- **The search index is rebuilt from a file of the previous layout instead of failing.** The schema
+  number was compared only after `CREATE TABLE/INDEX IF NOT EXISTS` had run over the old file; that
+  statement adds no column to an existing table, so the first index over a new column failed and the
+  rebuild branch was never reached — the index stopped taking in anything new. The number is now read
+  first; a different number, tables without a number, a file that is not a database, or a newer layout
+  (downgrade) means the file is removed and created anew before any table is made. A merely busy
+  (locked) file is never touched.
+- **Readers never stay on a replaced file.** Every pooled reader connection remembers the device and inode
+  of its file and reconnects when they change (rebuild, file replaced from outside).
+- **Self-healing keeper:** three index-file errors of the same kind in a row (missing column, malformed
+  page, not a database) put the file aside (`suchindex.sqlite.defekt`, mode 0600, a single copy) and the
+  next pass builds a new one — at most once a day, never for network, provider or "locked" errors. The
+  health check reports the count as `beiseite`.
+- **"Mark as read after N seconds" now also applies to unfolded messages of the conversation view**
+  (wide and phone layout): one shared function for the main message and every unfolded card; the card is
+  marked in the folder it lives in (the same UID exists in every folder); folding it again or opening
+  another mail cancels the timer.
+
+### Tests
+- New upgrade bench opening files of the previous layout from frozen templates (red without the fix);
+  every future schema bump must keep it green. Plus a keeper-level scenario on such a file and a
+  real-browser scenario for the read timer in the conversation view.
+
 ## [5.32.0] - 2026-11-13
 
 ### Added
