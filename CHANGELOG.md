@@ -7,6 +7,18 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.32.2] - 2026-11-21
+
+### Fixed
+- Tap targets on the phone are at least 44 px high (search field and filter chips, compose fields, login
+  field, and every button, field, select and disclosure row of the dashboard page).
+- Fields on the dashboard page use at least 16 px type on the phone, so iOS Safari no longer zooms in.
+- The folder chip in the mail list shows an ellipsis instead of a half-cut word.
+
+### Tests
+- New phone-width bench (390 px and 1512 px) for horizontal scrolling, clipped text, tap targets, field
+  size and stamp-sized images, with a counter-test that must turn red.
+
 ## [5.32.1] - 2026-11-13
 
 ### Fixed

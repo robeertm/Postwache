@@ -297,6 +297,17 @@ label{display:block;font-size:.8rem;color:var(--leise);margin:.6rem 0 .25rem}
   padding:.6rem .95rem;box-shadow:0 8px 28px var(--schatten-tief);max-width:92vw}
 .meld.weg{display:none}
 details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem 0}
+/* 5.32.2 — phone width: tap targets of at least 44 px and fields of at least
+   16 px (iOS Safari zooms the page into a smaller field). Guarded by
+   pruefstaende/probe_handy_optik.py. */
+@media (max-width:600px){
+  button,input:not([type=checkbox]):not([type=radio]),select{min-height:2.75rem}
+  input,select{font-size:max(1rem,16px)}
+  .rundtaste{width:2.75rem;height:2.75rem}
+  details summary{padding:.9rem 0}
+  .pftaste{min-height:2.75rem}
+  .mail select{font-size:max(1rem,16px)}
+}
 .hinweis{border-left:3px solid var(--akzent);padding-left:.8rem;margin:.6rem 0;
   color:var(--leise);font-size:.86rem}
 </style>
