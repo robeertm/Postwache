@@ -7,6 +7,26 @@ This file starts with the first public release. The project was developed
 privately before that; the summary under *0.1.0 – 2.6.2* lists what arrived
 along the way rather than every single step.
 
+## [5.33.0] - 2026-11-22
+
+### Added
+- Settings page: an **Updates** card shows the installed version and tells you when a newer release exists
+  (forward only, no pre-releases, checked at most every 6 hours in the background, never blocking the page).
+- **One-click update.** The button only writes a request file; a small companion container (`updater` in the
+  compose file and the one-command installer) pulls the new image, verifies its digest and that it carries exactly
+  the requested version, starts it once as a trial with an empty data folder, backs up the data folder and the
+  running image, swaps the container, and rolls back (data and image) if the new version is not healthy within
+  three minutes. A rolled-back version is not offered again. The companion runs the script of the version that is
+  running, so it can never be older than the app.
+- Two independent switches (settings page or environment): looking for new versions, and the one-click button.
+  With the search off nothing is requested from the network.
+- All texts in the five languages of the app.
+
+### Tests
+- New update bench: version comparison, release feed with conditional requests, both switches, every refusal reason,
+  and the companion script against a fake Docker (success, rollback with data and image, wrong version, missing
+  digest, failing trial start, switches off, not newer, already rolled back).
+
 ## [5.32.2] - 2026-11-21
 
 ### Fixed

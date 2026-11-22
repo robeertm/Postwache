@@ -27,6 +27,7 @@ fi
 printf '\n  Postwache\n\n'
 say "Installing into $DIR"
 mkdir -p "$DIR/data"
+DIR_ABS="$(cd "$DIR" && pwd)"
 
 if [ -f "$DIR/docker-compose.yml" ]; then
   warn "docker-compose.yml exists — keeping it."
@@ -71,6 +72,31 @@ services:
       - --schedule
       - \${WATCHTOWER_SCHEDULE:-0 0 4 * * *}
       - postwache
+  # One-click update companion: the settings page offers "Update now" when this
+  # runs. It needs the Docker socket READ-WRITE (effectively root on the host);
+  # only this container has it, never the web page. It backs up ./data and the
+  # running image, checks the new image, swaps, and rolls back if the new
+  # version does not come up healthy. Delete this service to switch it off.
+  updater:
+    image: docker:cli
+    container_name: postwache-updater
+    restart: unless-stopped
+    working_dir: $DIR_ABS
+    environment:
+      - PROJEKT=$DIR_ABS
+      - IMAGE=$IMAGE
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - $DIR_ABS:$DIR_ABS
+      - ./data:/data
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while :; do
+          docker cp postwache:/app/updater.sh /tmp/updater.sh >/dev/null 2>&1
+          [ -f /tmp/updater.sh ] && sh /tmp/updater.sh
+          sleep 3
+        done
 YAML
   say "Wrote $DIR/docker-compose.yml"
 fi

@@ -68,6 +68,47 @@ services:
       # the two mistakes you do not notice.
       - postwache-ollama
 
+  # ── One-click update companion ─────────────────────────────────────────
+  # The settings page shows "version X is available" and, with this service
+  # running, an "Update now" button. The page itself never touches Docker: the
+  # button only writes a request file into ./data/updater/. THIS container reads
+  # it, pulls the new image, checks that it starts and carries the version
+  # asked for, backs up ./data and the running image, swaps the container, and
+  # rolls back (data and image) if the new version does not come up healthy.
+  #
+  # What it costs, stated plainly:
+  #   * it needs the Docker socket READ-WRITE — effectively root on the host.
+  #     Only this small container has it, never the web page.
+  #   * it runs the script that belongs to the RUNNING version (copied out of the
+  #     postwache container before every tick), so it can never be older than
+  #     the app it serves.
+  # To switch it off: delete this service, or `docker compose stop updater`, or
+  # turn off "One-click update" on the settings page (the page then offers
+  # nothing). The notice alone does not need this service.
+  # It needs the project folder under the SAME path inside and outside the
+  # container (compose runs from there): set PROJEKT in `.env` to the absolute
+  # path of this folder when `$PWD` is not set by your shell.
+  updater:
+    image: docker:cli
+    container_name: postwache-updater
+    restart: unless-stopped
+    working_dir: ${PROJEKT:-${PWD}}
+    environment:
+      - PROJEKT=${PROJEKT:-${PWD}}
+      - IMAGE=ghcr.io/robeertm/postwache:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PROJEKT:-${PWD}}:${PROJEKT:-${PWD}}
+      - ./data:/data
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while :; do
+          docker cp postwache:/app/updater.sh /tmp/updater.sh >/dev/null 2>&1
+          [ -f /tmp/updater.sh ] && sh /tmp/updater.sh
+          sleep 3
+        done
+
   # ── A local model, in the box next door (optional) ──────────────────────
   # 🔑 WHY THIS IS HERE AT ALL
   # The judgement aid can run on a local model, and then nothing about your mail

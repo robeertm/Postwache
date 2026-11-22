@@ -531,6 +531,8 @@ details summary{cursor:pointer;color:var(--leise);font-size:.86rem;padding:.2rem
       <div id="vorschlaege" style="margin-top:.6rem"></div>
     </div>
 
+    <div class="karte" id="updatekarte"></div>
+
     <div class="karte" id="tskarte"></div>
 
     <div class="karte" id="umgebungkarte">
@@ -1155,6 +1157,59 @@ function dsTippt(){
     const f = $(w);
     return !!(f && f.value !== "");
   });
+}
+
+/* 🔑 Updates: notice + one button. The button only files a request — the
+   companion container does the work; this card reads what it reports. */
+function bauUpdate(){
+  const u = L.update || {};
+  const s = u.status || {};
+  const v = esc(s.ziel || u.neu || "");
+  const laeuft = ["pruefen","sichern","tauschen","warten","zurueck"].includes(s.phase) || u.offen;
+  let kopf = "", zeile = "";
+  if(laeuft && s.phase){
+    const phasen = {pruefen: txt("up.phase_pruefen"), sichern: txt("up.phase_sichern"),
+                    tauschen: txt("up.phase_tauschen"), warten: txt("up.phase_warten"),
+                    zurueck: txt("up.phase_warten")};
+    zeile = `<div class="hinweis">${phasen[s.phase] || ""}</div>`;
+  } else if(s.phase === "fertig" && s.ergebnis === "ok" && !u.neu){
+    zeile = `<div class="hinweis">${txt("up.ergebnis_ok", {v})}</div>`;
+  } else if(s.phase === "zurueck"){
+    const t1 = (s.ergebnis === "zurueckgerollt") ? txt("up.ergebnis_zurueck", {v}) : txt("up.ergebnis_zurueck_fehl", {v});
+    zeile = `<div class="hinweis">${t1}</div>`;
+  } else if(s.phase === "abgebrochen" && u.neu){
+    const gruende = {klick_aus: txt("up.grund_klick_aus"), ziel_ungueltig: txt("up.grund_ziel_ungueltig"),
+                     nicht_neuer: txt("up.grund_nicht_neuer"), gesperrt: txt("up.grund_gesperrt"),
+                     pull: txt("up.grund_pull"), kein_digest: txt("up.grund_kein_digest"),
+                     fassung_passt_nicht: txt("up.grund_fassung_passt_nicht"),
+                     probe: txt("up.grund_probe"), sicherung: txt("up.grund_sicherung")};
+    const g = gruende[s.grund] || txt("up.grund_probe");
+    zeile = `<div class="hinweis">${txt("up.abbruch", {v, g: esc(g)})}</div>`;
+  }
+  if(u.neu){
+    kopf = `<span class="chip warnung" style="font-size:.7rem">${txt("up.neu", {v: esc(u.neu)})}</span>`;
+  } else if(u.suche){
+    kopf = `<span class="chip ok" style="font-size:.7rem">${txt("up.aktuell")}</span>`;
+  }
+  const knopf = (u.neu && u.klick && u.beiwagen && !u.gesperrt && !laeuft)
+    ? `<button class="haupt" onclick="tu('update',{})">${txt("up.jetzt")}</button>` : "";
+  const hinw = (u.neu && u.klick && !u.beiwagen) ? `<div class="hinweis">${txt("up.kein_beiwagen")}</div>` : "";
+  const gesp = (u.neu && u.gesperrt) ? `<div class="hinweis">${txt("up.gesperrt")}</div>` : "";
+  return `<h2>🔄 <span>${txt("up.titel")}</span> ${kopf}</h2>
+    <div class="hinweis">${txt("up.fassung", {v: esc(u.aktuell || "")})}</div>
+    ${zeile}${hinw}${gesp}
+    <div class="knopfreihe" style="margin-top:.6rem">
+      ${knopf}
+      ${u.suche ? `<button class="leisetaste" onclick="tu('update',{suchen:true})">${txt("up.suchen")}</button>` : ""}
+    </div>
+    <div class="reihe" style="margin-top:.8rem"><div class="txt"><b>${txt("up.suche")}</b>
+        <span>${txt("up.suche_hilfe")}</span></div>
+      <div class="knebel" role="switch" aria-checked="${!!u.suche}"
+           onclick="tu('einstellung',{update_suche:${!u.suche}})"></div></div>
+    <div class="reihe"><div class="txt"><b>${txt("up.klick")}</b>
+        <span>${txt("up.klick_hilfe")}</span></div>
+      <div class="knebel" role="switch" aria-checked="${!!u.klick}"
+           onclick="tu('einstellung',{update_klick:${!u.klick}})"></div></div>`;
 }
 
 /* What Tailscale said the last time publishing failed. Kept so the card can
@@ -2363,6 +2418,7 @@ async function hole(){
        setup form on 2026-09-11. */
     if(!dsTippt()) male("#dskarte", [L.docusort], bauDocuSort);
     if(!tsTippt()) male("#tskarte", [L.tailscale], bauTailscale);
+    male("#updatekarte", [L.update], bauUpdate);
     male("#ablage", [L.ablage], bauAblage);
     if(!heimTippt()) male("#heimatlos", [L.heimatlos, L.ablage?.ordner], bauHeimatlos);
     male("#auftraege", [L.auftraege], bauAuftraege);

@@ -661,6 +661,25 @@ with no names watches everything and will. Ours names only `postwache`, so the
 two never fight over the same container. If yours already covers everything,
 delete our `watchtower` service and let yours do the work.
 
+### One-click update, with a way back
+
+The settings page has an **Updates** card. It shows the installed version and, when a newer release exists, a
+notice (checked at most every 6 hours; forward only; no pre-releases). With the small `updater` service from the
+compose file running, an **Update now** button appears. The button only writes a request file — the web page never
+touches Docker. The `updater` container then:
+
+1. pulls the new image and checks its digest and that it carries exactly the requested version,
+2. starts it once as a trial (with an empty data folder — never with your mailbox access),
+3. backs up `./data` and the running image (the last three backups are kept),
+4. swaps the container, and waits up to three minutes for it to be healthy and on the new version,
+5. otherwise **rolls back**: restores data and image, and does not offer that version again.
+
+Both parts can be switched off separately on the settings page — *Look for new versions* and *One-click update* —
+or with `POSTWACHE_UPDATE_CHECK=0` / `POSTWACHE_UPDATE_KLICK=0`. With the search off nothing is requested from the
+network. What it costs: the `updater` service needs the Docker socket **read-write** (effectively root on the
+host); only that small container has it. Delete the service to switch the button off and keep the notice.
+Set `PROJEKT=/absolute/path/of/this/folder` in `.env` if your shell does not set `$PWD` for compose.
+
 ## Honest limitations
 
 - **The code and its comments are German.** The interface is not — see

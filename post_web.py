@@ -335,6 +335,8 @@ def lage():
         # 🔑 Always answerable, even when this image carries no Tailscale —
         #    the card then says so instead of the page breaking.
         "tailscale": ts_kurz(),
+        # 🔑 Update notice + one-click state: files only, never waits for the network.
+        "update": update_kurz(),
         "ki": ki_kurz(),
         "vorschlaege": (vorschlaege_lesen().get("liste") or [])[:40],
         "konfig": konfig_kurz(),
@@ -1131,7 +1133,8 @@ def einstellung_setzen(d: dict) -> dict:
     e = st("einstellungen.json", {})
     if not isinstance(e, dict):
         e = {}
-    for schalter in ("scharf", "telegram", "wichtiges_bleibt"):
+    for schalter in ("scharf", "telegram", "wichtiges_bleibt",
+                     "update_suche", "update_klick"):
         if schalter in d:
             e[schalter] = bool(d[schalter])
     if "bericht_stunde" in d:
@@ -2268,6 +2271,36 @@ def ts_kurz() -> dict:
                 "angeboten": False, "adresse": "", "grund": str(e)[:200]}
 
 
+def update_kurz() -> dict:
+    try:
+        import aktualisierung as akt
+        return akt.lage(BASE, _version())
+    except Exception as e:
+        return {"aktuell": _version(), "suche": False, "klick": False, "neu": "",
+                "beiwagen": False, "status": {}, "fehler": str(e)[:120]}
+
+
+def update_anfordern(d: dict) -> dict:
+    """The one-click button: writes a request file, nothing else. The companion
+    container does the work (see updater.sh)."""
+    import aktualisierung as akt
+    if d.get("suchen"):
+        akt.suchen(BASE, _version(), erzwingen=True)
+        return {"ok": True, "text": txt("a.update_gesucht")}
+    r = akt.anfordern(BASE, _version())
+    if r.get("ok"):
+        return {"ok": True, "text": txt("a.update_angefordert", version=r.get("ziel", ""))}
+    gruende = {
+        "klick_aus": lambda: txt("a.update_nein_klick_aus"),
+        "suche_aus": lambda: txt("a.update_nein_suche_aus"),
+        "kein_beiwagen": lambda: txt("a.update_nein_kein_beiwagen"),
+        "schon_angefragt": lambda: txt("a.update_nein_schon_angefragt"),
+        "laeuft": lambda: txt("a.update_nein_laeuft"),
+        "gesperrt": lambda: txt("a.update_nein_gesperrt"),
+    }
+    return {"ok": False, "text": gruende.get(str(r.get("grund")), lambda: txt("a.update_nein_nichts_neues"))()}
+
+
 def ts_verbinden(d: dict) -> dict:
     import tailscale_zugang as tsz
     # 🔴 PORT: the one this process really listens on, not a default. Pointing
@@ -2295,6 +2328,7 @@ def zettel_ausstellen(_d=None) -> dict:
 
 AKTIONEN = {
     "zettel": zettel_ausstellen,
+    "update": update_anfordern,
     "tailscale_verbinden": ts_verbinden,
     "tailscale_trennen": ts_trennen,
     "zugang": lambda d: zugang_speichern(d),
